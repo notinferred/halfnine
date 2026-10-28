@@ -15,7 +15,8 @@ pub(crate) const SCHEMAS: &str =
     "SELECT nspname::text FROM pg_namespace WHERE nspname <> 'information_schema' AND nspname NOT LIKE 'pg\\_%' ORDER BY 1";
 
 pub(crate) const RELATIONS: &str = "SELECT n.nspname::text, c.relname::text, c.relkind::text, \
-     CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::float8 END \
+     CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::float8 END, \
+     ARRAY(SELECT a.attname::text FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) \
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
      WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND NOT c.relispartition \
      AND n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\\_%' \
@@ -108,6 +109,7 @@ pub(crate) fn schema_tree(schemas: &[PgRow], relations: &[PgRow], functions: &[P
             _ => RelationKind::Table,
         };
         node.relations.push(Relation {
+            columns: row.try_get(4)?,
             name,
             kind,
             estimated_rows: row.try_get(3)?,

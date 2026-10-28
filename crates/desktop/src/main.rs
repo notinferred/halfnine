@@ -3,6 +3,9 @@
 
 mod bindings;
 mod commands;
+mod export;
+mod files;
+mod queries;
 mod secrets;
 mod sessions;
 mod store;
@@ -11,6 +14,7 @@ use tauri::Manager;
 
 pub struct AppState {
     pub store: store::Store,
+    pub queries: queries::Queries,
     pub sessions: sessions::Sessions,
 }
 
@@ -29,12 +33,14 @@ fn main() {
         }))
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(commands.invoke_handler())
         .setup(|app| {
             secrets::init()?;
-            let store = store::Store::open(app.path().app_config_dir()?)?;
+            let dir = app.path().app_config_dir()?;
             app.manage(AppState {
-                store,
+                store: store::Store::open(dir.clone())?,
+                queries: queries::Queries::open(dir)?,
                 sessions: sessions::Sessions::default(),
             });
             Ok(())

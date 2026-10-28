@@ -33,23 +33,49 @@ pub(crate) struct Built {
 /// `SELECT` for one page: every column as text and cut to [`CELL_LIMIT`], in a stable order, one row more than asked
 /// so the caller knows whether another page follows.
 pub(crate) fn page(request: &PageRequest, columns: &[ColumnMeta]) -> Result<Built, Error> {
-    let select = columns
-        .iter()
-        .map(|c| format!("left({}::text, {})", ident(&c.name), CELL_LIMIT + 1))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let window = format!(" LIMIT {} OFFSET {}", request.limit.clamp(1, PAGE_LIMIT) + 1, request.offset);
+    select(
+        &request.table,
+        request.filter.as_ref(),
+        request.sort.as_ref(),
+        columns,
+        |c| format!("left({c}::text, {})", CELL_LIMIT + 1),
+        &window,
+    )
+}
+
+/// `SELECT` for an export: every row and the whole of every value, in the same order the grid shows.
+pub(crate) fn export(table_ref: &TableRef, filter: Option<&Filter>, sort: Option<&Sort>, columns: &[ColumnMeta]) -> Result<Built, Error> {
+    select(table_ref, filter, sort, columns, |c| format!("{c}::text"), "")
+}
+
+fn select(
+    table_ref: &TableRef,
+    filter: Option<&Filter>,
+    sort: Option<&Sort>,
+    columns: &[ColumnMeta],
+    as_text: impl Fn(&str) -> String,
+    window: &str,
+) -> Result<Built, Error> {
+    let select = columns.iter().map(|c| as_text(&ident(&c.name))).collect::<Vec<_>>().join(", ");
     let mut params = Vec::new();
-    let condition = condition(request.filter.as_ref(), columns, &mut params)?;
-    let order = order(request.sort.as_ref(), columns)?;
-    let limit = request.limit.clamp(1, PAGE_LIMIT) + 1;
+    let condition = condition(filter, columns, &mut params)?;
+    let order = order(sort, columns)?;
     Ok(Built {
-        sql: format!(
-            "SELECT {select} FROM {}{condition}{order} LIMIT {limit} OFFSET {}",
-            table(&request.table),
-            request.offset
-        ),
+        sql: format!("SELECT {select} FROM {}{condition}{order}{window}", table(table_ref)),
         params,
     })
+}
+
+/// Cuts `text` to [`CELL_LIMIT`] characters, and says whether it did.
+pub(crate) fn cut(text: &mut String) -> bool {
+    match text.char_indices().nth(CELL_LIMIT) {
+        Some((at, _)) => {
+            text.truncate(at);
+            true
+        }
+        None => false,
+    }
 }
 
 pub(crate) fn count(table_ref: &TableRef, filter: Option<&Filter>, columns: &[ColumnMeta]) -> Result<Built, Error> {
@@ -207,6 +233,33 @@ mod tests {
             descending: false,
         };
         assert_eq!(page(&request(Some(sort), None), &columns()).unwrap_err().kind, ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn exports_every_row_whole_in_the_same_order() {
+        let built = export(
+            &TableRef {
+                schema: "s".into(),
+                name: "t".into(),
+            },
+            None,
+            None,
+            &columns(),
+        )
+        .unwrap();
+        assert_eq!(
+            built.sql,
+            "SELECT \"id\"::text, \"say \"\"hi\"\"\"::text FROM \"s\".\"t\" ORDER BY \"id\""
+        );
+    }
+
+    #[test]
+    fn cuts_long_text_at_the_limit_only() {
+        let mut short = "é".repeat(CELL_LIMIT);
+        assert!(!cut(&mut short));
+        let mut long = "é".repeat(CELL_LIMIT + 1);
+        assert!(cut(&mut long));
+        assert_eq!(long.chars().count(), CELL_LIMIT);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use tu_pg::PgDatabase;
 
 pub struct Session {
     pub connection: ConnectionSpec,
+    pub database: String,
     pub db: PgDatabase,
 }
 

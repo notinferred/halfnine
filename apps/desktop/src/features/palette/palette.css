@@ -83,7 +83,17 @@
 }
 
 .palette-name {
+  flex-shrink: 0;
+  max-width: 60%;
   font-weight: 500;
+}
+
+.palette-name,
+.palette-detail {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .palette-detail {

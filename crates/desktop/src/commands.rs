@@ -1,16 +1,20 @@
 //! The commands the UI calls. Each argument arrives as a typed value; passwords go into the keychain and never come back out.
 
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 use tu_core::{
-    ConnectionSpec, Database, Error, ErrorKind, Filter, Label, Page, PageRequest, SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef,
-    TlsMode, UrlParts,
+    Activity, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome, SchemaNode, ServerInfo,
+    SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
 use tu_pg::{PgDatabase, Secrets};
 
+use crate::export::{ExportDone, ExportFormat, Sink};
+use crate::files::storage;
+use crate::queries::{HistoryEntry, SavedQuery};
 use crate::sessions::Session;
 use crate::{AppState, secrets};
 
@@ -52,7 +56,7 @@ pub enum SecretChange {
 #[derive(Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TestResult {
-    pub elapsed_ms: f64,
+    pub elapsed_ms: u32,
     pub server_version: String,
 }
 
@@ -101,7 +105,7 @@ pub async fn test_connection(draft: ConnectionDraft) -> Result<TestResult, Error
     let server = db.server().await;
     db.close().await;
     Ok(TestResult {
-        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
+        elapsed_ms: tu_core::millis(started.elapsed()),
         server_version: server?.version,
     })
 }
@@ -126,6 +130,7 @@ pub async fn open_session(state: State<'_, AppState>, connection_id: String, dat
         .sessions
         .insert(Session {
             connection: connection.clone(),
+            database: server.database.clone(),
             db,
         })
         .await;
@@ -165,6 +170,135 @@ pub async fn page(state: State<'_, AppState>, session_id: String, request: PageR
 #[specta::specta]
 pub async fn count_rows(state: State<'_, AppState>, session_id: String, table: TableRef, filter: Option<Filter>) -> Result<f64, Error> {
     state.sessions.get(&session_id).await?.db.count(&table, filter.as_ref()).await
+}
+
+/// Runs the editor's statements, each exactly one statement, and adds the run to the history.
+#[tauri::command]
+#[specta::specta]
+pub async fn run_statements(state: State<'_, AppState>, session_id: String, statements: Vec<String>) -> Result<RunOutcome, Error> {
+    let session = state.sessions.get(&session_id).await?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let outcome = session.db.run(&statements).await?;
+    // The log names the run, never its SQL, which can hold data.
+    log::info!(
+        "run {id}: {} of {} statements in {} ms{}",
+        outcome.results.len(),
+        statements.len(),
+        outcome.elapsed_ms,
+        if outcome.failed.is_some() { ", then an error" } else { "" }
+    );
+    state.queries.record(HistoryEntry {
+        id,
+        sql: statements.join(";\n"),
+        connection_id: session.connection.id.clone(),
+        database: session.database.clone(),
+        ran_at_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or_default(),
+        elapsed_ms: outcome.elapsed_ms,
+        ok: outcome.failed.is_none(),
+    })?;
+    Ok(outcome)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_run(state: State<'_, AppState>, session_id: String) -> Result<bool, Error> {
+    state.sessions.get(&session_id).await?.db.cancel().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn explain(state: State<'_, AppState>, session_id: String, statement: String, analyze: bool) -> Result<String, Error> {
+    state.sessions.get(&session_id).await?.db.explain(&statement, analyze).await
+}
+
+/// Asks where to save, then streams every row of `source` into the file. `None` when the dialog was dismissed.
+#[tauri::command]
+#[specta::specta]
+pub async fn export(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    source: ExportSource,
+    format: ExportFormat,
+    name: String,
+) -> Result<Option<ExportDone>, Error> {
+    let session = state.sessions.get(&session_id).await?;
+    let extension = format.extension();
+    let suggested = format!("{name}.{extension}");
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_file_name(suggested)
+            .add_filter(extension.to_uppercase(), &[extension])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| storage("The save dialog failed", e))?;
+    let Some(path) = picked.as_ref().and_then(|p| p.as_path()).map(|p| p.to_path_buf()) else {
+        return Ok(None);
+    };
+    let mut sink = Sink::create(&path, format)?;
+    let written = session.db.export(&source, &mut sink).await;
+    match written.and_then(|rows| sink.finish().map(|()| rows)) {
+        Ok(rows) => Ok(Some(ExportDone {
+            rows,
+            file: path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default(),
+        })),
+        Err(error) => {
+            // Half a file would look like a whole one, so it goes.
+            let _ = std::fs::remove_file(&path);
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn activity(state: State<'_, AppState>, session_id: String) -> Result<Vec<Activity>, Error> {
+    state.sessions.get(&session_id).await?.db.activity().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn stop_session(state: State<'_, AppState>, session_id: String, pid: i32, terminate: bool) -> Result<bool, Error> {
+    state.sessions.get(&session_id).await?.db.stop(pid, terminate).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_history(state: State<'_, AppState>) -> Result<Vec<HistoryEntry>, Error> {
+    Ok(state.queries.history())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_saved_queries(state: State<'_, AppState>) -> Result<Vec<SavedQuery>, Error> {
+    Ok(state.queries.saved())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn save_query(state: State<'_, AppState>, id: Option<String>, name: String, sql: String) -> Result<SavedQuery, Error> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::new(ErrorKind::Invalid, "Give the query a name."));
+    }
+    let query = SavedQuery {
+        id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        name: name.to_string(),
+        sql,
+    };
+    state.queries.save(query.clone())?;
+    Ok(query)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_saved_query(state: State<'_, AppState>, id: String) -> Result<(), Error> {
+    state.queries.forget(&id)
 }
 
 fn saved(spec: ConnectionSpec) -> Result<SavedConnection, Error> {

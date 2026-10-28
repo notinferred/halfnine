@@ -8,8 +8,13 @@ mod error;
 
 pub use connection::{ConnectionSpec, Label, SshAuth, SshSpec, TlsMode, UrlParts, parse_url};
 pub use data::{
-    Cell, ColumnInfo, ColumnValue, Constraint, CutCell, EnumType, Filter, ForeignKey, IncomingKey, Index, Page, PageColumn, PageRequest, Relation,
-    RelationKind, SchemaNode, ServerInfo, Sort, Structure, TableRef,
+    Activity, Cell, ColumnInfo, ColumnValue, Constraint, CutCell, EnumType, ExportSource, Filter, ForeignKey, IncomingKey, Index, Page, PageColumn,
+    PageRequest, Relation, RelationKind, RunFailure, RunOutcome, SchemaNode, ServerInfo, Sort, StatementResult, Structure, TableRef,
 };
-pub use database::Database;
+pub use database::{Database, RowSink};
 pub use error::{Error, ErrorKind};
+
+/// A duration as the whole milliseconds the UI shows, saturating at `u32::MAX` (49 days).
+pub fn millis(elapsed: std::time::Duration) -> u32 {
+    u32::try_from(elapsed.as_millis()).unwrap_or(u32::MAX)
+}

@@ -135,3 +135,78 @@
 .muted {
   color: var(--text-2);
 }
+
+/* A button that opens a short list of actions (ui/menu.tsx). */
+.menu {
+  position: relative;
+}
+
+.menu-button {
+  height: 24px;
+  color: var(--text-2);
+}
+
+.menu-button:empty,
+.menu-button:has(> svg:only-child) {
+  width: 26px;
+  padding: 0;
+}
+
+.menu-list {
+  position: absolute;
+  top: 28px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  background: var(--field);
+  box-shadow: var(--shadow-overlay);
+}
+
+.menu-end {
+  right: 0;
+}
+
+.menu-start {
+  left: 0;
+}
+
+.menu-list button {
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.menu-list button:hover,
+.menu-list button:focus-visible {
+  background: var(--selection);
+  outline: none;
+}
+
+/* A shortcut drawn as keycaps (ui/keys.tsx). */
+.keys {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 2px;
+  vertical-align: 1px;
+}
+
+.keys kbd {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 15px;
+  text-align: center;
+}

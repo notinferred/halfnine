@@ -29,3 +29,10 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Which Docker abilities?** **Chose:** see and connect; start, stop and delete; create new databases; agents create their own. **Dan:** "Also lets be able to connect to tables through keys and other common database features not on this but before yk". These went into M1–M3: foreign-key navigation and key-aware editing, SSH tunnels, switching databases, the row detail panel, saved queries, the EXPLAIN view, the sessions view, editors for big values, CSV import, structure editing, and truncate and drop.
 - **What else should go into M5?** **Chose:** activity log and undo; migrations, not direct DDL; work on a copy; hide sensitive columns.
 - **M1, after using the app.** **Dan:** "Looks great lets keep revogrid, run them against the db and if good commit then clean up". RevoGrid stays. The Postgres tests ran once against the local check database instead of waiting for CI.
+- **M2.** **Dan:** "Lets do M2". **How to check it?** **Chose:** the app and the tests, as for M1: the throwaway database, all the Rust tests against it, then the app for Dan to try. Commit and clean up if it passes.
+- **M2, after using the app.** **Dan:** "Just pressing command didnt cancel it but the button did and analyze idk if its working Everything else looks good". **Asked:** which keys he pressed (**Chose:** "Only ⌘") and what Analyze showed (**Chose:** "An error").
+  - The Postgres log showed Analyze had been sent a lone `)`. A selection was clipped to the statements around it.
+  - Selections are now parsed on their own.
+  - The statement at the cursor is tinted, as the approved mockup showed.
+  - Explain errors quote what they were sent.
+  - Shortcuts are drawn as keycaps (⌘ and . apart).

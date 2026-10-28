@@ -12,6 +12,8 @@ export function useShortcuts(bindings: Record<string, () => void>) {
       keys.split("|").map((key) => [
         key,
         (event: KeyboardEvent) => {
+          // The SQL editor handles its own keys first; one it took isn't run a second time here.
+          if (event.defaultPrevented) return;
           event.preventDefault();
           latest.current[key]?.();
         },
@@ -24,3 +26,5 @@ export function useShortcuts(bindings: Record<string, () => void>) {
 
 export const isMac = navigator.userAgent.includes("Mac");
 export const modKey = isMac ? "⌘" : "Ctrl+";
+/** The modifier as it is printed on the key, for showing a shortcut as keycaps. */
+export const modCap = isMac ? "⌘" : "Ctrl";

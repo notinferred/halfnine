@@ -95,7 +95,10 @@ export function Sidebar(props: {
 
 function SchemaBranch(props: { node: SchemaNode; query: string; startOpen: boolean }) {
   const openTable = useWorkspace((s) => s.openTable);
-  const active = useWorkspace((s) => s.tabs.find((t) => t.id === s.active)?.table);
+  const active = useWorkspace((s) => {
+    const tab = s.tabs.find((t) => t.id === s.active);
+    return tab?.kind === "table" ? tab.table : undefined;
+  });
   const [open, setOpen] = useState(props.startOpen);
   const { node, query } = props;
   const matches = (name: string) => !query || name.toLowerCase().includes(query);

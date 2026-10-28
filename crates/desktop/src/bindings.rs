@@ -22,6 +22,16 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::structure,
             commands::page,
             commands::count_rows,
+            commands::run_statements,
+            commands::cancel_run,
+            commands::explain,
+            commands::export,
+            commands::activity,
+            commands::stop_session,
+            commands::list_history,
+            commands::list_saved_queries,
+            commands::save_query,
+            commands::delete_saved_query,
         ])
 }
 

@@ -21,13 +21,14 @@ function width(typeName: string): number {
 export function DataGrid(props: {
   columns: PageColumn[];
   rows: (string | null)[][];
-  hidden: Set<string>;
-  sort: Sort | null;
-  keys: Map<string, ForeignKey>;
-  onSort: (column: string) => void;
-  onFollow: (key: ForeignKey, row: number) => void;
-  onFocusRow: (row: number) => void;
-  onNearEnd: () => void;
+  hidden?: Set<string>;
+  /** Given with `onSort` for a table, which the server sorts. Without them the grid sorts its own rows, as for a result. */
+  sort?: Sort | null;
+  keys?: Map<string, ForeignKey>;
+  onSort?: (column: string) => void;
+  onFollow?: (key: ForeignKey, row: number) => void;
+  onFocusRow?: (row: number) => void;
+  onNearEnd?: () => void;
 }) {
   const grid = useRef<HTMLRevoGridElement>(null);
   // Templates are created once per column set, so they call the latest handlers through this ref.
@@ -47,8 +48,8 @@ export function DataGrid(props: {
   const columns = useMemo<ColumnRegular[]>(
     () =>
       props.columns.flatMap((column, index) => {
-        if (props.hidden.has(column.name)) return [];
-        const key = props.keys.get(column.name);
+        if (props.hidden?.has(column.name)) return [];
+        const key = props.keys?.get(column.name);
         const regular: ColumnRegular = {
           prop: `c${index}`,
           name: column.name,
@@ -72,7 +73,7 @@ export function DataGrid(props: {
                   "aria-label": `Open the ${key.target.name} row`,
                   onClick: (event: MouseEvent) => {
                     event.stopPropagation();
-                    handlers.current.onFollow(key, cell.model.__row as number);
+                    handlers.current.onFollow?.(key, cell.model.__row as number);
                   },
                 },
                 "→",
@@ -100,18 +101,20 @@ export function DataGrid(props: {
       rowSize={ROW_HEIGHT}
       hideAttribution
       onBeforesorting={(event) => {
+        const onSort = handlers.current.onSort;
+        if (!onSort) return;
         event.preventDefault();
         const name = event.detail.column.name;
-        if (typeof name === "string") handlers.current.onSort(name);
+        if (typeof name === "string") onSort(name);
       }}
       onAfterfocus={(event) => {
         const row = event.detail.model?.__row;
-        if (typeof row === "number") handlers.current.onFocusRow(row);
+        if (typeof row === "number") handlers.current.onFocusRow?.(row);
       }}
       onViewportscroll={(event) => {
         if (event.detail.dimension !== "rgRow") return;
         const visible = grid.current?.clientHeight ?? 0;
-        if (event.detail.coordinate + visible > (source.length - 40) * ROW_HEIGHT) handlers.current.onNearEnd();
+        if (event.detail.coordinate + visible > (source.length - 40) * ROW_HEIGHT) handlers.current.onNearEnd?.();
       }}
     />
   );

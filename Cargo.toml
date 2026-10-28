@@ -24,6 +24,8 @@ url = "=2.5.8"
 percent-encoding = "=2.3.2"
 uuid = { version = "=1.28.0", features = ["v4"] }
 log = "=0.4.34"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+csv = "=1.4.0"
 tokio = { version = "=1.53.3", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
 
 # Postgres through sqlx, with TLS verified against the operating system's certificates.
@@ -36,6 +38,7 @@ tauri-build = { version = "=2.7.2", features = [] }
 tauri-plugin-window-state = "=2.5.0"
 tauri-plugin-single-instance = "=2.5.4"
 tauri-plugin-log = "=2.10.1"
+tauri-plugin-dialog = "=2.8.3"
 # Typed bindings between Rust and the UI. tauri-specta has no stable 2.0; rc.25 and the specta crates it was released with.
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "=0.0.12"

@@ -227,6 +227,23 @@ button.leaf:hover {
   background: var(--hover);
 }
 
+.tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 2px var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.tab-new:hover {
+  background: var(--hover);
+}
+
 .goto {
   display: flex;
   align-items: center;

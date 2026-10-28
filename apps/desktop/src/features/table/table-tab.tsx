@@ -1,9 +1,11 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Columns3, PanelRight, RotateCw, X } from "lucide-react";
+import { Columns3, Download, PanelRight, RotateCw, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { commands, type Filter, type ForeignKey, type IncomingKey, type SessionInfo, type Sort } from "../../ipc/bindings.ts";
+import { commands, type ExportFormat, type Filter, type ForeignKey, type IncomingKey, type SessionInfo, type Sort } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { type TableTab as Tab, useWorkspace } from "../../state.ts";
+import { copy, toCsv, toInsert, toJson } from "../../ui/copy.ts";
+import { Menu } from "../../ui/menu.tsx";
 import { useShortcuts } from "../../ui/shortcuts.ts";
 import { DataGrid } from "./data-grid.tsx";
 import { RowPanel } from "./row-panel.tsx";
@@ -28,6 +30,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
   const [focused, setFocused] = useState<number | null>(null);
   const [where, setWhere] = useState(tab.filter?.kind === "where" ? tab.filter.sql : "");
   const [count, setCount] = useState<{ text: string; error?: boolean } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const filterInput = useRef<HTMLInputElement>(null);
 
   const structure = useQuery({
@@ -81,6 +84,22 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
   };
 
   useShortcuts({ "$mod+f": () => filterInput.current?.focus() });
+
+  const copyRows = async (format: "csv" | "json" | "insert") => {
+    const names = columns.map((c) => c.name);
+    await copy(format === "csv" ? toCsv(names, rows) : format === "json" ? toJson(names, rows) : toInsert(tab.table, names, rows));
+    setNote(`Copied ${rows.length.toLocaleString()} loaded rows.`);
+  };
+
+  const exportTable = async (format: ExportFormat) => {
+    setNote("Exporting…");
+    try {
+      const done = await commands.export(id, { kind: "table", table: tab.table, sort, filter: tab.filter }, format, tab.table.name);
+      setNote(done ? `Saved ${(done.rows ?? 0).toLocaleString()} rows to ${done.file}.` : null);
+    } catch (error) {
+      setNote(describe(error));
+    }
+  };
 
   const lastPage = pages.data?.pages.at(-1);
   const estimate = structure.data?.estimatedRows;
@@ -166,6 +185,18 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             </div>
           )}
         </div>
+        <Menu
+          label=""
+          icon={<Download size={14} strokeWidth={1.5} aria-label="Copy or export" />}
+          disabled={columns.length === 0}
+          items={[
+            { label: "Copy rows as CSV", onSelect: () => void copyRows("csv") },
+            { label: "Copy rows as JSON", onSelect: () => void copyRows("json") },
+            { label: "Copy rows as INSERT", onSelect: () => void copyRows("insert") },
+            { label: "Export table as CSV…", onSelect: () => void exportTable("csv") },
+            { label: "Export table as JSON…", onSelect: () => void exportTable("json") },
+          ]}
+        />
         <button
           type="button"
           className="btn btn-icon"
@@ -229,7 +260,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
       </div>
 
       <div className="statusbar" role="status">
-        <span className={pages.isError ? "status-error" : undefined}>{status}</span>
+        <span className={pages.isError ? "status-error" : undefined}>{note ?? status}</span>
         {tab.filter && <span className="muted">· filtered</span>}
         <span className="statusbar-end">
           {tab.table.schema}.{tab.table.name}

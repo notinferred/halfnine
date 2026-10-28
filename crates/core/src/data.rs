@@ -38,6 +38,8 @@ pub struct Relation {
     pub kind: RelationKind,
     /// Postgres's planner estimate; `None` when the table has never been analyzed.
     pub estimated_rows: Option<f64>,
+    /// Column names in table order, for the editor's autocomplete.
+    pub columns: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Type, PartialEq, Eq)]
@@ -160,7 +162,7 @@ pub struct Page {
     /// Cells longer than the page's limit, which were cut and need the value viewer for the rest.
     pub cut: Vec<CutCell>,
     pub has_more: bool,
-    pub elapsed_ms: f64,
+    pub elapsed_ms: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Type)]
@@ -175,4 +177,68 @@ pub struct PageColumn {
 pub struct CutCell {
     pub row: u32,
     pub column: u32,
+}
+
+/// What one statement from the editor returned. Rows past the editor's limit are counted but not kept.
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StatementResult {
+    /// Empty for a statement that returns no rows, such as an UPDATE without RETURNING.
+    pub columns: Vec<PageColumn>,
+    pub rows: Vec<Vec<Cell>>,
+    pub cut: Vec<CutCell>,
+    /// Every row the statement returned, including those past the limit.
+    pub total_rows: u32,
+    /// Rows inserted, updated or deleted, as Postgres reports them.
+    pub rows_affected: u32,
+    pub elapsed_ms: u32,
+}
+
+/// A run of one or more statements. It stops at the first error, which `failed` names.
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunOutcome {
+    pub results: Vec<StatementResult>,
+    pub failed: Option<RunFailure>,
+    /// The editor's connection is left inside a transaction that someone has yet to commit or roll back.
+    pub in_transaction: bool,
+    pub elapsed_ms: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunFailure {
+    /// Which statement of the run failed, counting from 0.
+    pub statement: u32,
+    pub error: crate::Error,
+}
+
+/// One session on the server, from `pg_stat_activity`.
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub pid: i32,
+    pub user: Option<String>,
+    pub database: Option<String>,
+    pub application: String,
+    pub client: Option<String>,
+    pub state: Option<String>,
+    pub waiting_on: Option<String>,
+    /// How long its current or last statement has run.
+    pub duration_ms: Option<f64>,
+    pub query: String,
+}
+
+/// What an export reads: a statement from the editor, or a table with its sort and filter.
+#[derive(Clone, Debug, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ExportSource {
+    Statement {
+        sql: String,
+    },
+    Table {
+        table: TableRef,
+        sort: Option<Sort>,
+        filter: Option<Filter>,
+    },
 }

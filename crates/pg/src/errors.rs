@@ -11,7 +11,10 @@ pub(crate) fn from_sqlx(error: sqlx::Error) -> Error {
                     ErrorKind::ReadOnly,
                     "This connection is read-only, so Postgres refused the change.".to_string(),
                 ),
-                Some("57014") => (ErrorKind::Timeout, "Postgres stopped the statement because it ran too long.".to_string()),
+                Some("57014") => (
+                    ErrorKind::Timeout,
+                    "Postgres stopped the statement: it was cancelled, or ran past its time limit.".to_string(),
+                ),
                 Some("3D000") => (ErrorKind::NotFound, db.message().to_string()),
                 Some(c) if c.starts_with("08") || c.starts_with("57P") => (ErrorKind::Network, db.message().to_string()),
                 _ => (ErrorKind::Query, db.message().to_string()),

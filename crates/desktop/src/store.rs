@@ -1,18 +1,19 @@
 //! The saved connections: one JSON file in the app's config folder, written whole and atomically, with no secrets in it.
 
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tu_core::{ConnectionSpec, Error, ErrorKind};
 
+use crate::files;
+
 /// Raised only with a migration from the previous version, which this app is the only one to write.
 const VERSION: u32 = 1;
+const WHAT: &str = "the saved connections";
 
-#[derive(Serialize, Deserialize)]
-struct File {
-    version: u32,
+#[derive(Default, Serialize, Deserialize)]
+struct Connections {
     connections: Vec<ConnectionSpec>,
 }
 
@@ -24,23 +25,10 @@ pub struct Store {
 impl Store {
     pub fn open(dir: PathBuf) -> Result<Self, Error> {
         let path = dir.join("connections.json");
-        let connections = match fs::read(&path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(storage("Couldn't read the saved connections", e)),
-            Ok(bytes) => {
-                let file: File = serde_json::from_slice(&bytes).map_err(|e| storage("The saved connections file is damaged", e))?;
-                if file.version > VERSION {
-                    return Err(Error::new(
-                        ErrorKind::Storage,
-                        "The saved connections were written by a newer TableUltra.",
-                    ));
-                }
-                file.connections
-            }
-        };
+        let file: Connections = files::load(&path, VERSION, WHAT)?;
         Ok(Self {
             path,
-            connections: Mutex::new(connections),
+            connections: Mutex::new(file.connections),
         })
     }
 
@@ -63,7 +51,7 @@ impl Store {
             Some(existing) => *existing = spec,
             None => next.push(spec),
         }
-        self.write(&next)?;
+        self.write(next.clone())?;
         *connections = next;
         Ok(())
     }
@@ -71,7 +59,7 @@ impl Store {
     pub fn remove(&self, id: &str) -> Result<(), Error> {
         let mut connections = self.lock();
         let next: Vec<_> = connections.iter().filter(|c| c.id != id).cloned().collect();
-        self.write(&next)?;
+        self.write(next.clone())?;
         *connections = next;
         Ok(())
     }
@@ -80,24 +68,9 @@ impl Store {
         self.connections.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Writes beside the file and renames over it, so a crash leaves either the old list or the new one, never half of one.
-    fn write(&self, connections: &[ConnectionSpec]) -> Result<(), Error> {
-        let file = File {
-            version: VERSION,
-            connections: connections.to_vec(),
-        };
-        let bytes = serde_json::to_vec_pretty(&file).map_err(|e| storage("Couldn't save the connections", e))?;
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir).map_err(|e| storage("Couldn't create the settings folder", e))?;
-        }
-        let temporary = self.path.with_extension("json.tmp");
-        fs::write(&temporary, bytes).map_err(|e| storage("Couldn't save the connections", e))?;
-        fs::rename(&temporary, &self.path).map_err(|e| storage("Couldn't save the connections", e))
+    fn write(&self, connections: Vec<ConnectionSpec>) -> Result<(), Error> {
+        files::save(&self.path, VERSION, &Connections { connections }, WHAT)
     }
-}
-
-fn storage(what: &str, e: impl std::fmt::Display) -> Error {
-    Error::new(ErrorKind::Storage, format!("{what}: {e}."))
 }
 
 #[cfg(test)]
@@ -119,6 +92,8 @@ mod tests {
             ssh: None,
         }
     }
+
+    use std::fs;
 
     #[test]
     fn saves_replaces_and_removes_across_reopening() {

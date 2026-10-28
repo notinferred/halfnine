@@ -1,0 +1,222 @@
+.query-tab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sql-editor {
+  height: 40%;
+  min-height: 140px;
+  flex-shrink: 0;
+  overflow: hidden;
+  user-select: text;
+}
+
+.run-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px var(--space-3);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.run-bar .btn {
+  height: 26px;
+}
+
+.run-bar .btn-primary {
+  margin-right: var(--space-1);
+}
+
+.run-bar-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.save-form {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.save-form .input {
+  width: 180px;
+  height: 26px;
+}
+
+.transaction-note {
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--staged);
+  font-size: var(--text-sm);
+}
+
+.query-results {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.query-message {
+  padding: var(--space-4) var(--space-3);
+  font-size: var(--text-sm);
+  user-select: text;
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.results-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.results-tabs {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.results-tabs button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.results-tabs button[aria-pressed="true"] {
+  background: var(--selection);
+  color: var(--text);
+}
+
+.results-note {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.results-cap {
+  margin: var(--space-2) var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.results-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+
+.messages {
+  margin: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) 36px;
+  overflow: auto;
+  font-size: var(--text-sm);
+  user-select: text;
+}
+
+.messages li {
+  padding: var(--space-1) 0;
+}
+
+.messages li span {
+  display: block;
+}
+
+.messages .mono {
+  font-size: var(--text-xs);
+}
+
+.plan {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  user-select: text;
+}
+
+.plan-summary {
+  margin-bottom: var(--space-3);
+}
+
+.plan-raw {
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  user-select: text;
+}
+
+.plan-step {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--line);
+  margin: var(--space-1) 0 var(--space-1) var(--space-1);
+}
+
+.plan > .plan-step {
+  margin-left: 0;
+}
+
+.plan-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.plan-name {
+  font-weight: 600;
+}
+
+.plan-numbers {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-bar {
+  height: 3px;
+  margin: 3px 0;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.plan-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.plan-condition {
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}

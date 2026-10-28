@@ -22,8 +22,12 @@ Each fact has one home, and everything else points to it. Docs don't repeat what
 - The window may call only what `crates/desktop/capabilities/default.json` grants, and its content security policy loads nothing from outside the app.
 - The app sends nothing anywhere except to the databases you connect it to, and the SSH servers that lead to them.
 - Passwords and SSH secrets live only in the OS keychain (`crates/desktop/src/secrets.rs`). No command returns one, and `connections.json` holds none.
-- Identifiers reach SQL only through `sql::ident`, and values only as bound parameters. Every statement the app builds runs through `PgDatabase::query` in `crates/pg`. The one exception is a WHERE condition someone types, which is their own SQL.
-- A read-only connection is enforced by Postgres: every session starts with `default_transaction_read_only = on`.
+- Identifiers reach SQL only through `sql::ident`, and values only as bound parameters. Every statement the app builds runs through `PgDatabase::query` in `crates/pg`. The exceptions are SQL someone types: a browse WHERE condition, and the editor's statements, which Postgres checks are one statement each.
+- Postgres enforces read-only connections, and they can't be switched off from inside the app:
+  - Browsing, exports and a read-only connection's explains always run in a `READ ONLY` transaction.
+  - On a read-only connection the editor runs each statement in a `READ ONLY` transaction that has already taken its snapshot, after which Postgres refuses to make it read-write.
+  - Every piece the editor runs is first described by Postgres, which refuses a piece holding more than one statement, so nothing slips in alongside it (`crates/pg/src/editor.rs`).
+  - Extensions that open their own connections, such as dblink, are outside this.
 - `tu-core` does no I/O. Its `Cargo.toml` has no runtime, driver or framework to do it with.
 - An SSH tunnel opens only to a host whose key is already in `~/.ssh/known_hosts`.
 

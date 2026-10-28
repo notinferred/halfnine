@@ -21,9 +21,38 @@ export const commands = {
 { kind: "where"; sql: string } | 
 /**  Rows whose columns equal these values, as when following a foreign key. */
 { kind: "equals"; values: ColumnValue[] } | null) => __TAURI_INVOKE<number | null>("count_rows", { sessionId, table, filter }),
+	/**  Runs the editor's statements, each exactly one statement, and adds the run to the history. */
+	runStatements: (sessionId: string, statements: string[]) => __TAURI_INVOKE<RunOutcome>("run_statements", { sessionId, statements }),
+	cancelRun: (sessionId: string) => __TAURI_INVOKE<boolean>("cancel_run", { sessionId }),
+	explain: (sessionId: string, statement: string, analyze: boolean) => __TAURI_INVOKE<string>("explain", { sessionId, statement, analyze }),
+	/**  Asks where to save, then streams every row of `source` into the file. `None` when the dialog was dismissed. */
+	export: (sessionId: string, source: ExportSource, format: ExportFormat, name: string) => __TAURI_INVOKE<{
+	rows: number | null,
+	file: string,
+} | null>("export", { sessionId, source, format, name }),
+	activity: (sessionId: string) => __TAURI_INVOKE<Activity[]>("activity", { sessionId }),
+	stopSession: (sessionId: string, pid: number, terminate: boolean) => __TAURI_INVOKE<boolean>("stop_session", { sessionId, pid, terminate }),
+	listHistory: () => __TAURI_INVOKE<HistoryEntry[]>("list_history"),
+	listSavedQueries: () => __TAURI_INVOKE<SavedQuery[]>("list_saved_queries"),
+	saveQuery: (id: string | null, name: string, sql: string) => __TAURI_INVOKE<SavedQuery>("save_query", { id, name, sql }),
+	deleteSavedQuery: (id: string) => __TAURI_INVOKE<null>("delete_saved_query", { id }),
 };
 
 /* Types */
+/**  One session on the server, from `pg_stat_activity`. */
+export type Activity = {
+	pid: number,
+	user: string | null,
+	database: string | null,
+	application: string,
+	client: string | null,
+	state: string | null,
+	waitingOn: string | null,
+	/**  How long its current or last statement has run. */
+	durationMs: number | null,
+	query: string,
+};
+
 export type ColumnInfo = {
 	name: string,
 	/**  The type as Postgres writes it, such as `numeric(12,2)` or `timestamp with time zone`. */
@@ -95,6 +124,16 @@ export type Error = {
 /**  Transient kinds (`Network`, `Timeout`) are worth retrying; the rest need someone to change something first. */
 export type ErrorKind = "network" | "timeout" | "auth" | "tls" | "ssh" | "query" | "readOnly" | "notFound" | "invalid" | "storage" | "keychain";
 
+export type ExportDone = {
+	rows: number | null,
+	file: string,
+};
+
+export type ExportFormat = "csv" | "json";
+
+/**  What an export reads: a statement from the editor, or a table with its sort and filter. */
+export type ExportSource = { kind: "statement"; sql: string } | { kind: "table"; table: TableRef; sort: Sort | null; filter: Filter | null };
+
 export type Filter = 
 /**  A condition you typed, used as the query's `WHERE`. */
 { kind: "where"; sql: string } | 
@@ -107,6 +146,17 @@ export type ForeignKey = {
 	columns: string[],
 	target: TableRef,
 	targetColumns: string[],
+};
+
+export type HistoryEntry = {
+	id: string,
+	sql: string,
+	connectionId: string,
+	database: string,
+	/**  When it ran, in milliseconds since 1970 (UTC). */
+	ranAtMs: number | null,
+	elapsedMs: number,
+	ok: boolean,
 };
 
 /**  A foreign key elsewhere: `source_columns` in `source` point at `columns` here. */
@@ -133,7 +183,7 @@ export type Page = {
 	/**  Cells longer than the page's limit, which were cut and need the value viewer for the rest. */
 	cut: CutCell[],
 	hasMore: boolean,
-	elapsedMs: number | null,
+	elapsedMs: number,
 };
 
 export type PageColumn = {
@@ -154,15 +204,38 @@ export type Relation = {
 	kind: RelationKind,
 	/**  Postgres's planner estimate; `None` when the table has never been analyzed. */
 	estimatedRows: number | null,
+	/**  Column names in table order, for the editor's autocomplete. */
+	columns: string[],
 };
 
 export type RelationKind = "table" | "partitionedTable" | "view" | "materializedView" | "foreignTable";
+
+export type RunFailure = {
+	/**  Which statement of the run failed, counting from 0. */
+	statement: number,
+	error: Error,
+};
+
+/**  A run of one or more statements. It stops at the first error, which `failed` names. */
+export type RunOutcome = {
+	results: StatementResult[],
+	failed: RunFailure | null,
+	/**  The editor's connection is left inside a transaction that someone has yet to commit or roll back. */
+	inTransaction: boolean,
+	elapsedMs: number,
+};
 
 /**  A saved connection, and whether the keychain holds its secrets. The secrets themselves never leave Rust. */
 export type SavedConnection = {
 	spec: ConnectionSpec,
 	hasPassword: boolean,
 	hasSshSecret: boolean,
+};
+
+export type SavedQuery = {
+	id: string,
+	name: string,
+	sql: string,
 };
 
 export type SchemaNode = {
@@ -204,6 +277,19 @@ export type SshSpec = {
 	auth: SshAuth,
 };
 
+/**  What one statement from the editor returned. Rows past the editor's limit are counted but not kept. */
+export type StatementResult = {
+	/**  Empty for a statement that returns no rows, such as an UPDATE without RETURNING. */
+	columns: PageColumn[],
+	rows: ((string | null)[])[],
+	cut: CutCell[],
+	/**  Every row the statement returned, including those past the limit. */
+	totalRows: number,
+	/**  Rows inserted, updated or deleted, as Postgres reports them. */
+	rowsAffected: number,
+	elapsedMs: number,
+};
+
 export type Structure = {
 	columns: ColumnInfo[],
 	primaryKey: string[],
@@ -222,7 +308,7 @@ export type TableRef = {
 };
 
 export type TestResult = {
-	elapsedMs: number | null,
+	elapsedMs: number,
 	serverVersion: string,
 };
 

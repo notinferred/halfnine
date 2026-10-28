@@ -2,11 +2,17 @@
 
 ## Where things stand (2026-10-28)
 
-M0 and M1 are done:
+M0 and M1 are done, and M2 is built:
 
-- Dan used the app and kept RevoGrid.
-- All 21 Rust tests passed, the Postgres ones against Postgres 18.6 loaded with the test fixture, run once on Dan's Mac at his request.
-- The repository isn't on GitHub yet, so CI hasn't run. M2 is next.
+- All 35 Rust tests passed against Postgres 18.6 loaded with the test fixture, run on Dan's Mac at his request.
+- They found one bug: sqlx's `is_in_transaction()` counts only transactions sqlx opened itself. The editor now asks Postgres.
+- Dan used M2 and found two problems:
+  - The cancel shortcut was misread, because "⌘." looked like "⌘" followed by a full stop.
+  - Analyze failed, because a selection was clipped to a fragment.
+
+  Both are fixed. Dan hasn't yet reported a re-check of either.
+- Next, from Dan's use: the history of what ran, and the way into a new query, need to be visible in the window rather than only in ⌘K and keyboard hints.
+- The repository isn't on GitHub yet, so CI hasn't run.
 
 The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes TableUltra the database tool AI agents use, and adds local Docker databases.
 
@@ -68,11 +74,29 @@ Dan used the app against the throwaway check database:
 
 ## M2: Query
 
-- An editor with schema autocomplete.
-- Run and cancel, and multiple result sets.
-- History, **saved queries**, formatting, copying and export.
-- **EXPLAIN view:** a query plan as a readable tree, with ANALYZE when asked.
-- **Sessions view:** what is running on the server (`pg_stat_activity`), with cancel and terminate.
+- [x] **sqlx spike:** `prepare` describes each statement, and `raw_sql` returns its values as text, extension types included. Kept.
+- [x] **The editor:**
+  - CodeMirror with the Postgres dialect, and autocomplete for every schema, table and column.
+  - Query tabs (⌘T) that keep their text when you switch away.
+- [x] **Run:**
+  - ⌘↵ runs the statement at the cursor or the selection, and ⇧⌘↵ runs everything.
+  - Several result sets, each in its own tab, with a Messages tab. Running stops at the first error, which shows its SQLSTATE.
+  - The first 10,000 rows are kept, and the rest counted.
+  - A note when a transaction is left open.
+  - Cancel (⌘.).
+- [x] **Read-only stays read-only in the editor.** Each statement gets its own read-only transaction, after a snapshot, and Postgres verifies that each piece is a single statement. Browsing is read-only on every connection.
+- [x] **History and saved queries.**
+  - History keeps the last 500 runs, and the palette shows recent runs on this connection.
+  - Save with ⌘S.
+  - Format with ⇧⌘F, using sql-formatter.
+- [x] **Copy and export:**
+  - Results copy as TSV, CSV or JSON.
+  - Tables copy loaded rows as CSV, JSON or INSERT statements.
+  - Export streams a whole result or table to CSV or JSON, always read-only.
+- [x] **EXPLAIN view:** the plan as a tree. Analyze runs the statement, shows the time for each step, then rolls back.
+- [x] **Sessions view:** `pg_stat_activity`, with Cancel and End, each confirmed. Read-only connections can't stop other sessions. Opened from the palette.
+- [x] **The M2 check (2026-10-28):** Dan ran queries against the check database, and all 35 tests passed against it. Dan hasn't yet reported a re-check of ⌘. or of Analyze after their fixes.
+- Not yet: notices raised by `RAISE NOTICE` aren't shown, because sqlx doesn't pass them on. The split between editor and results doesn't resize.
 
 ## M3: Edit
 

@@ -1,7 +1,9 @@
 //! The adapter against a real Postgres loaded with `fixture.sql`. CI provides one through `TU_TEST_DATABASE_URL`;
 //! without that variable these tests report that they were skipped and pass, so a laptop never needs a database.
 
-use tu_core::{ColumnValue, ConnectionSpec, Database, ErrorKind, Filter, Label, PageRequest, RelationKind, Sort, TableRef, TlsMode};
+use tu_core::{
+    Cell, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, PageRequest, RelationKind, RowSink, Sort, TableRef, TlsMode,
+};
 use tu_pg::{PgDatabase, Secrets};
 
 async fn connect(read_only: bool) -> Option<PgDatabase> {
@@ -69,6 +71,8 @@ async fn lists_every_kind_of_object_but_partitions() {
     let node = schema.iter().find(|n| n.name == "tu_fixture").unwrap();
     let kind = |name: &str| node.relations.iter().find(|r| r.name == name).map(|r| r.kind);
     assert_eq!(kind("invoices"), Some(RelationKind::Table));
+    let invoices = node.relations.iter().find(|r| r.name == "invoices").unwrap();
+    assert_eq!(invoices.columns[..3], ["id", "customer_id", "amount"]);
     assert_eq!(kind("odd \"table\""), Some(RelationKind::Table));
     assert_eq!(kind("events"), Some(RelationKind::PartitionedTable));
     assert_eq!(kind("events_2026"), None);
@@ -210,9 +214,212 @@ async fn read_only_connections_are_refused_by_the_server() {
             sql: "tu_fixture.touch()".into(),
         })
     };
-    assert!(writable.page(&request("customers", touch(), None, 0, 1)).await.is_ok());
+    // Browsing only reads, on every connection, so a filter can't write even where the editor may.
+    let error = writable.page(&request("customers", touch(), None, 0, 1)).await.unwrap_err();
+    assert_eq!(error.code.as_deref(), Some("25006"));
+    assert!(writable.run(&statements(&["SELECT tu_fixture.touch()"])).await.unwrap().failed.is_none());
 
     let Some(read_only) = connect(true).await else { return };
     let error = read_only.page(&request("customers", touch(), None, 0, 1)).await.unwrap_err();
     assert_eq!((error.kind, error.code.as_deref()), (ErrorKind::ReadOnly, Some("25006")));
+}
+
+#[tokio::test]
+async fn a_browse_filter_cannot_switch_read_only_off_for_later_queries() {
+    let Some(db) = connect(true).await else { return };
+    let switch_off = Filter::Where {
+        sql: "set_config('default_transaction_read_only', 'off', false) IS NOT NULL".into(),
+    };
+    for _ in 0..3 {
+        db.page(&request("customers", Some(switch_off.clone()), None, 0, 1)).await.unwrap();
+    }
+    let touch = Filter::Where {
+        sql: "tu_fixture.touch()".into(),
+    };
+    assert_eq!(
+        db.page(&request("customers", Some(touch), None, 0, 1)).await.unwrap_err().kind,
+        ErrorKind::ReadOnly
+    );
+}
+
+fn statements(sql: &[&str]) -> Vec<String> {
+    sql.iter().map(|s| s.to_string()).collect()
+}
+
+#[tokio::test]
+async fn runs_statements_and_keeps_the_session_between_runs() {
+    let Some(db) = connect(false).await else { return };
+    let outcome = db
+        .run(&statements(&[
+            "SELECT 1 AS one, NULL::text AS nothing, ''::text AS empty",
+            "SELECT * FROM tu_fixture.invoices WHERE false",
+            "CREATE TEMP TABLE scratch (x int)",
+            "INSERT INTO scratch VALUES (1), (2)",
+            "SELECT x FROM scratch ORDER BY x",
+        ]))
+        .await
+        .unwrap();
+    assert!(outcome.failed.is_none());
+    let [first, empty, create, insert, select] = outcome.results.as_slice() else {
+        panic!("five results")
+    };
+    let names: Vec<_> = first.columns.iter().map(|c| (c.name.as_str(), c.type_name.as_str())).collect();
+    assert_eq!(names, [("one", "int4"), ("nothing", "text"), ("empty", "text")]);
+    assert_eq!(first.rows, [[Some("1".to_string()), None, Some(String::new())]]);
+    assert_eq!((empty.columns.len(), empty.total_rows), (13, 0));
+    assert!(create.columns.is_empty());
+    assert_eq!(insert.rows_affected, 2);
+    assert_eq!(select.rows, [[Some("1".to_string())], [Some("2".to_string())]]);
+    assert!(!outcome.in_transaction);
+
+    let again = db.run(&statements(&["SELECT count(*) FROM scratch", "BEGIN"])).await.unwrap();
+    assert_eq!(again.results[0].rows, [[Some("2".to_string())]]);
+    assert!(again.in_transaction);
+    assert!(!db.run(&statements(&["ROLLBACK"])).await.unwrap().in_transaction);
+}
+
+#[tokio::test]
+async fn stops_at_the_first_error_and_refuses_two_statements_in_one_piece() {
+    let Some(db) = connect(false).await else { return };
+    let outcome = db.run(&statements(&["SELECT 1", "SELECT nope", "SELECT 2"])).await.unwrap();
+    let failed = outcome.failed.unwrap();
+    assert_eq!(
+        (outcome.results.len(), failed.statement, failed.error.code.as_deref()),
+        (1, 1, Some("42703"))
+    );
+
+    let two = db.run(&statements(&["SELECT 1; SELECT 2"])).await.unwrap();
+    assert_eq!(two.failed.unwrap().error.kind, ErrorKind::Invalid);
+}
+
+#[tokio::test]
+async fn keeps_ten_thousand_rows_and_counts_the_rest() {
+    let Some(db) = connect(false).await else { return };
+    let outcome = db.run(&statements(&["SELECT g FROM generate_series(1, 12345) g"])).await.unwrap();
+    let result = &outcome.results[0];
+    assert_eq!((result.rows.len(), result.total_rows), (10_000, 12_345));
+}
+
+#[tokio::test]
+async fn the_read_only_editor_cannot_be_talked_out_of_it() {
+    let Some(db) = connect(true).await else { return };
+    let attempts: [&[&str]; 4] = [
+        &[
+            "SET default_transaction_read_only = off",
+            "UPDATE tu_fixture.customers SET name = name WHERE id = 1",
+        ],
+        &["COMMIT", "UPDATE tu_fixture.customers SET name = name WHERE id = 1"],
+        &[
+            "SELECT set_config('default_transaction_read_only', 'off', false)",
+            "SELECT tu_fixture.touch()",
+        ],
+        &["SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE", "SELECT tu_fixture.touch()"],
+    ];
+    for attempt in attempts {
+        let outcome = db.run(&statements(attempt)).await.unwrap();
+        let failed = outcome.failed.unwrap_or_else(|| panic!("{attempt:?} wrote"));
+        assert_eq!((failed.statement, failed.error.kind), (1, ErrorKind::ReadOnly), "{attempt:?}");
+    }
+    let switch = db.run(&statements(&["SET transaction_read_only = off"])).await.unwrap();
+    assert_eq!(switch.failed.unwrap().error.code.as_deref(), Some("25001"));
+}
+
+#[tokio::test]
+async fn cancels_a_running_statement() {
+    let Some(db) = connect(false).await else { return };
+    let sleep = statements(&["SELECT pg_sleep(30)"]);
+    let (outcome, cancelled) = tokio::join!(db.run(&sleep), async {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        db.cancel().await
+    });
+    assert!(cancelled.unwrap());
+    assert_eq!(outcome.unwrap().failed.unwrap().error.code.as_deref(), Some("57014"));
+    assert!(!db.cancel().await.unwrap());
+    assert!(db.run(&statements(&["SELECT 1"])).await.unwrap().failed.is_none());
+}
+
+#[tokio::test]
+async fn explains_and_rolls_back_what_analyze_ran() {
+    let Some(db) = connect(false).await else { return };
+    let plan = db.explain("SELECT * FROM tu_fixture.invoices WHERE id = 5;", false).await.unwrap();
+    assert!(plan.contains("Index Scan") && !plan.contains("Actual Total Time"));
+
+    let measured = db
+        .explain("UPDATE tu_fixture.customers SET name = 'changed' WHERE id = 2", true)
+        .await
+        .unwrap();
+    assert!(measured.contains("Actual Total Time"));
+    let filter = Filter::Equals {
+        values: vec![ColumnValue {
+            column: "id".into(),
+            value: Some("2".into()),
+        }],
+    };
+    let page = db.page(&request("customers", Some(filter), None, 0, 1)).await.unwrap();
+    assert_eq!(page.rows[0][column(&page, "name")].as_deref(), Some("Customer 2"));
+
+    assert_eq!(
+        db.explain("SELECT 1; DROP TABLE tu_fixture.customers", false).await.unwrap_err().kind,
+        ErrorKind::Invalid
+    );
+}
+
+#[derive(Default)]
+struct Collected {
+    columns: Vec<String>,
+    rows: Vec<Vec<Cell>>,
+}
+
+impl RowSink for Collected {
+    fn columns(&mut self, columns: &[tu_core::PageColumn]) -> Result<(), tu_core::Error> {
+        self.columns = columns.iter().map(|c| c.name.clone()).collect();
+        Ok(())
+    }
+
+    fn row(&mut self, row: &[Cell]) -> Result<(), tu_core::Error> {
+        self.rows.push(row.to_vec());
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn exports_every_row_and_never_writes() {
+    let Some(db) = connect(false).await else { return };
+    let mut rows = Collected::default();
+    let filter = Filter::Equals {
+        values: vec![ColumnValue {
+            column: "customer_id".into(),
+            value: Some("7".into()),
+        }],
+    };
+    let source = ExportSource::Table {
+        table: table("invoices"),
+        sort: None,
+        filter: Some(filter),
+    };
+    assert_eq!(db.export(&source, &mut rows).await.unwrap(), 2400.0);
+    assert_eq!((rows.columns.len(), rows.rows.len()), (13, 2400));
+
+    let mut long = Collected::default();
+    let source = ExportSource::Statement {
+        sql: "SELECT g FROM generate_series(1, 20000) g".into(),
+    };
+    assert_eq!(db.export(&source, &mut long).await.unwrap(), 20_000.0);
+    assert_eq!(long.rows.last().unwrap()[0].as_deref(), Some("20000"));
+
+    let write = ExportSource::Statement {
+        sql: "UPDATE tu_fixture.customers SET name = name RETURNING id".into(),
+    };
+    assert_eq!(db.export(&write, &mut Collected::default()).await.unwrap_err().kind, ErrorKind::ReadOnly);
+}
+
+#[tokio::test]
+async fn lists_sessions_and_stops_them_only_when_allowed() {
+    let Some(db) = connect(false).await else { return };
+    let sessions = db.activity().await.unwrap();
+    assert!(sessions.iter().any(|a| a.application == "TableUltra"));
+    assert!(!db.stop(999_999, false).await.unwrap());
+
+    let Some(read_only) = connect(true).await else { return };
+    assert_eq!(read_only.stop(999_999, true).await.unwrap_err().kind, ErrorKind::ReadOnly);
 }
