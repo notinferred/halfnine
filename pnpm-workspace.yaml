@@ -1,10 +1,13 @@
 packages:
   - apps/*
 
+# pnpm refuses any package, direct or not, published less than two weeks (in minutes) before it is installed.
+minimumReleaseAge: 20160
+
 # One version of each dependency for the whole repository; packages refer to it as "catalog:".
 catalog:
   # Exact, as each was published at least two weeks before it was added (2026-10-14).
-  "@tauri-apps/cli": 2.12.3
+  "@tauri-apps/cli": 2.12.2
   "@types/react": 19.3.0
   "@types/react-dom": 19.3.0
   "@vitejs/plugin-react": 6.1.2

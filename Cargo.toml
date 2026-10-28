@@ -14,8 +14,8 @@ unsafe_code = "forbid"
 # One version of each dependency for the whole workspace; crates refer to it with `workspace = true`.
 # Exact, as each was published at least two weeks before it was added (2026-10-14).
 [workspace.dependencies]
-tauri = { version = "=2.12.4", features = [] }
-tauri-build = { version = "=2.7.3", features = [] }
+tauri = { version = "=2.12.3", features = [] }
+tauri-build = { version = "=2.7.2", features = [] }
 
 # A release build is the one people keep open all day, so it is built for size.
 [profile.release]

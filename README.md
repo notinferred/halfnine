@@ -13,7 +13,7 @@ There are no releases yet. Release builds will be unsigned, so each system asks 
 
 ## Develop
 
-You need Node 24 or later, pnpm (the version in `package.json` is fetched automatically), Rust through [rustup](https://rustup.rs) (`rust-toolchain.toml` picks the version), and on macOS the Xcode Command Line Tools.
+You need Node 24 or later, pnpm (the version in `package.json` is fetched automatically), Rust through [rustup](https://rustup.rs) (`rust-toolchain.toml` picks the version), and on macOS the Xcode Command Line Tools. With Homebrew, `brew install rustup`, then put `/opt/homebrew/opt/rustup/bin` on your `PATH`; Homebrew leaves it off.
 
 | Command | What it does |
 |---|---|

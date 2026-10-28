@@ -18,7 +18,7 @@ Each fact has one home, and everything else points to it. Docs don't repeat what
 ## What the code guarantees
 
 - No crate uses `unsafe` code; the workspace forbids it.
-- Every dependency is pinned exactly, at a version published at least two weeks before it was added.
+- Every dependency we name is pinned exactly, at a version published at least two weeks before it was added. pnpm enforces that age for every JavaScript package, direct or not (`minimumReleaseAge` in `pnpm-workspace.yaml`). Cargo has no stable way to do the same, so for the Rust crates beneath ours, `Cargo.lock` records whatever versions were current when it was made.
 - The window may call only what `crates/desktop/capabilities/default.json` grants, and its content security policy loads nothing from outside the app.
 - The app sends nothing anywhere except to the databases you connect it to.
 

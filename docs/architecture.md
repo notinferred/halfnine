@@ -50,7 +50,7 @@ This table checks the app against Dan's `architecture-invariants.md` and `ENGINE
 | Observability | `tracing` writes to a local log file, and each query has an id. There is no telemetry, and secrets and rows are never logged | planned, M1 |
 | Test fidelity | `tu-pg` is tested against a real Postgres in CI, using hostile fixtures. `tu-core` has pure unit tests. Nothing mocks the database | planned, M1 |
 | Least privilege in the window | The capability file denies by default, and the CSP loads nothing from outside the app | holds |
-| Pinned dependencies | Versions are exact, published at least two weeks before they were added, with lockfiles. GitHub Actions are pinned to commit SHAs | partly: `Cargo.lock` comes with the first compile |
+| Pinned dependencies | Versions are exact, published at least two weeks before they were added, with lockfiles. GitHub Actions are pinned to commit SHAs | partly: pnpm enforces the age for every JavaScript package, but Cargo can't for the crates beneath ours |
 | One artifact, promoted | A tag builds the installers once, into a draft release that Dan publishes | planned, M4 |
 | The eight fallacies | The database connection is the only network boundary. The UI never waits on it, and a dropped connection recovers | planned, M1 |
 | Brokers, locks, multiple regions, a public API | The app has none of these | dormant |

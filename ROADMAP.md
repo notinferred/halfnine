@@ -2,7 +2,7 @@
 
 ## Where things stand (2026-10-28)
 
-M0 is under way. The repository, pinned toolchains, CI check, design tokens and icon exist, and the window is written to open on a welcome screen. Rust isn't installed on Dan's Mac yet, so the app hasn't been compiled and there is no `Cargo.lock`. CI's `--locked` step needs that lockfile, and the repository isn't on GitHub yet.
+M0 is nearly done. The repository, pinned toolchains, lockfiles, CI check, design tokens and icon exist, and Dan approved the design. The window is written to open on a welcome screen, but it hasn't been compiled yet. Rust is installed on Dan's Mac, and the first `pnpm dev` waits for his go-ahead. The repository isn't on GitHub yet, so CI hasn't run.
 
 ## M0: Foundation
 
@@ -11,7 +11,8 @@ M0 is under way. The repository, pinned toolchains, CI check, design tokens and 
 - [x] Design tokens for light, dark, increased contrast and reduced motion, plus the welcome window
 - [x] An icon that doesn't depend on the name, drawn once and rendered by `pnpm icons`
 - [x] Design pass: Dan approved the mockup of Connections, Table, Query and the palette (2026-10-28). The tokens match it
-- [ ] First compile and run on macOS, once Dan says to install Rust, and commit `Cargo.lock`
+- [x] Rust installed through Homebrew, and `Cargo.lock` committed
+- [ ] First compile and run on macOS, when Dan says to
 
 ## M1: Connect and browse
 
