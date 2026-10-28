@@ -8,8 +8,15 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@revolist/react-datagrid": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tauri-apps/api": "catalog:",
+    "cmdk": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "tinykeys": "catalog:",
+    "zustand": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",

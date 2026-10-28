@@ -6,12 +6,19 @@ minimumReleaseAge: 20160
 
 # One version of each dependency for the whole repository; packages refer to it as "catalog:".
 catalog:
-  # Exact, as each was published at least two weeks before it was added (2026-10-14).
+  # Exact, as each was published at least two weeks before it was added (2026-10-14 and 2026-10-28).
+  "@revolist/react-datagrid": 4.28.4
+  "@tanstack/react-query": 5.104.2
+  "@tauri-apps/api": 2.12.4
   "@tauri-apps/cli": 2.12.2
   "@types/react": 19.3.0
   "@types/react-dom": 19.3.0
   "@vitejs/plugin-react": 6.1.2
+  cmdk: 1.1.1
+  lucide-react: 1.57.0
   react: 19.3.1
   react-dom: 19.3.1
+  tinykeys: 4.0.1
   typescript: 7.0.2
   vite: 8.3.4
+  zustand: 5.0.15

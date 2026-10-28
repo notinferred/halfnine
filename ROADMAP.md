@@ -2,11 +2,11 @@
 
 ## Where things stand (2026-10-28)
 
-M0 is done and M1 is under way:
+M0 and M1 are done:
 
-- The repository, pinned toolchains, lockfiles, CI check, design tokens and icon exist, and Dan approved the design.
-- The app compiles and opens on macOS.
-- The repository isn't on GitHub yet, so CI hasn't run.
+- Dan used the app and kept RevoGrid.
+- All 21 Rust tests passed, the Postgres ones against Postgres 18.6 loaded with the test fixture, run once on Dan's Mac at his request.
+- The repository isn't on GitHub yet, so CI hasn't run. M2 is next.
 
 The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes TableUltra the database tool AI agents use, and adds local Docker databases.
 
@@ -22,44 +22,49 @@ The scope grew on 2026-10-28. M1–M3 now include the everyday features of a dat
 
 ## M1: Connect and browse
 
-Two spikes come first, about a day each:
+### Spikes
 
-1. **RevoGrid.** It stays only if, styled with our tokens, it does all of the following:
-   - matches the mockup in light and dark;
-   - scrolls 100k rows smoothly;
-   - edits a cell with NULL kept apart from empty;
-   - handles keyboard navigation and copying as TSV;
-   - has resizable, sortable headers.
-   
-   Otherwise TanStack Table and TanStack Virtual replace it.
-2. **sqlx `raw_sql`.** It stays only if, for a multi-statement script that includes extension types, it returns text values and type names for each statement. Otherwise `tokio-postgres` `simple_query` replaces it.
+- [x] **RevoGrid.** Kept on 2026-10-28, after Dan used the app ("Looks great lets keep revogrid"). It stays only if, styled with our tokens, it does all of the following:
+  - matches the mockup in light and dark;
+  - scrolls 100k rows smoothly;
+  - has resizable, sortable headers;
+  - handles keyboard navigation and copying as TSV.
 
-Then:
+  Editing a cell with NULL kept apart from empty is judged in M3, when editing exists.
+- [x] **sqlx.** Browsing needs no `raw_sql`, because the app casts every column to text itself, so this spike moved to M2, where the editor runs SQL as written.
 
-- **Connections:**
+### Built
+
+- [x] **Connections:**
   - A form, or a pasted `postgres://` URL, with a connection test.
   - TLS modes.
-  - **SSH tunnels**: host, user, and a key or agent.
   - The password kept in the OS keychain.
   - Colour labels and a read-only toggle.
-- **Browsing a server:** switch between the databases on the server. The sidebar has a filter and lists tables, views, materialized views, functions, sequences and enum types.
-- **Table tabs:**
-  - A Data view: column hide, reorder and resize; sort; filter.
+  - Save, delete (with a second click to confirm), and double-click to connect.
+- [x] **SSH tunnels:** an SSH agent, a key file or a password, trusting only hosts already in `~/.ssh/known_hosts`. Not yet tried against a real SSH server.
+- [x] **Browsing a server:**
+  - Switch between the databases on the server.
+  - The sidebar has a filter and lists tables, views, materialized views, partitioned and foreign tables, functions, sequences and enum types.
+- [x] **Table tabs:**
+  - A Data view: columns that hide, reorder and resize; server-side sort; a typed WHERE filter (⌘F); pages of 500 that load as you scroll; an estimated row count, with an exact count on request.
   - A Structure view.
-- **Foreign keys you can follow:**
-  - A key cell links to the row it points at.
-  - A row lists the rows in other tables that point at it.
-- **Row detail panel:** one row shown vertically, with JSON pretty-printed, long text in full and `bytea` shown as size and hex.
-- **The ⌘K palette.**
-- **New crates:** `crates/core` holds pure types and the `Database` trait and does no I/O. `crates/pg` is the Postgres adapter.
-- **CI:** `check.yml` gains a Postgres service, the tests and the tauri-specta bindings check.
+- [x] **Foreign keys you can follow:**
+  - A key cell has an arrow to the row it points at.
+  - The row panel lists every key out of the row and every table pointing into it.
+  - Each one opens a filtered tab.
+- [x] **Row detail panel:** one row shown vertically, with JSON pretty-printed, text in full up to 64 KB, `bytea` shown as size and hex, and NULL shown as a word.
+- [x] **The ⌘K palette:** go to any table or view. Also ⌘R to refresh and ⌘W to close a tab.
+- [x] **New crates:** `crates/core` holds pure types and the `Database` trait. `crates/pg` is the Postgres adapter.
+- [x] **CI:** `check.yml` gains a Postgres 18 service loaded with `crates/pg/tests/fixture.sql`, the tests, and a check that the bindings are current.
 
-These guarantees move to CLAUDE.md once the code enforces them:
+### The M1 check (done 2026-10-28)
 
-- Passwords live only in the OS keychain.
-- Values are always bound parameters, and identifiers always go through one quoting function.
-- The server enforces read-only connections.
-- `tu-core` does no I/O.
+Dan used the app against the throwaway check database:
+
+1. Connect by pasting its URL.
+2. Browse `tu_fixture.invoices` (120,001 rows) smoothly, sort it, and filter it.
+3. Follow `customer_id` to its customer, and back through "Referenced by".
+4. Turn on read-only, then filter `customers` with `tu_fixture.touch()`. Postgres refuses with code 25006. The test `read_only_connections_are_refused_by_the_server` proves this step. It first found that the fixture's `touch()` named its table without the schema, which is now fixed.
 
 ## M2: Query
 

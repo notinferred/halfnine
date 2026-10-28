@@ -20,7 +20,12 @@ Each fact has one home, and everything else points to it. Docs don't repeat what
 - No crate uses `unsafe` code; the workspace forbids it.
 - Every dependency we name is pinned exactly, at a version published at least two weeks before it was added. pnpm enforces that age for every JavaScript package, direct or not (`minimumReleaseAge` in `pnpm-workspace.yaml`). Cargo has no stable way to do the same, so for the Rust crates beneath ours, `Cargo.lock` records whatever versions were current when it was made.
 - The window may call only what `crates/desktop/capabilities/default.json` grants, and its content security policy loads nothing from outside the app.
-- The app sends nothing anywhere except to the databases you connect it to.
+- The app sends nothing anywhere except to the databases you connect it to, and the SSH servers that lead to them.
+- Passwords and SSH secrets live only in the OS keychain (`crates/desktop/src/secrets.rs`). No command returns one, and `connections.json` holds none.
+- Identifiers reach SQL only through `sql::ident`, and values only as bound parameters. Every statement the app builds runs through `PgDatabase::query` in `crates/pg`. The one exception is a WHERE condition someone types, which is their own SQL.
+- A read-only connection is enforced by Postgres: every session starts with `default_transaction_read_only = on`.
+- `tu-core` does no I/O. Its `Cargo.toml` has no runtime, driver or framework to do it with.
+- An SSH tunnel opens only to a host whose key is already in `~/.ssh/known_hosts`.
 
 ## Working agreement
 

@@ -5,17 +5,17 @@ TableUltra is one desktop process. A Rust core opens the database connections, k
 ## Shape
 
 ```
-apps/desktop      UI: React + Vite. Calls the core through generated, typed bindings (from M1).
-crates/desktop    tu-desktop: the Tauri app. Window, menu, commands, keychain, local store.
-crates/pg         tu-pg (M1): the Postgres adapter. Implements core's Database trait; owns quoting and edit SQL.
-crates/core       tu-core (M1): pure types and the Database trait. No I/O.
+apps/desktop      UI: React + Vite. Calls the core through bindings generated from the Rust commands (src/ipc/bindings.ts).
+crates/desktop    tu-desktop: the Tauri app. Window, commands, keychain, saved connections, open sessions.
+crates/pg         tu-pg: the Postgres adapter. Implements core's Database trait; owns quoting, the SQL it builds, and SSH tunnels.
+crates/core       tu-core: pure types and the Database trait. No I/O.
 ```
 
 From M5, AI agents reach the app through `tableultra mcp`, the same binary started by the agent over stdio. That process holds no logic. It forwards each call over a local socket to the running app, which owns the access check, approvals, the activity log and the database connections.
 
-Dependencies point inward: desktop, then the adapters, then core. Each crate's `Cargo.toml` is what enforces this, because core can't import a library it doesn't depend on. Adding MySQL later means adding a new adapter crate that implements `Database`. Nothing else changes.
+Dependencies point inward: desktop, then the adapters, then core. Each crate's `Cargo.toml` enforces this, because core can't import a library it doesn't depend on. Adding MySQL later means adding a new adapter crate that implements `Database`. Nothing else changes.
 
-Values cross the boundary as Postgres's own text. The app reads every value as text and writes edits back as `$n::text::<column type>`. Postgres's own input and output functions therefore do every type conversion, and every type works, extension types included, without per-type code in the app.
+Values cross the boundary as Postgres's own text. A page selects every column as `left(column::text, 65537)`, and following a key compares `column = $n::text::<column type>`. Postgres's own input and output functions therefore do every type conversion, and every type works, extension types included, without per-type code in the app. M3's edits will use the same cast.
 
 ## Tools, and why
 
@@ -23,16 +23,17 @@ Values cross the boundary as Postgres's own text. The app reads every value as t
 |---|---|
 | Tauri 2 | It uses the system webview, which gives a binary of about 10 MB and low idle memory, with a Rust core and permissions denied by default. Version 3 is still in alpha |
 | React 19, Vite, TypeScript | They have the largest set of maintained components. notinferred uses the same React |
-| shadcn (Base UI), Tailwind 4 (M1) | We get accessible behaviour without writing it, and the styling stays ours |
-| cmdk, tinykeys, lucide-react (M1) | They give us the palette, shortcuts that are ⌘ on macOS and Ctrl on Windows, and icons |
-| RevoGrid (M1, spike) | It is a maintained, virtualized grid with editing and selection built in. TanStack Table + Virtual is the fallback |
+| Native controls and plain CSS on our tokens | Native inputs and selects look and behave like the system's, and the approved mockup needed nothing more. This replaced the planned shadcn and Tailwind: two fewer dependencies and no copied components. Base UI comes in when a control native HTML lacks is needed, such as a menu |
+| cmdk, tinykeys, lucide-react | They give us the palette, shortcuts that are ⌘ on macOS and Ctrl on Windows, and icons |
+| RevoGrid | It is a maintained, virtualized grid with editing, range selection and copying built in, themed through its CSS variables. Dan kept it after using M1 |
 | CodeMirror 6 + lang-sql (M2) | It has a Postgres dialect and schema autocomplete, and is about a tenth the size of Monaco |
 | sql-formatter (M2) | It formats SQL so we don't have to write a formatter |
-| TanStack Query, Zustand (M1) | TanStack Query caches and invalidates calls to the core. Zustand holds tabs and selection |
-| tauri-specta (M1) | It generates TypeScript bindings from the Rust commands, and CI fails if the bindings are stale |
-| sqlx 0.9, Postgres driver (M1, spike) | It has rustls TLS and a pool, and `raw_sql` returns values as text. `tokio-postgres` is the fallback |
-| keyring-core (M1) | It stores passwords in the macOS Keychain and the Windows Credential Manager |
-| Tauri plugins: store, window-state, single-instance, dialog, log (M1) | These are small official plugins, so we don't write those features ourselves |
+| TanStack Query, Zustand | TanStack Query caches and invalidates calls to the core. Zustand holds the session, tabs and palette |
+| tauri-specta 2.0.0-rc.25 | It generates TypeScript bindings from the Rust commands. A test regenerates them, and CI fails if the committed file differs |
+| sqlx 0.9, Postgres driver | It has a pool and rustls TLS verified against the system's certificates. Browsing needs no `raw_sql`, because every value is cast to text in the SQL the app builds, so the `raw_sql` spike moved to M2, where the editor needs it. `tokio-postgres` is still the fallback |
+| russh | It runs SSH tunnels in-process, trusting only host keys already in `~/.ssh/known_hosts`. It uses `ring` rather than its default `aws-lc-rs`, which needs a C toolchain |
+| keyring-core, with the Apple and Windows stores | It stores passwords in the macOS Keychain and the Windows Credential Manager |
+| Tauri plugins: single-instance, window-state, log | A second launch focuses the open window, the window reopens where it was, and logs go to the app's log folder |
 | rmcp (M5, candidate) | It is the official Rust SDK for MCP, the protocol AI agents use to call tools |
 | bollard (M5, candidate) | It is a Rust client for the Docker Engine API. It finds, starts, stops and creates local Postgres containers through any Docker socket |
 
@@ -42,21 +43,21 @@ This table checks the app against Dan's `architecture-invariants.md` and `ENGINE
 
 | Invariant | How it applies here | Status |
 |---|---|---|
-| Resilience | Connects time out after 10 s. Metadata queries have a `statement_timeout`, and TCP keepalive is on. A transient error reconnects on the next action; a terminal one (auth, TLS) is shown to you. Cancel uses `pg_cancel_backend` | planned, M1–M2 |
-| Admission control | Each connection pools at most 3 sessions. Browse pages are 500 rows, and editor results stop at 10 000 with a visible notice. Large cells are cut in the grid | planned, M1–M2 |
-| Parse, don't validate | Every command's input is a typed Rust struct. A URL is parsed once into `ConnectionSpec`, and each row becomes `Cell` values once | planned, M1 |
-| Injection | Identifiers go through one quoting function, and values are always `$n` parameters. Editor SQL is the single deliberate exception, marked `AssertSqlSafe` in one place | planned, M1 |
-| Secrets | Passwords live only in the OS keychain. They never go in the store, the logs or a command's reply | planned, M1 |
-| Authorization enforced by the server | Read-only connections set `default_transaction_read_only = on`, so Postgres refuses the write. Hiding a button doesn't count | planned, M1 |
+| Resilience | Connects and SSH time out after 10 s, and every session sets `statement_timeout = 30s`. The pool checks a connection before lending it, so a dropped one is replaced on its next use. A network error or timeout is retried once; a terminal one (auth, TLS) is shown with its code. Cancel arrives with the editor | partly: cancel is M2, and there is no TCP keepalive |
+| Admission control | Each connection pools at most 3 sessions. Pages are 500 rows and the server caps a page at 1,000. Cells over 64 KB are cut and marked. The editor's 10,000-row cap is M2 | partly: the editor is M2 |
+| Parse, don't validate | Every command's input is a typed Rust struct. A pasted URL is parsed once (`tu_core::parse_url`), a draft connection is checked once (`spec_from`), and each row becomes `Cell` values once | holds |
+| Injection | Identifiers go through `sql::ident` and values are always `$n` parameters. Everything the app builds runs through `PgDatabase::query`, the one place marked `AssertSqlSafe`. The only text taken as SQL is a WHERE condition someone typed, which Postgres runs as one prepared statement, refusing a second statement | holds |
+| Secrets | Passwords and SSH secrets live only in the OS keychain. The store, the logs and every command's reply carry at most whether a secret exists | holds |
+| Authorization enforced by the server | A read-only connection starts every session with `default_transaction_read_only = on`, so Postgres refuses writes, including ones hidden in a function | holds for M1. In M2, SQL typed into the editor could switch the setting off, and M2 must decide how to stop that |
 | Write identity, optimistic concurrency | An edit is keyed by primary key and also checks the original values. If no rows are affected, that's a conflict and the transaction rolls back. Tables without a key are read-only | planned, M3 |
-| Caching | TanStack Query keys data per connection and per table. The schema cache is invalidated by ⌘R and after DDL | planned, M1 |
-| Single-owner schema evolution | The local store has a `version`, and the app is its only writer and migrator. Writes are atomic | planned, M1 |
-| Observability | `tracing` writes to a local log file, and each query has an id. There is no telemetry, and secrets and rows are never logged | planned, M1 |
-| Test fidelity | `tu-pg` is tested against a real Postgres in CI, using hostile fixtures. `tu-core` has pure unit tests. Nothing mocks the database | planned, M1 |
+| Caching | Every query key holds its session, so ⌘R refreshes everything that session loaded. Nothing refetches on focus or a timer. DDL from the editor will invalidate the schema in M2 | partly: DDL is M2 |
+| Single-owner schema evolution | `connections.json` has a `version`. The app refuses one from a newer version, writes it to a temporary file and renames it over the old one, and the single-instance plugin keeps a second copy from writing at the same time | holds |
+| Observability | The log plugin writes to the app's log folder, and nothing is logged that holds a secret or a row. There is no telemetry. Query ids arrive with history in M2 | partly |
+| Test fidelity | `tu-core` and the SQL builder have unit tests. `tu-pg` is tested against Postgres 18 loaded with `crates/pg/tests/fixture.sql`, which has hostile names, every common type and a 70 KB value. Nothing mocks the database | holds: all 21 passed against Postgres 18.6 on 2026-10-28; CI runs them on every push once the repository is on GitHub |
 | Least privilege in the window | The capability file denies by default, and the CSP loads nothing from outside the app | holds |
 | Pinned dependencies | Versions are exact, published at least two weeks before they were added, with lockfiles. GitHub Actions are pinned to commit SHAs | partly: pnpm enforces the age for every JavaScript package, but Cargo can't for the crates beneath ours |
 | One artifact, promoted | A tag builds the installers once, into a draft release that Dan publishes | planned, M4 |
-| The eight fallacies | The database connection is the only network boundary. The UI never waits on it, and a dropped connection recovers | planned, M1 |
+| The eight fallacies | The database connection, or its SSH tunnel, is the only network boundary. Every command is async, so the window never waits on the network, and a dropped connection is replaced | partly: no keepalive, no cancel yet |
 | A trust boundary for AI agents | Agents are untrusted clients. Each MCP call is parsed at the edge, and the core checks it against that connection's access level, not the MCP process. Results are marked as data, so text in a row can't pass as an instruction. Approvals happen only in the app, and an agent can't raise its own access | planned, M5 |
 | Audit trail | Every agent call is appended to a log that is never rewritten. A write keeps the rows it changed, so it can be reverted | planned, M5 |
 | Runtime off-switch | One switch pauses all agent access, with no release needed | planned, M5 |

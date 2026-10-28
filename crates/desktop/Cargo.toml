@@ -1,6 +1,6 @@
 [package]
 name = "tu-desktop"
-description = "TableUltra's desktop app: the window, the menu, and the commands the UI calls."
+description = "TableUltra's desktop app: the window, the saved connections, and the commands the UI calls."
 edition.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -13,7 +13,27 @@ path = "src/main.rs"
 tauri-build.workspace = true
 
 [dependencies]
+tu-core.workspace = true
+tu-pg.workspace = true
 tauri.workspace = true
+tauri-plugin-window-state.workspace = true
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-log.workspace = true
+tauri-specta.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+log.workspace = true
+keyring-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store.workspace = true
 
 [lints]
 workspace = true

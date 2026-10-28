@@ -25,6 +25,17 @@ You need Node 24 or later, pnpm (the version in `package.json` is fetched automa
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints the Rust crates |
 | `pnpm icons` | Renders every app icon size from `assets/brand/app-icon.svg` |
 | `pnpm tauri build` | Builds the installer for the machine it runs on |
+| `cargo test --workspace` | Runs the Rust tests. The Postgres tests skip themselves unless `TU_TEST_DATABASE_URL` names a database loaded with `crates/pg/tests/fixture.sql` |
+
+To check the app or run the Postgres tests on a Mac without a database, start a throwaway one in Docker. It deletes itself when stopped:
+
+```sh
+docker run -d --rm --name tableultra-check -e POSTGRES_PASSWORD=check -p 127.0.0.1:55432:5432 postgres:18
+docker exec -i tableultra-check psql -U postgres -q < crates/pg/tests/fixture.sql
+# connect the app to postgres://postgres:check@localhost:55432/postgres
+# or: TU_TEST_DATABASE_URL=postgres://postgres:check@localhost:55432/postgres cargo test --workspace
+docker stop tableultra-check
+```
 
 ## Layout
 

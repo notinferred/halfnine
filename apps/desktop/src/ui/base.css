@@ -1,4 +1,5 @@
 @import "./tokens.css";
+@import "./controls.css";
 
 *,
 *::before,
@@ -23,16 +24,46 @@ body {
   overflow: hidden;
 }
 
+/* On macOS the title bar is drawn over the content, so each pane keeps a strip clear of the traffic lights. */
+:root {
+  --chrome-top: 8px;
+}
+
+[data-platform="mac"] {
+  --chrome-top: var(--titlebar-height);
+}
+
 h1,
+h2,
 p {
   margin: 0;
 }
 
-/* On macOS the title bar is drawn over the content, so a strip at the top drags the window and keeps clear of the traffic lights. */
-.titlebar {
-  height: 0;
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
-[data-platform="mac"] .titlebar {
-  height: var(--titlebar-height);
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

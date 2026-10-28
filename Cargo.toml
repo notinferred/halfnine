@@ -12,10 +12,38 @@ publish = false
 unsafe_code = "forbid"
 
 # One version of each dependency for the whole workspace; crates refer to it with `workspace = true`.
-# Exact, as each was published at least two weeks before it was added (2026-10-14).
+# Exact, as each was published at least two weeks before it was added (2026-10-28).
 [workspace.dependencies]
+tu-core = { path = "crates/core" }
+tu-pg = { path = "crates/pg" }
+
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+thiserror = "=2.0.21"
+url = "=2.5.8"
+percent-encoding = "=2.3.2"
+uuid = { version = "=1.28.0", features = ["v4"] }
+log = "=0.4.34"
+tokio = { version = "=1.53.3", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
+
+# Postgres through sqlx, with TLS verified against the operating system's certificates.
+sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots"] }
+# SSH tunnels. ring rather than the default aws-lc-rs, which needs a C toolchain to build.
+russh = { version = "=0.64.1", default-features = false, features = ["ring", "rsa"] }
+
 tauri = { version = "=2.12.3", features = [] }
 tauri-build = { version = "=2.7.2", features = [] }
+tauri-plugin-window-state = "=2.5.0"
+tauri-plugin-single-instance = "=2.5.4"
+tauri-plugin-log = "=2.10.1"
+# Typed bindings between Rust and the UI. tauri-specta has no stable 2.0; rc.25 and the specta crates it was released with.
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "=0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+# Passwords in the macOS Keychain and the Windows Credential Manager.
+keyring-core = "=1.0.1"
+apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
+windows-native-keyring-store = "=1.1.0"
 
 # A release build is the one people keep open all day, so it is built for size.
 [profile.release]

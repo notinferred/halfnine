@@ -1,15 +1,8 @@
-import { Glyph } from "./ui/glyph.tsx";
-import "./app.css";
+import { ConnectionsScreen } from "./features/connections/connections-screen.tsx";
+import { Workspace } from "./features/workspace/workspace.tsx";
+import { useWorkspace } from "./state.ts";
 
 export function App() {
-  return (
-    <div className="window">
-      <header className="titlebar" data-tauri-drag-region />
-      <main className="welcome">
-        <Glyph size={56} />
-        <h1>TableUltra</h1>
-        <p>Connect to a PostgreSQL database to begin.</p>
-      </main>
-    </div>
-  );
+  const session = useWorkspace((s) => s.session);
+  return session ? <Workspace session={session} /> : <ConnectionsScreen />;
 }

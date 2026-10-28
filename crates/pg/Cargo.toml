@@ -1,0 +1,16 @@
+[package]
+name = "tu-pg"
+description = "TableUltra's Postgres adapter: connections, SSH tunnels, the catalog, and the SQL the app builds."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+tu-core.workspace = true
+sqlx.workspace = true
+russh.workspace = true
+tokio.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true
