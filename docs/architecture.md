@@ -11,6 +11,8 @@ crates/pg         tu-pg (M1): the Postgres adapter. Implements core's Database t
 crates/core       tu-core (M1): pure types and the Database trait. No I/O.
 ```
 
+From M5, AI agents reach the app through `tableultra mcp`, the same binary started by the agent over stdio. That process holds no logic. It forwards each call over a local socket to the running app, which owns the access check, approvals, the activity log and the database connections.
+
 Dependencies point inward: desktop, then the adapters, then core. Each crate's `Cargo.toml` is what enforces this, because core can't import a library it doesn't depend on. Adding MySQL later means adding a new adapter crate that implements `Database`. Nothing else changes.
 
 Values cross the boundary as Postgres's own text. The app reads every value as text and writes edits back as `$n::text::<column type>`. Postgres's own input and output functions therefore do every type conversion, and every type works, extension types included, without per-type code in the app.
@@ -31,6 +33,8 @@ Values cross the boundary as Postgres's own text. The app reads every value as t
 | sqlx 0.9, Postgres driver (M1, spike) | It has rustls TLS and a pool, and `raw_sql` returns values as text. `tokio-postgres` is the fallback |
 | keyring-core (M1) | It stores passwords in the macOS Keychain and the Windows Credential Manager |
 | Tauri plugins: store, window-state, single-instance, dialog, log (M1) | These are small official plugins, so we don't write those features ourselves |
+| rmcp (M5, candidate) | It is the official Rust SDK for MCP, the protocol AI agents use to call tools |
+| bollard (M5, candidate) | It is a Rust client for the Docker Engine API. It finds, starts, stops and creates local Postgres containers through any Docker socket |
 
 ## The engineering invariants
 
@@ -53,4 +57,10 @@ This table checks the app against Dan's `architecture-invariants.md` and `ENGINE
 | Pinned dependencies | Versions are exact, published at least two weeks before they were added, with lockfiles. GitHub Actions are pinned to commit SHAs | partly: pnpm enforces the age for every JavaScript package, but Cargo can't for the crates beneath ours |
 | One artifact, promoted | A tag builds the installers once, into a draft release that Dan publishes | planned, M4 |
 | The eight fallacies | The database connection is the only network boundary. The UI never waits on it, and a dropped connection recovers | planned, M1 |
-| Brokers, locks, multiple regions, a public API | The app has none of these | dormant |
+| A trust boundary for AI agents | Agents are untrusted clients. Each MCP call is parsed at the edge, and the core checks it against that connection's access level, not the MCP process. Results are marked as data, so text in a row can't pass as an instruction. Approvals happen only in the app, and an agent can't raise its own access | planned, M5 |
+| Audit trail | Every agent call is appended to a log that is never rewritten. A write keeps the rows it changed, so it can be reverted | planned, M5 |
+| Runtime off-switch | One switch pauses all agent access, with no release needed | planned, M5 |
+| Idempotent writes | Each change an agent proposes has an id, so approving it twice or retrying it applies it once | planned, M5 |
+| Admission control for agents | Each agent query has a time limit and a row cap, and a sensitive column is masked before any result leaves the app | planned, M5 |
+| Single-owner schema evolution, in projects | In a project that has migrations, an agent's schema change becomes a migration file, so the project stays the only owner of its schema | planned, M5 |
+| Brokers, locks, multiple regions, a public API | The app has none of these. MCP is local, between processes on one machine | dormant |
