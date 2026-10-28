@@ -2,10 +2,10 @@
 
 ## Where things stand (2026-10-28)
 
-M0 is nearly done:
+M0 is done and M1 is under way:
 
 - The repository, pinned toolchains, lockfiles, CI check, design tokens and icon exist, and Dan approved the design.
-- The window is written to open on a welcome screen, but it hasn't been compiled yet. Rust is installed on Dan's Mac, and the first `pnpm dev` waits for his go-ahead.
+- The app compiles and opens on macOS.
 - The repository isn't on GitHub yet, so CI hasn't run.
 
 The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes TableUltra the database tool AI agents use, and adds local Docker databases.
@@ -18,7 +18,7 @@ The scope grew on 2026-10-28. M1–M3 now include the everyday features of a dat
 - [x] An icon that doesn't depend on the name, drawn once and rendered by `pnpm icons`
 - [x] Design pass: Dan approved the mockup of Connections, Table, Query and the palette (2026-10-28). The tokens match it
 - [x] Rust installed through Homebrew, and `Cargo.lock` committed
-- [ ] First compile and run on macOS, when Dan says to
+- [x] First compile and run on macOS (2026-10-28): it compiles in 21 seconds and opens the window. The screen itself hasn't been looked at yet
 
 ## M1: Connect and browse
 
