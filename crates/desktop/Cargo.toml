@@ -1,0 +1,19 @@
+[package]
+name = "tu-desktop"
+description = "TableUltra's desktop app: the window, the menu, and the commands the UI calls."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tableultra"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+tauri.workspace = true
+
+[lints]
+workspace = true

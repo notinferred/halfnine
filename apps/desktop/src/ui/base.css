@@ -1,0 +1,38 @@
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--text-md) / 1.4 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+/* On macOS the title bar is drawn over the content, so a strip at the top drags the window and keeps clear of the traffic lights. */
+.titlebar {
+  height: 0;
+}
+
+[data-platform="mac"] .titlebar {
+  height: var(--titlebar-height);
+}

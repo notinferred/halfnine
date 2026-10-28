@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>TableUltra</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2e35"/>
+      <stop offset="1" stop-color="#16171b"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tile)"/>
+  <g transform="translate(228 228)">
+    <rect x="0" y="0" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.32"/>
+    <rect x="200" y="0" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.32"/>
+    <rect x="400" y="0" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.32"/>
+    <rect x="0" y="200" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.14"/>
+    <rect x="200" y="200" width="168" height="168" rx="28" fill="#6d8fff"/>
+    <rect x="400" y="200" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.14"/>
+    <rect x="0" y="400" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.14"/>
+    <rect x="200" y="400" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.14"/>
+    <rect x="400" y="400" width="168" height="168" rx="28" fill="#fff" fill-opacity="0.14"/>
+  </g>
+</svg>

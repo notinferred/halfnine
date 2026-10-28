@@ -1,0 +1,26 @@
+# The Rust crates. Dependencies point inward: the desktop app, then the database adapters, then core.
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# One version of each dependency for the whole workspace; crates refer to it with `workspace = true`.
+# Exact, as each was published at least two weeks before it was added (2026-10-14).
+[workspace.dependencies]
+tauri = { version = "=2.12.4", features = [] }
+tauri-build = { version = "=2.7.3", features = [] }
+
+# A release build is the one people keep open all day, so it is built for size.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

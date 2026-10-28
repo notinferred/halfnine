@@ -1,0 +1,2 @@
+# Git stores text files with LF and checks them out with LF, whatever core.autocrlf says, so git and the formatter agree.
+* text=auto eol=lf

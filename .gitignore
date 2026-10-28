@@ -1,0 +1,7 @@
+node_modules/
+dist/
+target/
+*.log
+.DS_Store
+# What tauri-build writes on every build.
+crates/desktop/gen/

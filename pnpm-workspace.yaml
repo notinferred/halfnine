@@ -1,0 +1,14 @@
+packages:
+  - apps/*
+
+# One version of each dependency for the whole repository; packages refer to it as "catalog:".
+catalog:
+  # Exact, as each was published at least two weeks before it was added (2026-10-14).
+  "@tauri-apps/cli": 2.12.3
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@vitejs/plugin-react": 6.1.2
+  react: 19.3.1
+  react-dom: 19.3.1
+  typescript: 7.0.2
+  vite: 8.3.4

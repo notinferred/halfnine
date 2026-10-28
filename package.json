@@ -1,0 +1,21 @@
+{
+  "name": "tableultra",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.13.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "tauri": "tauri",
+    "icons": "tauri icon assets/brand/app-icon.svg -o crates/desktop/icons && cd crates/desktop/icons && rm -rf android ios Square*Logo.png StoreLogo.png 64x64.png",
+    "typecheck": "pnpm -r typecheck",
+    "check": "biome check .",
+    "format": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@tauri-apps/cli": "catalog:"
+  }
+}
