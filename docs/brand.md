@@ -29,6 +29,17 @@ Colours are defined in `apps/desktop/src/ui/tokens.css`. Nothing else defines th
 - **Spacing and radii.** Spacing comes in steps of 4 px. Radii are 4, 6 and 10 px.
 - **Icons.** Icons are Lucide's at a 1.5 px stroke, and there are no emoji.
 
+## Structure
+
+The whole window follows one layout, so a new feature finds its place rather than adding a panel.
+
+- **The sidebar is the map.** It shows the connection at the top and the tables in the middle. The app's pages sit at the foot: Queries and Sessions today, with Agents and Docker to come in M5. They are always in view, and nothing collapses them.
+- **A new kind of place becomes a page in that footer,** not another panel, menu or setting.
+- **A page shows one thing at a time.** Queries lists the saved queries, and a switch on the page shows History instead.
+- **What you open becomes a tab:** a table, a query or a page. ⌘K reaches any of them by name.
+- **An empty area offers its next step as a button,** never as instructions to read.
+- **Shortcuts are shown as keycaps,** one per key, so ⌘ and . can't read as ⌘ followed by a full stop.
+
 ## Icon
 
 The icon is a 3 × 3 table. The top row is its header, and the centre cell is selected in the accent colour. It sits on a dark tile drawn to Apple's icon grid (an 824 px tile on a 1024 px canvas). It is drawn once in `assets/brand/app-icon.svg`, and `pnpm icons` renders every size from it. The welcome screen draws the same mark in `apps/desktop/src/ui/glyph.tsx`.

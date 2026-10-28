@@ -1,0 +1,113 @@
+.queries-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.queries-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.queries-header h1 {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.queries-new {
+  margin-left: auto;
+  height: 30px;
+}
+
+.queries-list {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 var(--space-6) var(--space-8);
+  list-style: none;
+}
+
+.queries-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  border-radius: var(--radius-lg);
+}
+
+.queries-item:hover {
+  background: var(--hover);
+}
+
+.queries-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-2);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.queries-name {
+  font-weight: 500;
+}
+
+.queries-run {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.queries-outcome {
+  font-weight: 500;
+}
+
+/* Two lines of the SQL, enough to recognize it. */
+.queries-sql {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.queries-delete,
+.queries-confirm {
+  margin: var(--space-3) var(--space-2) 0 0;
+}
+
+.queries-delete {
+  height: 24px;
+  color: var(--text-2);
+  opacity: 0;
+}
+
+.queries-item:hover .queries-delete,
+.queries-delete:focus-visible {
+  opacity: 1;
+}
+
+.queries-confirm {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.queries-confirm .btn {
+  height: 24px;
+}
+
+.queries-empty {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-sm);
+}

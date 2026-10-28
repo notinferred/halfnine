@@ -11,7 +11,12 @@ M0 and M1 are done, and M2 is built:
   - Analyze failed, because a selection was clipped to a fragment.
 
   Both are fixed. Dan hasn't yet reported a re-check of either.
-- Next, from Dan's use: the history of what ran, and the way into a new query, need to be visible in the window rather than only in ⌘K and keyboard hints.
+- The way into a new query, and the history of what ran, are now visible in the window, not only in ⌘K:
+  - A footer of pages in the sidebar: Queries and Sessions.
+  - The Queries page: saved queries, with History behind a switch.
+  - Buttons in the empty workspace.
+
+  The structure is in docs/brand.md. Dan hasn't seen it yet.
 - The repository isn't on GitHub yet, so CI hasn't run.
 
 The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes TableUltra the database tool AI agents use, and adds local Docker databases.

@@ -1,5 +1,5 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { ChevronRight, Eye, Layers, Lock, Sheet, Table2 } from "lucide-react";
+import { Activity, ChevronRight, Eye, Layers, Lock, ScrollText, Sheet, Table2 } from "lucide-react";
 import { useState } from "react";
 import type { RelationKind, SchemaNode, SessionInfo } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
@@ -89,7 +89,29 @@ export function Sidebar(props: {
           <SchemaBranch key={node.name} node={node} query={query} startOpen={node.name === "public" || nodes.length === 1} />
         ))}
       </div>
+      <Pages />
     </nav>
+  );
+}
+
+const PAGES = [
+  { kind: "queries", name: "Queries", Icon: ScrollText },
+  { kind: "sessions", name: "Sessions", Icon: Activity },
+] as const;
+
+/** The app's pages, always in view at the foot of the sidebar. M5 adds Agents and Docker here. */
+function Pages() {
+  const openPage = useWorkspace((s) => s.openPage);
+  const current = useWorkspace((s) => s.tabs.find((t) => t.id === s.active)?.kind);
+  return (
+    <div className="pages">
+      {PAGES.map(({ kind, name, Icon }) => (
+        <button key={kind} type="button" className="page-link" aria-current={current === kind || undefined} onClick={() => openPage(kind)}>
+          <Icon className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
+          {name}
+        </button>
+      ))}
+    </div>
   );
 }
 

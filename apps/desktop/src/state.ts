@@ -19,9 +19,10 @@ export type QueryTab = {
   savedId: string | null;
 };
 
-export type SessionsTab = { kind: "sessions"; id: string };
+/** The app's pages, opened from the sidebar's footer. Each is open at most once. */
+export type PageTab = { kind: "queries" | "sessions"; id: string };
 
-export type Tab = TableTab | QueryTab | SessionsTab;
+export type Tab = TableTab | QueryTab | PageTab;
 
 type Workspace = {
   session: SessionInfo | null;
@@ -33,7 +34,7 @@ type Workspace = {
   leave: () => void;
   openTable: (table: TableRef, filter?: Filter | null) => void;
   newQuery: (sql?: string, title?: string, savedId?: string | null) => void;
-  openSessions: () => void;
+  openPage: (kind: PageTab["kind"]) => void;
   updateQuery: (id: string, change: Partial<Pick<QueryTab, "sql" | "title" | "savedId">>) => void;
   closeTab: (id: string) => void;
   activate: (id: string) => void;
@@ -63,10 +64,10 @@ export const useWorkspace = create<Workspace>((set, get) => {
       set({ queriesOpened: opened });
       add({ kind: "query", id: crypto.randomUUID(), title: title ?? `Query ${opened}`, sql, savedId });
     },
-    openSessions: () => {
-      const existing = get().tabs.find((t) => t.kind === "sessions");
+    openPage: (kind) => {
+      const existing = get().tabs.find((t) => t.kind === kind);
       if (existing) set({ active: existing.id, paletteOpen: false });
-      else add({ kind: "sessions", id: crypto.randomUUID() });
+      else add({ kind, id: crypto.randomUUID() });
     },
     updateQuery: (id, change) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "query" ? { ...t, ...change } : t)) })),
     closeTab: (id) =>

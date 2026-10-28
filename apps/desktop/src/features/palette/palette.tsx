@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { Activity, Bookmark, ChevronRight, Eye, History, Layers, Search, Table2 } from "lucide-react";
+import { Activity, Bookmark, ChevronRight, Eye, History, Layers, ScrollText, Search, Table2 } from "lucide-react";
 import { commands, type SchemaNode, type SessionInfo } from "../../ipc/bindings.ts";
 import { useWorkspace } from "../../state.ts";
 import { modKey } from "../../ui/shortcuts.ts";
@@ -10,7 +10,7 @@ const firstLine = (sql: string) => sql.trim().split("\n")[0]?.slice(0, 80) ?? ""
 
 /** ⌘K: go to any table, view or query by typing part of its name, or run an action. */
 export function Palette(props: { session: SessionInfo; schema: SchemaNode[]; onRefresh: () => void; onDisconnect: () => void }) {
-  const { openTable, newQuery, openSessions, setPaletteOpen } = useWorkspace();
+  const { openTable, newQuery, openPage, setPaletteOpen } = useWorkspace();
   const saved = useQuery({ queryKey: ["saved"], queryFn: commands.listSavedQueries });
   const history = useQuery({ queryKey: ["history"], queryFn: commands.listHistory });
   const close = () => setPaletteOpen(false);
@@ -85,7 +85,11 @@ export function Palette(props: { session: SessionInfo; schema: SchemaNode[]; onR
               <span className="palette-name">New query</span>
               <span className="palette-keys">{modKey}T</span>
             </Command.Item>
-            <Command.Item value="Server sessions activity" onSelect={openSessions}>
+            <Command.Item value="Queries saved history" onSelect={() => openPage("queries")}>
+              <ScrollText size={15} strokeWidth={1.5} aria-hidden="true" />
+              <span className="palette-name">Queries</span>
+            </Command.Item>
+            <Command.Item value="Server sessions activity" onSelect={() => openPage("sessions")}>
               <Activity size={15} strokeWidth={1.5} aria-hidden="true" />
               <span className="palette-name">Server sessions</span>
             </Command.Item>

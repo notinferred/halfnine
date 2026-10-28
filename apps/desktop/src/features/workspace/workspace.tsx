@@ -1,10 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, FileCode, Plus, Search, Table2, X } from "lucide-react";
+import { Activity, FileCode, Plus, ScrollText, Search, Table2, X } from "lucide-react";
 import { commands, type SessionInfo } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { type Tab, useWorkspace } from "../../state.ts";
-import { modKey, useShortcuts } from "../../ui/shortcuts.ts";
+import { Glyph } from "../../ui/glyph.tsx";
+import { Keys } from "../../ui/keys.tsx";
+import { modCap, modKey, useShortcuts } from "../../ui/shortcuts.ts";
 import { Palette } from "../palette/palette.tsx";
+import { QueriesPage } from "../queries/queries-page.tsx";
 import { QueryTab } from "../query/query-tab.tsx";
 import { SessionsTab } from "../sessions/sessions-tab.tsx";
 import { TableTab } from "../table/table-tab.tsx";
@@ -14,10 +17,10 @@ import "./workspace.css";
 function title(tab: Tab) {
   if (tab.kind === "table") return tab.table.name;
   if (tab.kind === "query") return tab.title;
-  return "Sessions";
+  return tab.kind === "queries" ? "Queries" : "Sessions";
 }
 
-const TAB_ICON = { table: Table2, query: FileCode, sessions: Activity };
+const TAB_ICON = { table: Table2, query: FileCode, queries: ScrollText, sessions: Activity };
 
 export function Workspace({ session }: { session: SessionInfo }) {
   const queries = useQueryClient();
@@ -83,15 +86,24 @@ export function Workspace({ session }: { session: SessionInfo }) {
         </div>
         {activeTab?.kind === "table" && <TableTab key={activeTab.id} session={session} tab={activeTab} />}
         {activeTab?.kind === "query" && <QueryTab key={activeTab.id} session={session} tab={activeTab} />}
+        {activeTab?.kind === "queries" && <QueriesPage key={activeTab.id} session={session} />}
         {activeTab?.kind === "sessions" && <SessionsTab key={activeTab.id} session={session} />}
         {!activeTab && (
           <div className="workspace-empty">
             {schema.isError ? (
               <p className="status-error">{describe(schema.error)}</p>
             ) : (
-              <p className="muted">
-                Choose a table in the sidebar, press {modKey}K to go to one, or {modKey}T for a new query.
-              </p>
+              <div className="workspace-start">
+                <Glyph size={44} />
+                <div className="workspace-actions">
+                  <button type="button" className="btn btn-primary" onClick={() => newQuery()}>
+                    New query <Keys keys={[modCap, "T"]} />
+                  </button>
+                  <button type="button" className="btn" onClick={() => setPaletteOpen(true)}>
+                    Go to a table <Keys keys={[modCap, "K"]} />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

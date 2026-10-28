@@ -36,3 +36,11 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
   - The statement at the cursor is tinted, as the approved mockup showed.
   - Explain errors quote what they were sent.
   - Shortcuts are drawn as keycaps (⌘ and . apart).
+- **Where queries live.** **Dan:** "commit and clean up i cant see where i ran commands or anything like that I feel like the UI should present this query option maybe im wrong instead of just the text idk where to follow our current design standard yk but lets get that fixed". Then: "I feel like it should be on the bottom and no collapse all of the options in the page of queries yk".
+  - **Shown:** three layouts. **Dan, on the first** (a Queries page opened from the foot of the sidebar): "Yes, idk about history maybe another button inside the page to see history or something like that but idk what we are currently doing and idk what other pages i should add like queries".
+  - **Dan:** "And dont overwhelm the user with options its the whole design", and "Remember my design philosophy we have been working with yk".
+  - **Built:**
+    - A fixed footer of pages in the sidebar: Queries and Sessions. M5 adds Agents and Docker there.
+    - The Queries page shows the saved queries, with History behind a switch on the page.
+    - The empty workspace offers buttons.
+    - The structure is written into docs/brand.md.
