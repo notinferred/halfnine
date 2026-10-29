@@ -3,7 +3,7 @@
 use tauri_specta::{Builder, ErrorHandlingMode, collect_commands, collect_events};
 
 use crate::agents::desk::{AgentActivityAdded, AgentsChanged};
-use crate::{agents, commands};
+use crate::{agents, commands, setup};
 
 #[cfg(any(debug_assertions, test))]
 const OUTPUT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/desktop/src/ipc/bindings.ts");
@@ -47,6 +47,9 @@ pub fn builder() -> Builder<tauri::Wry> {
             agents::commands::cancel_password_request,
             agents::commands::set_agents_paused,
             agents::commands::agent_activity,
+            setup::client_setups,
+            setup::plan_client,
+            setup::connect_client,
         ])
         .events(collect_events![AgentsChanged, AgentActivityAdded])
 }

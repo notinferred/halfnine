@@ -3,6 +3,7 @@ import { useState } from "react";
 import { type ActivityEntry, commands, type Outcome } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { ago } from "../../ui/time.ts";
+import { Connect } from "./connect.tsx";
 import "../queries/queries.css";
 import "./agents.css";
 
@@ -19,12 +20,13 @@ const OUTCOME: Record<Outcome, { word: string; tone: "status-ok" | "status-error
   error: { word: "Failed", tone: "status-error" },
 };
 
-/** The Agents page: which agents are connected, everything they did, and one switch that pauses them all. */
+/** The Agents page: which agents are connected, everything they did, adding Halfnine to an AI tool, and one switch that pauses them all. */
 export function AgentsPage() {
   const queries = useQueryClient();
   const agents = useQuery({ queryKey: ["agents"], queryFn: commands.agentState });
   const activity = useQuery({ queryKey: ["agentActivity"], queryFn: () => commands.agentActivity(300) });
   const [error, setError] = useState<string | null>(null);
+  const [showing, setShowing] = useState<"activity" | "connect">("activity");
   const paused = agents.data?.paused ?? false;
   const clients = agents.data?.clients ?? [];
 
@@ -42,6 +44,14 @@ export function AgentsPage() {
     <div className="queries-page">
       <header className="queries-header">
         <h1>Agents</h1>
+        <fieldset className="segmented" aria-label="Show">
+          <button type="button" aria-pressed={showing === "activity"} onClick={() => setShowing("activity")}>
+            Activity
+          </button>
+          <button type="button" aria-pressed={showing === "connect"} onClick={() => setShowing("connect")}>
+            Connect
+          </button>
+        </fieldset>
         <div className="agents-pause">
           <span id="agents-pause-label">Pause agents</span>
           <button type="button" className="switch" aria-labelledby="agents-pause-label" aria-pressed={paused} onClick={() => void pause()} />
@@ -55,7 +65,7 @@ export function AgentsPage() {
             : clients.map((c) => `${c.agent} connected ${ago(c.sinceMs)}`).join(" · ")}
       </p>
       {(error ?? activity.error) && <p className="queries-empty status-error">{error ?? describe(activity.error)}</p>}
-      <Activity entries={activity.data ?? []} />
+      {showing === "activity" ? <Activity entries={activity.data ?? []} /> : <Connect />}
     </div>
   );
 }

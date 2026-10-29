@@ -34,6 +34,9 @@ keyring-core.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
 dirs.workspace = true
+open.workspace = true
+base64.workspace = true
+percent-encoding.workspace = true
 
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client"] }

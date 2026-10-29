@@ -11,6 +11,7 @@ mod mcp;
 mod queries;
 mod secrets;
 mod sessions;
+mod setup;
 mod store;
 
 use std::sync::Arc;

@@ -80,6 +80,10 @@ export const commands = {
 	cancelPasswordRequest: (id: string) => __TAURI_INVOKE<null>("cancel_password_request", { id }),
 	setAgentsPaused: (paused: boolean) => __TAURI_INVOKE<null>("set_agents_paused", { paused }),
 	agentActivity: (limit: number) => __TAURI_INVOKE<ActivityEntry[]>("agent_activity", { limit }),
+	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
+	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
+	/**  Does what `plan_client` showed. Returns what to do next, if anything. */
+	connectClient: (client: Client) => __TAURI_INVOKE<string>("connect_client", { client }),
 };
 
 /** Events */
@@ -160,6 +164,15 @@ inserts: ColumnValue[][] } |
 export type Choice = {
 	value: string,
 	label: string | null,
+};
+
+export type Client = "claudeCode" | "codex" | "cursor" | "vsCode" | "claudeDesktop";
+
+export type ClientSetup = {
+	client: Client,
+	name: string,
+	/**  Already set up with this copy of Halfnine, as far as its settings show. `None` when they can't tell. */
+	connected: boolean | null,
 };
 
 export type ClientView = {
@@ -447,6 +460,16 @@ export type SessionInfo = {
 	sessionId: string,
 	connection: ConnectionSpec,
 	server: ServerInfo,
+};
+
+/**  What connecting a client will do, shown before it does it. */
+export type SetupPlan = {
+	client: Client,
+	steps: string[],
+	/**  The same setup as a command or settings to paste, for doing it by hand. */
+	manual: string,
+	/**  Why Halfnine can't do it itself, when it can't, in which case `manual` is the way. */
+	blocked: string | null,
 };
 
 export type Sort = {

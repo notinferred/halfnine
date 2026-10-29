@@ -19,7 +19,8 @@ hn-core = { path = "crates/core" }
 hn-pg = { path = "crates/pg" }
 
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
+# Keeps the key order of the other apps' settings files that setting up an agent edits.
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 thiserror = "=2.0.21"
 url = "=2.5.8"
 percent-encoding = "=2.3.2"
@@ -50,6 +51,9 @@ rmcp = { version = "=3.5.1", default-features = false, features = ["server", "ma
 schemars = "=1.2.3"
 # Where the bridge finds the app's config folder without starting Tauri, by the same rules Tauri follows.
 dirs = "=7.0.0"
+# Opens Cursor's and VS Code's own install screens for Halfnine, from Rust only. What Tauri's opener plugin uses inside.
+open = "=5.4.4"
+base64 = "=0.22.1"
 # Passwords in the macOS Keychain and the Windows Credential Manager.
 keyring-core = "=1.0.1"
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
