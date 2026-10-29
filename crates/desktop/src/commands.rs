@@ -3,8 +3,8 @@
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use hn_core::{
-    Activity, Changes, Choice, Committed, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome,
-    SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
+    Activity, AgentAccess, Changes, Choice, Committed, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest,
+    RunOutcome, SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
 use hn_pg::{PgDatabase, Secrets};
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,7 @@ pub struct ConnectionDraft {
     pub read_only: bool,
     pub ssh: Option<SshSpec>,
     pub save_password: bool,
+    pub agent_access: Option<AgentAccess>,
     pub password: SecretChange,
     pub ssh_secret: SecretChange,
 }
@@ -481,6 +482,7 @@ fn spec_from(draft: &ConnectionDraft) -> Result<ConnectionSpec, Error> {
         read_only: draft.read_only,
         ssh,
         save_password: draft.save_password,
+        agent_access: draft.agent_access,
     })
 }
 

@@ -13,5 +13,8 @@ thiserror.workspace = true
 url.workspace = true
 percent-encoding.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

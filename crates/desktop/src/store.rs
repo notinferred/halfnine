@@ -91,6 +91,7 @@ mod tests {
             read_only: false,
             ssh: None,
             save_password: true,
+            agent_access: None,
         }
     }
 

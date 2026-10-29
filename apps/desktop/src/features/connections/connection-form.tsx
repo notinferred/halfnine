@@ -1,5 +1,14 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { type ConnectionDraft, type ConnectionSpec, commands, type Label, type SecretChange, type TlsMode, type Typed } from "../../ipc/bindings.ts";
+import {
+  type AgentAccess,
+  type ConnectionDraft,
+  type ConnectionSpec,
+  commands,
+  type Label,
+  type SecretChange,
+  type TlsMode,
+  type Typed,
+} from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { isMac } from "../../ui/shortcuts.ts";
 
@@ -15,6 +24,8 @@ type Form = {
   tls: TlsMode;
   label: Label;
   readOnly: boolean;
+  /** `null` until someone picks a level, which keeps the label's default. */
+  agentAccess: AgentAccess | null;
   /** `null` until typed into, which keeps the secret already in the keychain. */
   password: string | null;
   savePassword: boolean;
@@ -36,6 +47,16 @@ const LABELS: { value: Label; name: string }[] = [
   { value: "red", name: "Red label" },
 ];
 
+const AGENT_ACCESS: { value: AgentAccess; name: string }[] = [
+  { value: "off", name: "Off" },
+  { value: "read", name: "Read" },
+  { value: "approvedWrites", name: "Read with approved writes" },
+  { value: "full", name: "Full" },
+];
+
+/** What agents get until a level is picked, as `ConnectionSpec::agent_access` decides it. */
+const defaultAccess = (label: Label): AgentAccess => (label === "red" ? "off" : "read");
+
 const SAVE_IN = isMac ? "Save in Keychain" : "Save in Credential Manager";
 
 function initial(spec: ConnectionSpec | null): Form {
@@ -49,6 +70,7 @@ function initial(spec: ConnectionSpec | null): Form {
     tls: spec?.tls ?? "prefer",
     label: spec?.label ?? "none",
     readOnly: spec?.readOnly ?? false,
+    agentAccess: spec?.agentAccess ?? null,
     password: null,
     savePassword: spec?.savePassword !== false,
     ssh: spec?.ssh != null,
@@ -84,6 +106,7 @@ function draftOf(form: Form, id: string | null): ConnectionDraft {
         }
       : null,
     savePassword: form.savePassword,
+    agentAccess: form.agentAccess,
     password: secret(form.password),
     // Turning SSH off leaves its saved secret alone, so saving the form needn't touch the keychain.
     sshSecret: form.ssh && form.sshMethod !== "agent" ? secret(form.sshSecret) : { action: "keep" },
@@ -346,6 +369,25 @@ export function ConnectionForm(props: {
             aria-pressed={form.readOnly}
             onClick={() => set("readOnly", !form.readOnly)}
           />
+        </div>
+        <div className="row row-switch">
+          <label htmlFor="agent-access" className="row-label">
+            Agents
+          </label>
+          <span className="field-note">
+            {form.readOnly ? "Read-only, so agents only ever read here." : "What AI agents may do here through Halfnine."}
+          </span>
+          <select
+            id="agent-access"
+            value={form.agentAccess ?? defaultAccess(form.label)}
+            onChange={(e) => set("agentAccess", e.target.value as AgentAccess)}
+          >
+            {AGENT_ACCESS.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

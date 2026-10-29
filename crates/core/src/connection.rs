@@ -24,10 +24,37 @@ pub struct ConnectionSpec {
     /// before this choice existed had theirs saved.
     #[serde(default = "saved_before_the_choice")]
     pub save_password: bool,
+    /// What AI agents connected through `halfnine mcp` may do here. `None` until someone picks a level, which keeps the
+    /// label's default.
+    #[serde(default)]
+    pub agent_access: Option<AgentAccess>,
 }
 
 fn saved_before_the_choice() -> bool {
     true
+}
+
+impl ConnectionSpec {
+    /// The level agents get: the one picked, or else Off for a red label and Read for any other.
+    pub fn agent_access(&self) -> AgentAccess {
+        self.agent_access.unwrap_or(match self.label {
+            Label::Red => AgentAccess::Off,
+            _ => AgentAccess::Read,
+        })
+    }
+}
+
+/// What an AI agent may do on a connection. A read-only connection stays read-only whatever this says.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentAccess {
+    Off,
+    /// Describe and query, never write.
+    Read,
+    /// Writes too, each after someone approves it in the app.
+    ApprovedWrites,
+    /// Writes without asking.
+    Full,
 }
 
 /// The same choices as libpq's `sslmode`, named the same way.
@@ -147,6 +174,18 @@ mod tests {
             (parts.port, parts.user.as_str(), parts.database.as_str(), parts.tls),
             (5432, "", "", None)
         );
+    }
+
+    #[test]
+    fn agents_get_the_label_default_until_a_level_is_picked() {
+        let saved =
+            r#"{"id":"a","name":"a","host":"h","port":5432,"user":"u","database":"d","tls":"prefer","label":"red","readOnly":false,"ssh":null}"#;
+        let mut spec: ConnectionSpec = serde_json::from_str(saved).unwrap();
+        assert_eq!((spec.agent_access, spec.agent_access()), (None, AgentAccess::Off));
+        spec.label = Label::Amber;
+        assert_eq!(spec.agent_access(), AgentAccess::Read);
+        spec.agent_access = Some(AgentAccess::Full);
+        assert_eq!(spec.agent_access(), AgentAccess::Full);
     }
 
     #[test]

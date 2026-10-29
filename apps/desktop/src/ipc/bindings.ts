@@ -30,7 +30,9 @@ export const commands = {
 /**  A condition you typed, used as the query's `WHERE`. */
 { kind: "where"; sql: string } | 
 /**  Rows whose columns equal these values, as when following a foreign key. */
-{ kind: "equals"; values: ColumnValue[] } | null) => __TAURI_INVOKE<number | null>("count_rows", { sessionId, table, filter }),
+{ kind: "equals"; values: ColumnValue[] } | 
+/**  Exactly these rows, each named by its primary key, as the rows an agent's change touches. */
+{ kind: "keys"; keys: ColumnValue[][] } | null) => __TAURI_INVOKE<number | null>("count_rows", { sessionId, table, filter }),
 	/**  Runs the editor's statements, each exactly one statement, and adds the run to the history. */
 	runStatements: (sessionId: string, statements: string[]) => __TAURI_INVOKE<RunOutcome>("run_statements", { sessionId, statements }),
 	cancelRun: (sessionId: string) => __TAURI_INVOKE<boolean>("cancel_run", { sessionId }),
@@ -82,6 +84,15 @@ export type Activity = {
 	query: string,
 };
 
+/**  What an AI agent may do on a connection. A read-only connection stays read-only whatever this says. */
+export type AgentAccess = "off" | 
+/**  Describe and query, never write. */
+"read" | 
+/**  Writes too, each after someone approves it in the app. */
+"approvedWrites" | 
+/**  Writes without asking. */
+"full";
+
 export type CellChange = {
 	column: string,
 	/**  The value as it was loaded. If the row holds something else by the time of the commit, nothing is written. */
@@ -89,7 +100,7 @@ export type CellChange = {
 	to: string | null,
 };
 
-/**  Changes someone staged in the app. They are shown as SQL first, then committed together in one transaction. */
+/**  Changes someone staged in the app, or an agent proposed. They are shown as SQL first, then committed together in one transaction. */
 export type Changes = 
 /**  Rows to delete, change and add, in that order. Rows are named by their primary key. */
 { kind: "rows"; table: TableRef; deletes: ColumnValue[][]; updates: RowUpdate[]; 
@@ -139,6 +150,7 @@ export type ConnectionDraft = {
 	readOnly: boolean,
 	ssh: SshSpec | null,
 	savePassword: boolean,
+	agentAccess: AgentAccess | null,
 	password: SecretChange,
 	sshSecret: SecretChange,
 };
@@ -161,6 +173,11 @@ export type ConnectionSpec = {
 	 *  before this choice existed had theirs saved.
 	 */
 	savePassword?: boolean,
+	/**
+	 *  What AI agents connected through `halfnine mcp` may do here. `None` until someone picks a level, which keeps the
+	 *  label's default.
+	 */
+	agentAccess?: AgentAccess | null,
 };
 
 export type Constraint = {
@@ -206,7 +223,9 @@ export type Filter =
 /**  A condition you typed, used as the query's `WHERE`. */
 { kind: "where"; sql: string } | 
 /**  Rows whose columns equal these values, as when following a foreign key. */
-{ kind: "equals"; values: ColumnValue[] };
+{ kind: "equals"; values: ColumnValue[] } | 
+/**  Exactly these rows, each named by its primary key, as the rows an agent's change touches. */
+{ kind: "keys"; keys: ColumnValue[][] };
 
 /**  A foreign key on this table: `columns` here point at `target_columns` in `target`. */
 export type ForeignKey = {

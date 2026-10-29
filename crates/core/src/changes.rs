@@ -3,8 +3,8 @@ use specta::Type;
 
 use crate::data::{Cell, ColumnValue, TableRef};
 
-/// Changes someone staged in the app. They are shown as SQL first, then committed together in one transaction.
-#[derive(Clone, Debug, Deserialize, Type)]
+/// Changes someone staged in the app, or an agent proposed. They are shown as SQL first, then committed together in one transaction.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Changes {
     /// Rows to delete, change and add, in that order. Rows are named by their primary key.
@@ -19,7 +19,7 @@ pub enum Changes {
     Structure { table: TableRef, changes: Vec<StructureChange> },
 }
 
-#[derive(Clone, Debug, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RowUpdate {
     /// The row's primary key, as it was loaded.
@@ -27,7 +27,7 @@ pub struct RowUpdate {
     pub cells: Vec<CellChange>,
 }
 
-#[derive(Clone, Debug, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CellChange {
     pub column: String,
@@ -37,7 +37,7 @@ pub struct CellChange {
 }
 
 /// One change to a table's structure. Types and defaults are SQL someone typed, as Postgres would read them.
-#[derive(Clone, Debug, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum StructureChange {
     CreateTable { columns: Vec<NewColumn> },
@@ -53,7 +53,7 @@ pub enum StructureChange {
     Drop,
 }
 
-#[derive(Clone, Debug, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NewColumn {
     pub name: String,

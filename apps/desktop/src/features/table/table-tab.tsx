@@ -44,12 +44,13 @@ const PAGE = 500;
 /** Values longer than this, or on several lines, are edited in the row panel rather than in the cell. */
 const LONG = 200;
 
+const plural = (n: number, one: string) => `${n.toLocaleString()} ${n === 1 ? one : `${one}s`}`;
+
 function describeFilter(filter: Filter): string {
   if (filter.kind === "where") return filter.sql;
+  if (filter.kind === "keys") return plural(filter.keys.length, "row");
   return filter.values.map((v) => (v.value === null ? `${v.column} is null` : `${v.column} = ${v.value}`)).join(" and ");
 }
-
-const plural = (n: number, one: string) => `${n.toLocaleString()} ${n === 1 ? one : `${one}s`}`;
 
 export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
   const id = session.sessionId;
@@ -312,7 +313,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             {structureChangeList.length > 0 && <StagedMark />}
           </button>
         </fieldset>
-        {tab.filter?.kind === "equals" ? (
+        {tab.filter && tab.filter.kind !== "where" ? (
           <div className="filter-chip">
             <span className="mono">{describeFilter(tab.filter)}</span>
             <button type="button" aria-label="Show every row" onClick={() => setFilter(tab.id, null)}>

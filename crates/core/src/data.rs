@@ -141,16 +141,18 @@ pub struct Sort {
     pub descending: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Filter {
     /// A condition you typed, used as the query's `WHERE`.
     Where { sql: String },
     /// Rows whose columns equal these values, as when following a foreign key.
     Equals { values: Vec<ColumnValue> },
+    /// Exactly these rows, each named by its primary key, as the rows an agent's change touches.
+    Keys { keys: Vec<Vec<ColumnValue>> },
 }
 
-#[derive(Clone, Debug, Deserialize, Type)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnValue {
     pub column: String,

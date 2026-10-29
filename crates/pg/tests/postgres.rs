@@ -25,6 +25,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
         read_only,
         ssh: None,
         save_password: false,
+        agent_access: None,
     };
     let secrets = Secrets {
         password: parts.password,

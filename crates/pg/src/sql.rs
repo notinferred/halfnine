@@ -1,6 +1,6 @@
 //! The SQL the app builds. Identifiers only ever enter it through [`ident`]; values only as bound parameters.
 
-use hn_core::{Error, ErrorKind, Filter, PageRequest, Sort, TableRef};
+use hn_core::{ColumnValue, Error, ErrorKind, Filter, PageRequest, Sort, TableRef};
 
 /// The longest value the grid receives; longer ones are cut and marked, so one huge cell can't stall a page.
 pub(crate) const CELL_LIMIT: usize = 65_536;
@@ -97,24 +97,41 @@ fn condition(filter: Option<&Filter>, columns: &[ColumnMeta], params: &mut Vec<O
         // which refuses a second statement after it.
         Some(Filter::Where { sql }) => Ok(format!(" WHERE ({sql})")),
         Some(Filter::Equals { values }) if values.is_empty() => Ok(String::new()),
-        Some(Filter::Equals { values }) => {
-            let terms = values
+        Some(Filter::Equals { values }) => Ok(format!(" WHERE {}", equals(values, columns, params)?)),
+        Some(Filter::Keys { keys }) if keys.is_empty() => Ok(" WHERE false".to_string()),
+        Some(Filter::Keys { keys }) if keys.len() > KEYS => Err(Error::new(
+            ErrorKind::Invalid,
+            format!("Halfnine shows at most {KEYS} rows picked by their key at once."),
+        )),
+        Some(Filter::Keys { keys }) => {
+            let rows = keys
                 .iter()
-                .map(|v| {
-                    let column = find(columns, &v.column)?;
-                    Ok(match &v.value {
-                        None => format!("{} IS NULL", ident(&column.name)),
-                        Some(text) => {
-                            params.push(Some(text.clone()));
-                            // Cast through text with the catalog's own type name, so Postgres parses the value and an index still applies.
-                            format!("{} = ${}::text::{}", ident(&column.name), params.len(), column.type_name)
-                        }
-                    })
-                })
+                .map(|key| equals(key, columns, params).map(|terms| format!("({terms})")))
                 .collect::<Result<Vec<_>, Error>>()?;
-            Ok(format!(" WHERE {}", terms.join(" AND ")))
+            Ok(format!(" WHERE {}", rows.join(" OR ")))
         }
     }
+}
+
+/// The most rows a [`Filter::Keys`] may name.
+pub(crate) const KEYS: usize = 500;
+
+fn equals(values: &[ColumnValue], columns: &[ColumnMeta], params: &mut Vec<Option<String>>) -> Result<String, Error> {
+    let terms = values
+        .iter()
+        .map(|v| {
+            let column = find(columns, &v.column)?;
+            Ok(match &v.value {
+                None => format!("{} IS NULL", ident(&column.name)),
+                Some(text) => {
+                    params.push(Some(text.clone()));
+                    // Cast through text with the catalog's own type name, so Postgres parses the value and an index still applies.
+                    format!("{} = ${}::text::{}", ident(&column.name), params.len(), column.type_name)
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(terms.join(" AND "))
 }
 
 /// The requested sort, then the primary key, so paging through equal values never skips or repeats a row.
@@ -238,7 +255,6 @@ pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hn_core::ColumnValue;
 
     fn columns() -> Vec<ColumnMeta> {
         vec![
@@ -318,6 +334,38 @@ mod tests {
                 .contains("WHERE \"id\" = $1::text::bigint AND \"say \"\"hi\"\"\" IS NULL ORDER BY")
         );
         assert_eq!(built.params, vec![Some("42".to_string())]);
+    }
+
+    #[test]
+    fn picks_rows_by_key_with_bound_values() {
+        let key = |id: &str| {
+            vec![ColumnValue {
+                column: "id".into(),
+                value: Some(id.into()),
+            }]
+        };
+        let built = page(
+            &request(
+                None,
+                Some(Filter::Keys {
+                    keys: vec![key("1"), key("2")],
+                }),
+            ),
+            &columns(),
+        )
+        .unwrap();
+        assert!(
+            built
+                .sql
+                .contains("WHERE (\"id\" = $1::text::bigint) OR (\"id\" = $2::text::bigint) ORDER BY")
+        );
+        assert_eq!(built.params, vec![Some("1".to_string()), Some("2".to_string())]);
+        let none = page(&request(None, Some(Filter::Keys { keys: vec![] })), &columns()).unwrap();
+        assert!(none.sql.contains(" WHERE false ORDER BY"));
+        let too_many = Filter::Keys {
+            keys: (0..=KEYS).map(|i| key(&i.to_string())).collect(),
+        };
+        assert_eq!(page(&request(None, Some(too_many)), &columns()).unwrap_err().kind, ErrorKind::Invalid);
     }
 
     #[test]
