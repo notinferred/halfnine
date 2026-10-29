@@ -196,7 +196,8 @@ impl PgDatabase {
                 deletes,
                 updates,
                 inserts,
-            } => changes::rows(table, deletes, updates, inserts, &self.columns(table).await?),
+                restores,
+            } => changes::rows(table, deletes, updates, inserts, restores, &self.columns(table).await?),
             Changes::Structure { table, changes } => {
                 let kind = if changes.iter().any(|c| matches!(c, StructureChange::Drop)) {
                     self.relation_kind(table).await?

@@ -122,7 +122,8 @@ pub fn reverse(changes: &Changes, restore: &[Vec<ColumnValue>], inserted: &[Vec<
             table: table.clone(),
             deletes: inserted.to_vec(),
             updates,
-            inserts: restore.to_vec(),
+            inserts: vec![],
+            restores: restore.to_vec(),
         },
         Filter::Keys { keys },
     ))
@@ -164,18 +165,23 @@ mod tests {
                 ],
             }],
             inserts: vec![vec![value("name", "Bo")]],
+            restores: vec![],
         };
         let restore = vec![vec![value("id", "2"), value("name", "Cy")]];
         let inserted = vec![vec![value("id", "3")]];
         let (reversed, filter) = reverse(&change, &restore, &inserted).unwrap();
         let Changes::Rows {
-            deletes, updates, inserts, ..
+            deletes,
+            updates,
+            inserts,
+            restores,
+            ..
         } = reversed
         else {
             panic!("rows")
         };
         assert_eq!(deletes, inserted);
-        assert_eq!(inserts, restore);
+        assert_eq!((inserts, restores), (vec![], restore));
         assert_eq!(updates[0].key, [value("id", "10")]);
         assert_eq!(
             (updates[0].cells[1].from.as_deref(), updates[0].cells[1].to.as_deref()),

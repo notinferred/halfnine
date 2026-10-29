@@ -10,9 +10,11 @@ export type RowEdits = {
   deletes: Record<string, ColumnValue[]>;
   /** New rows. A column with no value set takes its default. */
   inserts: { id: string; values: Record<string, Cell> }[];
+  /** Deleted rows put back as they were, as undoing an agent's change does. They show as new rows. */
+  restores: { id: string; values: Record<string, Cell> }[];
 };
 
-export const noEdits: RowEdits = { updates: {}, deletes: {}, inserts: [] };
+export const noEdits: RowEdits = { updates: {}, deletes: {}, inserts: [], restores: [] };
 
 /** A row of the grid: one that was loaded, by its index, or a new one, by its id. */
 export type At = { row: number } | { insert: string };
@@ -61,7 +63,12 @@ export function deleteRows(edits: RowEdits, keys: ColumnValue[][], inserts: stri
     delete updates[keyId(key)];
     deletes[keyId(key)] = key;
   }
-  return { updates, deletes, inserts: edits.inserts.filter((row) => !inserts.includes(row.id)) };
+  return {
+    updates,
+    deletes,
+    inserts: edits.inserts.filter((row) => !inserts.includes(row.id)),
+    restores: edits.restores.filter((row) => !inserts.includes(row.id)),
+  };
 }
 
 export function restoreRow(edits: RowEdits, key: ColumnValue[]): RowEdits {
@@ -71,7 +78,10 @@ export function restoreRow(edits: RowEdits, key: ColumnValue[]): RowEdits {
 }
 
 export const countEdits = (edits: RowEdits) =>
-  Object.values(edits.updates).reduce((n, row) => n + Object.keys(row.cells).length, 0) + Object.keys(edits.deletes).length + edits.inserts.length;
+  Object.values(edits.updates).reduce((n, row) => n + Object.keys(row.cells).length, 0) +
+  Object.keys(edits.deletes).length +
+  edits.inserts.length +
+  edits.restores.length;
 
 export const toChanges = (table: TableRef, edits: RowEdits): Changes => ({
   kind: "rows",
@@ -82,6 +92,7 @@ export const toChanges = (table: TableRef, edits: RowEdits): Changes => ({
     cells: Object.entries(row.cells).map(([column, cell]) => ({ column, from: cell.from, to: cell.to })),
   })),
   inserts: edits.inserts.map((row) => Object.entries(row.values).map(([column, value]) => ({ column, value }))),
+  restores: edits.restores.map((row) => Object.entries(row.values).map(([column, value]) => ({ column, value }))),
 });
 
 /** Staged edits from changes made elsewhere, such as an agent's proposal: the inverse of `toChanges`. */
@@ -96,5 +107,9 @@ export function fromChanges(changes: Changes): RowEdits {
     ),
     deletes: Object.fromEntries(changes.deletes.map((key) => [keyId(key), key])),
     inserts: changes.inserts.map((values, i) => ({ id: `insert-${i}`, values: Object.fromEntries(values.map((v) => [v.column, v.value])) })),
+    restores: (changes.restores ?? []).map((values, i) => ({
+      id: `restore-${i}`,
+      values: Object.fromEntries(values.map((v) => [v.column, v.value])),
+    })),
   };
 }

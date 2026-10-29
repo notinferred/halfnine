@@ -144,6 +144,7 @@ pub(crate) fn rows(
     deletes: &[Vec<ColumnValue>],
     updates: &[RowUpdate],
     inserts: &[Vec<ColumnValue>],
+    restores: &[Vec<ColumnValue>],
     columns: &[ColumnMeta],
 ) -> Result<Vec<Step>, Error> {
     let mut key: Vec<&ColumnMeta> = columns.iter().filter(|c| c.key_position.is_some()).collect();
@@ -182,15 +183,24 @@ pub(crate) fn rows(
             format!("The row where {row} changed after you loaded it, so nothing was written. Refresh to see it, then make the change again.");
         steps.push(w.step(format!("Updating the row where {row}"), Some(changed)));
     }
-    for (n, row) in inserts.iter().enumerate() {
+    let added = inserts.iter().map(|row| (row, false)).chain(restores.iter().map(|row| (row, true)));
+    for (n, (row, restoring)) in added.enumerate() {
         let mut w = Writer::default();
         w.text("INSERT INTO ").table(table);
         if row.is_empty() {
             w.text(" DEFAULT VALUES");
         } else {
-            let targets = row.iter().map(|v| insertable(columns, &v.column)).collect::<Result<Vec<_>, _>>()?;
+            let targets = row
+                .iter()
+                .map(|v| {
+                    if restoring {
+                        restorable(columns, &v.column)
+                    } else {
+                        writable(columns, &v.column)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             w.text(" (").names(targets.iter().map(|c| c.name.as_str())).text(")");
-            // Only a row being put back, as when an agent's delete is undone, names an identity column.
             if targets.iter().any(|c| c.identity) {
                 w.text("\nOVERRIDING SYSTEM VALUE");
             }
@@ -213,7 +223,8 @@ pub(crate) fn rows(
                 w.name(&column.name).text("::text");
             }
         }
-        let mut step = w.step(format!("Adding new row {}", n + 1), None);
+        let what = if restoring { "Putting back deleted row" } else { "Adding new row" };
+        let mut step = w.step(format!("{what} {}", n + 1), None);
         step.returns_key = returns_key;
         steps.push(step);
     }
@@ -348,9 +359,9 @@ fn writable<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta,
     Ok(column)
 }
 
-/// A column a new row may name: any but one Postgres computes itself. An identity column can be written, which puts
-/// a deleted row back as it was.
-fn insertable<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta, Error> {
+/// A column a row being put back may name: any but one Postgres computes itself, so an identity column takes back the
+/// value Postgres once generated for it.
+fn restorable<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta, Error> {
     let column = find(columns, name)?;
     if column.generated && !column.identity {
         return Err(Error::new(
@@ -604,7 +615,7 @@ mod tests {
                 },
             ],
         };
-        let steps = rows(&table(), &[], &[update], &[], &columns()).unwrap();
+        let steps = rows(&table(), &[], &[update], &[], &[], &columns()).unwrap();
         let step = &steps[0];
         assert_eq!(
             step.run.sql,
@@ -625,7 +636,7 @@ mod tests {
     #[test]
     fn deletes_first_and_inserts_last() {
         let inserts = vec![vec![value("status", Some("open")), value("Note", None)], vec![]];
-        let steps = rows(&table(), &[vec![value("id", Some("7"))]], &[], &inserts, &columns()).unwrap();
+        let steps = rows(&table(), &[vec![value("id", Some("7"))]], &[], &inserts, &[], &columns()).unwrap();
         let shown: Vec<&str> = steps.iter().map(|s| s.shown.as_str()).collect();
         assert_eq!(
             shown,
@@ -641,7 +652,7 @@ mod tests {
     #[test]
     fn puts_a_deleted_row_back_with_its_own_identity() {
         let restore = vec![vec![value("id", Some("7")), value("status", Some("open"))]];
-        let steps = rows(&table(), &[], &[], &restore, &columns()).unwrap();
+        let steps = rows(&table(), &[], &[], &[], &restore, &columns()).unwrap();
         assert_eq!(
             steps[0].shown,
             "INSERT INTO public.invoices (id, status)\nOVERRIDING SYSTEM VALUE\nVALUES (7, 'open')\nRETURNING id::text;"
@@ -651,10 +662,13 @@ mod tests {
     #[test]
     fn refuses_generated_columns_and_tables_without_a_key() {
         let insert = vec![vec![value("doubled", Some("2"))]];
-        assert_eq!(rows(&table(), &[], &[], &insert, &columns()).unwrap_err().kind, ErrorKind::Invalid);
+        assert_eq!(rows(&table(), &[], &[], &insert, &[], &columns()).unwrap_err().kind, ErrorKind::Invalid);
+        let identity = vec![vec![value("id", Some("9"))]];
+        assert_eq!(rows(&table(), &[], &[], &identity, &[], &columns()).unwrap_err().kind, ErrorKind::Invalid);
+        assert_eq!(rows(&table(), &[], &[], &[], &insert, &columns()).unwrap_err().kind, ErrorKind::Invalid);
         let keyless: Vec<ColumnMeta> = columns().into_iter().map(|c| ColumnMeta { key_position: None, ..c }).collect();
         let delete = vec![vec![value("id", Some("1"))]];
-        assert_eq!(rows(&table(), &delete, &[], &[], &keyless).unwrap_err().kind, ErrorKind::Invalid);
+        assert_eq!(rows(&table(), &delete, &[], &[], &[], &keyless).unwrap_err().kind, ErrorKind::Invalid);
     }
 
     #[test]

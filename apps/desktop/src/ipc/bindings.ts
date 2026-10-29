@@ -164,7 +164,12 @@ export type Changes =
 /**  Rows to delete, change and add, in that order. Rows are named by their primary key. */
 { kind: "rows"; table: TableRef; deletes: ColumnValue[][]; updates: RowUpdate[]; 
 /**  Each new row's values. A column left out takes its default. */
-inserts: ColumnValue[][] } | 
+inserts: ColumnValue[][]; 
+/**
+ *  Deleted rows put back as they were, identity values included. Only undoing an agent's change makes these:
+ *  an identity value written any other way could later collide with one Postgres generates.
+ */
+restores?: ColumnValue[][] } | 
 /**  Changes to a table's structure, or a new table. */
 { kind: "structure"; table: TableRef; changes: StructureChange[] };
 

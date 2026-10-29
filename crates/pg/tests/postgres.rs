@@ -481,6 +481,7 @@ async fn commits_staged_rows_and_refuses_a_row_that_moved_on() {
         deletes,
         updates,
         inserts,
+        restores: vec![],
     };
     let page = || async { db.page(&request("scratch_rows", None, None, 0, 10)).await };
 
@@ -857,6 +858,7 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
         deletes: vec![],
         updates: vec![],
         inserts: vec![vec![value("body", Some("first"))], vec![value("body", Some("second"))]],
+        restores: vec![],
     };
     let added = db.commit(&insert).await.unwrap().inserted;
     assert_eq!(added.len(), 2);
@@ -866,6 +868,7 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
         deletes: vec![first.clone()],
         updates: vec![],
         inserts: vec![],
+        restores: vec![],
     };
     db.commit(&delete).await.unwrap();
     let mut back = first.clone();
@@ -874,7 +877,8 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
         table: scratch.clone(),
         deletes: vec![],
         updates: vec![],
-        inserts: vec![back],
+        inserts: vec![],
+        restores: vec![back],
     };
     assert_eq!(db.commit(&restore).await.unwrap().inserted, [first]);
     let page = db.page(&request(&scratch.name, None, None, 0, 10)).await.unwrap();

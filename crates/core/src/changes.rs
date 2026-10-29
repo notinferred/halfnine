@@ -15,6 +15,10 @@ pub enum Changes {
         updates: Vec<RowUpdate>,
         /// Each new row's values. A column left out takes its default.
         inserts: Vec<Vec<ColumnValue>>,
+        /// Deleted rows put back as they were, identity values included. Only undoing an agent's change makes these:
+        /// an identity value written any other way could later collide with one Postgres generates.
+        #[serde(default)]
+        restores: Vec<Vec<ColumnValue>>,
     },
     /// Changes to a table's structure, or a new table.
     Structure { table: TableRef, changes: Vec<StructureChange> },

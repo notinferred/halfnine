@@ -251,6 +251,7 @@ async fn rows(
         deletes,
         updates,
         inserts,
+        restores: vec![],
     };
     let shown = db.review(&work).await?;
     Ok(Some(Staged {
