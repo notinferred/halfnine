@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
 use hn_core::{ConnectionSpec, Error, ErrorKind};
 use hn_pg::{PgDatabase, Secrets};
+use tokio::sync::RwLock;
 
 pub struct Session {
     pub connection: ConnectionSpec,

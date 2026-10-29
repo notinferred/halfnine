@@ -3,9 +3,9 @@
 use std::fs;
 use std::path::Path;
 
+use hn_core::{Error, ErrorKind};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use hn_core::{Error, ErrorKind};
 
 #[derive(Serialize, Deserialize)]
 struct Versioned<T> {

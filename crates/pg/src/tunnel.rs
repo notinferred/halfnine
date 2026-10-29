@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use hn_core::{Error, ErrorKind, SshAuth, SshSpec};
 use russh::client::{self, Handle};
 use russh::keys::agent::AgentIdentity;
 use russh::keys::agent::client::AgentClient;
@@ -11,7 +12,6 @@ use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use hn_core::{Error, ErrorKind, SshAuth, SshSpec};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 

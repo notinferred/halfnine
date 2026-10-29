@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
 use hn_core::{ConnectionSpec, Error, ErrorKind};
+use serde::{Deserialize, Serialize};
 
 use crate::files;
 

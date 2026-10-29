@@ -10,12 +10,12 @@ mod tunnel;
 use std::time::{Duration, Instant};
 
 use futures_util::TryStreamExt;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
-use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
 use hn_core::{
     Activity, ByteSource, Changes, Choice, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource, Filter, Page, PageColumn,
     PageRequest, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, Structure, StructureChange, TableRef, TlsMode,
 };
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
+use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
 
 use crate::changes::Step;
 use crate::editor::{EditorConnection, Running};

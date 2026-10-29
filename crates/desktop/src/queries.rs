@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use hn_core::Error;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use hn_core::Error;
 
 use crate::files;
 

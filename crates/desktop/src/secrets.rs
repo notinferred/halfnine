@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use keyring_core::Entry;
-use serde::{Deserialize, Serialize};
 use hn_core::{Error, ErrorKind};
 use hn_pg::Secrets;
+use keyring_core::Entry;
+use serde::{Deserialize, Serialize};
 
 use crate::commands::SecretChange;
 

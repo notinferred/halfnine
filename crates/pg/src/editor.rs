@@ -5,9 +5,9 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use futures_util::TryStreamExt;
+use hn_core::{Activity, Cell, CutCell, Error, ErrorKind, PageColumn, RunFailure, RunOutcome, StatementResult};
 use sqlx::postgres::{PgConnectOptions, PgRow};
 use sqlx::{AssertSqlSafe, Column, Connection, Either, Executor, PgConnection, Row, SqlSafeStr, Statement, TypeInfo, ValueRef};
-use hn_core::{Activity, Cell, CutCell, Error, ErrorKind, PageColumn, RunFailure, RunOutcome, StatementResult};
 
 use crate::CONNECT_TIMEOUT;
 use crate::errors::from_sqlx;
