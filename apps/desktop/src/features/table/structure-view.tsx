@@ -9,8 +9,11 @@ export function StructureView(props: {
   structure: UseQueryResult<Structure>;
   draft: StructureDraft | null;
   onDraft?: (draft: StructureDraft) => void;
+  /** Shows the draft's staged changes but lets nothing change them, as for an agent's proposal. */
+  staged?: boolean;
 }) {
-  const { structure, onDraft } = props;
+  const { structure } = props;
+  const onDraft = props.onDraft ?? (props.staged ? () => undefined : undefined);
   if (structure.isPending) return <p className="structure-note muted">Loading…</p>;
   if (structure.isError) return <p className="structure-note status-error">{describe(structure.error)}</p>;
   const s = structure.data;
@@ -18,7 +21,7 @@ export function StructureView(props: {
   const draft = props.draft ?? draftFrom(s);
 
   return (
-    <div className="structure">
+    <fieldset className="structure" disabled={props.staged}>
       <section>
         <h2>Columns</h2>
         {onDraft ? (
@@ -69,7 +72,7 @@ export function StructureView(props: {
           definition: `${f.source.schema}.${f.source.name} (${f.sourceColumns.join(", ")}) → (${f.columns.join(", ")})`,
         }))}
       />
-    </div>
+    </fieldset>
   );
 }
 

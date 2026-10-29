@@ -33,6 +33,27 @@ export const draftFrom = (structure: Structure): StructureDraft => ({
   droppedIndexes: [],
 });
 
+/** The draft someone would have made to stage `changes` on `structure`, as when an agent proposes them. */
+export function draftWith(structure: Structure, changes: StructureChange[]): StructureDraft {
+  const draft = draftFrom(structure);
+  const column = (name: string, change: Partial<ColumnDraft>) => {
+    draft.columns = draft.columns.map((c) => (c.was?.name === name ? { ...c, ...change } : c));
+  };
+  for (const change of changes) {
+    if (change.kind === "addColumn") {
+      const c = change.column;
+      draft.columns.push({ ...newColumnDraft(), name: c.name, typeName: c.typeName, nullable: c.nullable, default: c.default ?? "", key: c.key });
+    } else if (change.kind === "renameColumn") column(change.column, { name: change.to });
+    else if (change.kind === "setType") column(change.column, { typeName: change.to });
+    else if (change.kind === "setNullable") column(change.column, { nullable: change.nullable });
+    else if (change.kind === "setDefault") column(change.column, { default: change.to ?? "" });
+    else if (change.kind === "dropColumn") column(change.column, { dropped: true });
+    else if (change.kind === "createIndex") draft.indexes.push({ id: crypto.randomUUID(), columns: change.columns, unique: change.unique });
+    else if (change.kind === "dropIndex") draft.droppedIndexes.push(change.name);
+  }
+  return draft;
+}
+
 export const newColumnDraft = (): ColumnDraft => ({
   id: crypto.randomUUID(),
   was: null,

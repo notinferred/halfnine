@@ -367,7 +367,7 @@ export type PasswordRequestView = {
 
 export type ProposalKind = "rows" | "structure" | "statements";
 
-export type ProposalState = { kind: "pending" } | { kind: "committing" } | { kind: "approved"; statements: number; rows: number | null; elapsed_ms: number } | { kind: "declined"; reason: string } | { kind: "failed"; error: Error } | { kind: "withdrawn"; why: string };
+export type ProposalState = { kind: "pending" } | { kind: "committing" } | { kind: "approved"; statements: number; rows: number | null; elapsedMs: number } | { kind: "declined"; reason: string } | { kind: "failed"; error: Error } | { kind: "withdrawn"; why: string };
 
 /**  A proposal as the window shows it. Approving it commits what is kept here, never anything the window sends back. */
 export type ProposalView = {

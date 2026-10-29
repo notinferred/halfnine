@@ -27,6 +27,8 @@ export type GridEditing = {
   /** Asked before the grid's own editor opens: `true` when the app opened its own editor for that cell instead. */
   onOpen: (at: At, column: number) => boolean;
   onDeleteRows: (rows: At[]) => void;
+  /** Shows what is staged but changes nothing, as for an agent's proposal. */
+  readOnly?: boolean;
 };
 
 function width(typeName: string): number {
@@ -154,7 +156,7 @@ export function DataGrid(props: {
   );
 
   // Delete clears the selected cells: NULL in a loaded row, the default in a new one. ⌘⌫ deletes the selected rows.
-  const canEdit = editing !== undefined;
+  const canEdit = editing !== undefined && !editing.readOnly;
   useEffect(() => {
     const element = grid.current;
     if (!element || !canEdit) return;

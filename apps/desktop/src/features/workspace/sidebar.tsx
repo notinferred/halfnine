@@ -1,5 +1,5 @@
 import { type UseQueryResult, useQueryClient } from "@tanstack/react-query";
-import { Activity, ChevronRight, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Sheet, Table2 } from "lucide-react";
+import { Activity, Bot, ChevronRight, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Sheet, Table2 } from "lucide-react";
 import { useState } from "react";
 import type { RelationKind, SchemaNode, SessionInfo, TableRef } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
@@ -99,9 +99,10 @@ export function Sidebar(props: {
 const PAGES = [
   { kind: "queries", name: "Queries", Icon: ScrollText },
   { kind: "sessions", name: "Sessions", Icon: Activity },
+  { kind: "agents", name: "Agents", Icon: Bot },
 ] as const;
 
-/** The app's pages, always in view at the foot of the sidebar. M5 adds Agents and Docker here. */
+/** The app's pages, always in view at the foot of the sidebar. Docker joins them later in M5. */
 function Pages() {
   const openPage = useWorkspace((s) => s.openPage);
   const current = useWorkspace((s) => s.tabs.find((t) => t.id === s.active)?.kind);

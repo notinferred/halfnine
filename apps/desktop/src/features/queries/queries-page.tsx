@@ -6,21 +6,8 @@ import { describe } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { Keys } from "../../ui/keys.tsx";
 import { modCap } from "../../ui/shortcuts.ts";
+import { ago } from "../../ui/time.ts";
 import "./queries.css";
-
-const since = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-
-function ago(ms: number | null): string {
-  const seconds = Math.round(((ms ?? 0) - Date.now()) / 1000);
-  for (const [unit, size] of [
-    ["day", 86_400],
-    ["hour", 3_600],
-    ["minute", 60],
-  ] as const) {
-    if (Math.abs(seconds) >= size) return since.format(Math.round(seconds / size), unit);
-  }
-  return since.format(seconds, "second");
-}
 
 /** The Queries page: every saved query, and with one switch, everything that has run on this connection. */
 export function QueriesPage({ session }: { session: SessionInfo }) {

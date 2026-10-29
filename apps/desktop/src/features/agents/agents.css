@@ -1,0 +1,100 @@
+.agents-pause {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.agents-status {
+  padding-top: 0;
+}
+
+.agents-entry {
+  flex: 1;
+  min-width: 0;
+}
+
+.agents-entry > summary {
+  list-style: none;
+  cursor: default;
+}
+
+.agents-entry > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agents-entry[open] .queries-sql {
+  display: none;
+}
+
+.agents-reason {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.agents-sql {
+  margin: 0 var(--space-2) var(--space-3);
+  white-space: pre-wrap;
+}
+
+/* The three answers to an agent, each with the number key that picks it. */
+.approval-choices {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.approval-choices kbd {
+  min-width: 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  opacity: 0.7;
+}
+
+.approval-choices:disabled .btn {
+  opacity: 0.5;
+}
+
+.approval-reason {
+  display: flex;
+  flex: 1 1 320px;
+  gap: var(--space-2);
+}
+
+.approval-reason .input {
+  flex: 1;
+  height: 26px;
+}
+
+.proposal-sql {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.proposal-where {
+  padding: var(--space-4) var(--space-4) 0;
+  font-size: var(--text-sm);
+}
+
+.proposal-sql .review-sql {
+  max-height: none;
+}
+
+.proposal-sql .changes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.proposal-sql .review {
+  flex: 1;
+  min-height: 0;
+}

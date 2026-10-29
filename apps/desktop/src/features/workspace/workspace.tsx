@@ -1,11 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, FileCode, Plus, ScrollText, Search, Table2, TableProperties, X } from "lucide-react";
-import { commands, type SessionInfo } from "../../ipc/bindings.ts";
+import { Activity, Bot, FileCode, Plus, ScrollText, Search, Sparkles, Table2, TableProperties, X } from "lucide-react";
+import { commands, type ProposalView, type SessionInfo } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { hasStaged, type Tab, useWorkspace } from "../../state.ts";
 import { Glyph } from "../../ui/glyph.tsx";
 import { Keys } from "../../ui/keys.tsx";
 import { modCap, modKey, useShortcuts } from "../../ui/shortcuts.ts";
+import { AgentsPage } from "../agents/agents-page.tsx";
+import { ProposalTab, proposalTitle } from "../agents/proposal-tab.tsx";
 import { Palette } from "../palette/palette.tsx";
 import { QueriesPage } from "../queries/queries-page.tsx";
 import { QueryTab } from "../query/query-tab.tsx";
@@ -16,19 +18,35 @@ import { TableTab } from "../table/table-tab.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import "./workspace.css";
 
-function title(tab: Tab) {
+const PAGE_TITLE = { queries: "Queries", sessions: "Sessions", agents: "Agents" };
+
+function title(tab: Tab, proposals: ProposalView[], connectionId: string) {
   if (tab.kind === "table") return tab.table.name;
   if (tab.kind === "query") return tab.title;
   if (tab.kind === "newTable") return tab.name.trim() || "New table";
-  return tab.kind === "queries" ? "Queries" : "Sessions";
+  if (tab.kind === "proposal")
+    return proposalTitle(
+      proposals.find((p) => p.id === tab.proposalId),
+      connectionId,
+    );
+  return PAGE_TITLE[tab.kind];
 }
 
-const TAB_ICON = { table: Table2, newTable: TableProperties, query: FileCode, queries: ScrollText, sessions: Activity };
+const TAB_ICON = {
+  table: Table2,
+  newTable: TableProperties,
+  query: FileCode,
+  queries: ScrollText,
+  sessions: Activity,
+  agents: Bot,
+  proposal: Sparkles,
+};
 
 export function Workspace({ session }: { session: SessionInfo }) {
   const queries = useQueryClient();
   const { tabs, active, paletteOpen, setPaletteOpen, activate, closeTab, newQuery, enter, leave, holdStaged } = useWorkspace();
   const schema = useQuery({ queryKey: ["schema", session.sessionId], queryFn: () => commands.schema(session.sessionId) });
+  const proposals = useQuery({ queryKey: ["agents"], queryFn: commands.agentState }).data?.proposals ?? [];
 
   // Every query for this session has the session id second in its key, so one predicate refreshes them all.
   const ofSession = { predicate: (q: { queryKey: readonly unknown[] }) => q.queryKey[1] === session.sessionId };
@@ -66,15 +84,18 @@ export function Workspace({ session }: { session: SessionInfo }) {
           <nav className="tabs-list" aria-label="Open tabs">
             {tabs.map((tab) => {
               const Icon = TAB_ICON[tab.kind];
+              const name = title(tab, proposals, session.connection.id);
+              const agent = tab.kind === "proposal" ? proposals.find((p) => p.id === tab.proposalId)?.agent : undefined;
               return (
                 <div key={tab.id} className="tab" data-active={tab.id === active}>
                   <button type="button" className="tab-open" aria-current={tab.id === active || undefined} onClick={() => activate(tab.id)}>
                     <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
-                    <span>{title(tab)}</span>
+                    <span>{name}</span>
                     {tab.kind === "table" && tab.filter && <span className="tab-filtered">filtered</span>}
+                    {agent && <span className="tab-filtered">{agent}</span>}
                     {hasStaged(tab) && <StagedMark />}
                   </button>
-                  <button type="button" className="tab-close" aria-label={`Close ${title(tab)}`} onClick={() => closeTab(tab.id)}>
+                  <button type="button" className="tab-close" aria-label={`Close ${name}`} onClick={() => closeTab(tab.id)}>
                     <X size={12} strokeWidth={1.5} aria-hidden="true" />
                   </button>
                 </div>
@@ -95,6 +116,8 @@ export function Workspace({ session }: { session: SessionInfo }) {
         {activeTab?.kind === "query" && <QueryTab key={activeTab.id} session={session} tab={activeTab} />}
         {activeTab?.kind === "queries" && <QueriesPage key={activeTab.id} session={session} />}
         {activeTab?.kind === "sessions" && <SessionsTab key={activeTab.id} session={session} />}
+        {activeTab?.kind === "agents" && <AgentsPage key={activeTab.id} />}
+        {activeTab?.kind === "proposal" && <ProposalTab key={activeTab.id} tab={activeTab} />}
         {!activeTab && (
           <div className="workspace-empty">
             {schema.isError ? (

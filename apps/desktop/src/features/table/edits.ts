@@ -83,3 +83,18 @@ export const toChanges = (table: TableRef, edits: RowEdits): Changes => ({
   })),
   inserts: edits.inserts.map((row) => Object.entries(row.values).map(([column, value]) => ({ column, value }))),
 });
+
+/** Staged edits from changes made elsewhere, such as an agent's proposal: the inverse of `toChanges`. */
+export function fromChanges(changes: Changes): RowEdits {
+  if (changes.kind !== "rows") return noEdits;
+  return {
+    updates: Object.fromEntries(
+      changes.updates.map((row) => [
+        keyId(row.key),
+        { key: row.key, cells: Object.fromEntries(row.cells.map((c) => [c.column, { from: c.from, to: c.to }])) },
+      ]),
+    ),
+    deletes: Object.fromEntries(changes.deletes.map((key) => [keyId(key), key])),
+    inserts: changes.inserts.map((values, i) => ({ id: `insert-${i}`, values: Object.fromEntries(values.map((v) => [v.column, v.value])) })),
+  };
+}

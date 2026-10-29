@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Plus, Search } from "lucide-react";
+import { Bot, Lock, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { type ConnectionSpec, commands, type Typed } from "../../ipc/bindings.ts";
 import { describe, needsPassword } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
+import { AgentsPage } from "../agents/agents-page.tsx";
 import { ConnectionForm } from "./connection-form.tsx";
 import { PasswordSheet } from "./password-sheet.tsx";
 import "./connections.css";
@@ -89,19 +90,27 @@ export function ConnectionsScreen() {
             <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
             New Connection
           </button>
+          <button type="button" className="page-link" aria-current={chosen === "agents" || undefined} onClick={() => setChosen("agents")}>
+            <Bot className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
+            Agents
+          </button>
         </div>
       </nav>
       <main className="connections-detail">
         <div className="traffic-lights-space" data-tauri-drag-region />
-        <ConnectionForm
-          key={selected?.id ?? "new"}
-          saved={selected}
-          openError={selected && openError ? openError : null}
-          opening={opening !== null}
-          onSaved={(id) => refresh(id)}
-          onDeleted={() => refresh(null)}
-          onOpen={open}
-        />
+        {chosen === "agents" ? (
+          <AgentsPage />
+        ) : (
+          <ConnectionForm
+            key={selected?.id ?? "new"}
+            saved={selected}
+            openError={selected && openError ? openError : null}
+            opening={opening !== null}
+            onSaved={(id) => refresh(id)}
+            onDeleted={() => refresh(null)}
+            onOpen={open}
+          />
+        )}
       </main>
       {asking && (
         <PasswordSheet

@@ -8,6 +8,7 @@ import {
   type ForeignKey,
   type ImportPreview,
   type IncomingKey,
+  type ProposalView,
   type SessionInfo,
   type Sort,
 } from "../../ipc/bindings.ts";
@@ -16,6 +17,7 @@ import { type TableTab as Tab, useWorkspace } from "../../state.ts";
 import { copy, toCsv, toInsert, toJson } from "../../ui/copy.ts";
 import { Menu } from "../../ui/menu.tsx";
 import { useShortcuts } from "../../ui/shortcuts.ts";
+import { ApprovalBar } from "../agents/approval-bar.tsx";
 import { ChangesBar, StagedMark, stagedSummary } from "./changes-bar.tsx";
 import { type CellEdit, DataGrid, type GridEditing } from "./data-grid.tsx";
 import {
@@ -52,12 +54,16 @@ function describeFilter(filter: Filter): string {
   return filter.values.map((v) => (v.value === null ? `${v.column} is null` : `${v.column} = ${v.value}`)).join(" and ");
 }
 
-export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
+/**
+ * A table's rows or structure. Given `proposal`, it shows an agent's change staged the way the person's own edits are,
+ * on the agent's session, changeable only by answering it.
+ */
+export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab: Tab; proposal?: ProposalView }) {
   const id = session.sessionId;
   const queries = useQueryClient();
   const { setFilter, openTable, updateTable } = useWorkspace();
   const held = useWorkspace((s) => s.held === tab.id);
-  const [view, setView] = useState<"data" | "structure">("data");
+  const [view, setView] = useState<"data" | "structure">(proposal?.kind === "structure" ? "structure" : "data");
   const [sort, setSort] = useState<Sort | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [choosingColumns, setChoosingColumns] = useState(false);
@@ -85,8 +91,8 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
   const s = structure.data;
   const readOnly = session.connection.readOnly;
   const holdsRows = s?.kind === "table" || s?.kind === "partitionedTable" || s?.kind === "foreignTable";
-  const canEditRows = !readOnly && holdsRows && (s?.primaryKey.length ?? 0) > 0;
-  const canEditStructure = !readOnly && (s?.kind === "table" || s?.kind === "partitionedTable");
+  const canEditRows = !proposal && !readOnly && holdsRows && (s?.primaryKey.length ?? 0) > 0;
+  const canEditStructure = !proposal && !readOnly && (s?.kind === "table" || s?.kind === "partitionedTable");
 
   const columns = pages.data?.pages[0]?.columns ?? [];
   const rows = useMemo(() => pages.data?.pages.flatMap((p) => p.rows) ?? [], [pages.data]);
@@ -110,7 +116,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
   const staged = useMemo(() => {
     const cells = new Map<number, Set<number>>();
     const deleted = new Set<number>();
-    if (!canEditRows) return { shown: rows, cells, deleted };
+    if (!canEditRows && !proposal) return { shown: rows, cells, deleted };
     const key = s?.primaryKey ?? [];
     const shown = rows.map((row, r) => {
       const rowId = keyId(keyOf(row, columns, key));
@@ -127,7 +133,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
       });
     });
     return { shown, cells, deleted };
-  }, [rows, columns, s, tab.edits, canEditRows]);
+  }, [rows, columns, s, tab.edits, canEditRows, proposal]);
 
   const inserts = useMemo(
     () => tab.edits.inserts.map((row) => ({ id: row.id, values: columns.map((c) => (c.name in row.values ? row.values[c.name] : undefined)) })),
@@ -194,7 +200,19 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
         },
         onDeleteRows: (ats) => deleteAt(ats),
       }
-    : undefined;
+    : proposal
+      ? {
+          locked,
+          staged: staged.cells,
+          deleted: staged.deleted,
+          cut,
+          inserts,
+          readOnly: true,
+          onEdit: () => undefined,
+          onOpen: () => true,
+          onDeleteRows: () => undefined,
+        }
+      : undefined;
 
   const rowChanges = countEdits(tab.edits);
   const structureChangeList = tab.draft ? structureChanges(tab.draft) : [];
@@ -298,7 +316,13 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
     : pages.isPending
       ? "Loading…"
       : `${rows.length === 0 ? "No rows" : `Rows 1–${rows.length.toLocaleString()}${pages.hasNextPage ? "+" : ""}`} · ${Math.round(lastPage?.elapsedMs ?? 0)} ms`;
-  const why = readOnly ? " · read-only" : holdsRows && s?.primaryKey.length === 0 ? " · read-only: no primary key" : "";
+  const why = proposal
+    ? ` · proposed by ${proposal.agent}`
+    : readOnly
+      ? " · read-only"
+      : holdsRows && s?.primaryKey.length === 0
+        ? " · read-only: no primary key"
+        : "";
 
   return (
     <div className="table-tab">
@@ -313,7 +337,13 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             {structureChangeList.length > 0 && <StagedMark />}
           </button>
         </fieldset>
-        {tab.filter && tab.filter.kind !== "where" ? (
+        {proposal ? (
+          view === "data" && (
+            <div className="filter-chip">
+              <span>Only the rows {proposal.agent} changes</span>
+            </div>
+          )
+        ) : tab.filter && tab.filter.kind !== "where" ? (
           <div className="filter-chip">
             <span className="mono">{describeFilter(tab.filter)}</span>
             <button type="button" aria-label="Show every row" onClick={() => setFilter(tab.id, null)}>
@@ -393,7 +423,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             { label: "Copy rows as INSERT", onSelect: () => void copyRows("insert") },
             { label: "Export table as CSV…", onSelect: () => void exportTable("csv") },
             { label: "Export table as JSON…", onSelect: () => void exportTable("json") },
-            ...(!readOnly && holdsRows ? [{ label: "Import CSV…", onSelect: () => void chooseImport() }] : []),
+            ...(!proposal && !readOnly && holdsRows ? [{ label: "Import CSV…", onSelect: () => void chooseImport() }] : []),
           ]}
         />
         <button
@@ -435,7 +465,12 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             )}
           </div>
         ) : (
-          <StructureView structure={structure} draft={tab.draft} onDraft={canEditStructure ? (draft) => updateTable(tab.id, { draft }) : undefined} />
+          <StructureView
+            structure={structure}
+            draft={tab.draft}
+            staged={proposal !== undefined}
+            onDraft={canEditStructure ? (draft) => updateTable(tab.id, { draft }) : undefined}
+          />
         )}
         {panel && (
           <RowPanel
@@ -468,7 +503,8 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
         )}
       </div>
 
-      {view === "data" && rowChanges > 0 && (
+      {proposal && <ApprovalBar key={proposal.id} proposal={proposal} />}
+      {!proposal && view === "data" && rowChanges > 0 && (
         <ChangesBar
           session={session}
           changes={toChanges(tab.table, tab.edits)}
@@ -483,7 +519,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
           }}
         />
       )}
-      {view === "structure" && tab.draft && structureChangeList.length > 0 && (
+      {!proposal && view === "structure" && tab.draft && structureChangeList.length > 0 && (
         <ChangesBar
           session={session}
           changes={{ kind: "structure", table: tab.table, changes: structureChangeList }}

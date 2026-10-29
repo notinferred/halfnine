@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { ConnectionSpec, Typed } from "../../ipc/bindings.ts";
 
-/** Asks for the passwords of a connection that doesn't save them, each time it connects. */
+/** Asks for the passwords of a connection that doesn't save them, each time it connects, or when an agent needs it. */
 export function PasswordSheet(props: {
   connection: ConnectionSpec;
+  /** The agent that asked to use the connection, when it wasn't the person. */
+  asker?: string;
   busy: boolean;
   error: string | null;
   onConnect: (typed: Typed) => void;
@@ -32,9 +34,10 @@ export function PasswordSheet(props: {
           if (e.key === "Escape") props.onClose();
         }}
       >
-        <h2 id="password-title">Connect to {connection.name}</h2>
+        <h2 id="password-title">{props.asker ? `${props.asker} wants to use ${connection.name}` : `Connect to ${connection.name}`}</h2>
         <p className="muted">
           {connection.user}@{connection.host}. This connection doesn't save its password, so it's asked for each time.
+          {props.asker && " It's kept until you quit Halfnine."}
         </p>
         <label className="sheet-label" htmlFor="typed-password">
           Password

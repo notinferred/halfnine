@@ -28,13 +28,20 @@ export type QueryTab = {
 };
 
 /** The app's pages, opened from the sidebar's footer. Each is open at most once. */
-export type PageTab = { kind: "queries" | "sessions"; id: string };
+export type PageTab = { kind: "queries" | "sessions" | "agents"; id: string };
 
-export type Tab = TableTab | NewTableTab | QueryTab | PageTab;
+/**
+ * A change an agent proposed, shown on the agent's own session until the person answers it. What it holds lives in
+ * the app, which the agent layer keeps in step; the tab only names it.
+ */
+export type ProposalTab = { kind: "proposal"; id: string; proposalId: string; settled: boolean };
 
-/** Whether a tab holds changes that closing it would lose. */
+export type Tab = TableTab | NewTableTab | QueryTab | PageTab | ProposalTab;
+
+/** Whether a tab holds changes that closing it would lose, or an agent's change still waiting for an answer. */
 export const hasStaged = (tab: Tab) =>
-  tab.kind === "table" && (countEdits(tab.edits) > 0 || (tab.draft !== null && structureChanges(tab.draft).length > 0));
+  (tab.kind === "table" && (countEdits(tab.edits) > 0 || (tab.draft !== null && structureChanges(tab.draft).length > 0))) ||
+  (tab.kind === "proposal" && !tab.settled);
 
 type Workspace = {
   session: SessionInfo | null;
@@ -60,6 +67,12 @@ type Workspace = {
   activate: (id: string) => void;
   setFilter: (id: string, filter: Filter | null) => void;
   setPaletteOpen: (open: boolean) => void;
+  /** Opens a tab for an agent's proposal, beside the others, and shows it. */
+  openProposal: (proposalId: string) => void;
+  /** Marks a proposal answered, so its tab no longer holds the connection open. */
+  settleProposal: (proposalId: string) => void;
+  /** Closes a proposal's tab whatever it holds: the proposal ended in the app. */
+  closeProposal: (proposalId: string) => void;
 };
 
 const sameTable = (a: TableRef, b: TableRef) => a.schema === b.schema && a.name === b.name;
@@ -116,5 +129,21 @@ export const useWorkspace = create<Workspace>((set, get) => {
     activate: (id) => set({ active: id }),
     setFilter: (id, filter) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "table" ? { ...t, filter } : t)) })),
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+    openProposal: (proposalId) => {
+      if (get().tabs.some((t) => t.kind === "proposal" && t.proposalId === proposalId)) return;
+      add({ kind: "proposal", id: crypto.randomUUID(), proposalId, settled: false });
+    },
+    settleProposal: (proposalId) =>
+      set((s) => ({ tabs: s.tabs.map((t) => (t.kind === "proposal" && t.proposalId === proposalId ? { ...t, settled: true } : t)) })),
+    closeProposal: (proposalId) => {
+      const tab = get().tabs.find((t) => t.kind === "proposal" && t.proposalId === proposalId);
+      if (!tab) return;
+      set((s) => {
+        const index = s.tabs.findIndex((t) => t.id === tab.id);
+        const tabs = s.tabs.filter((t) => t.id !== tab.id);
+        const active = s.active === tab.id ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null) : s.active;
+        return { tabs, active, held: s.held === tab.id ? null : s.held };
+      });
+    },
   };
 });
