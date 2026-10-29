@@ -11,6 +11,15 @@ pub struct TableRef {
     pub name: String,
 }
 
+/// One column of one table, named in full.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnRef {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
+}
+
 #[derive(Clone, Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerInfo {

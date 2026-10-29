@@ -24,6 +24,8 @@ pub(crate) struct ColumnMeta {
     pub type_name: String,
     pub key_position: Option<i32>,
     pub generated: bool,
+    /// Generated always as identity: written only with `OVERRIDING SYSTEM VALUE`, as when a deleted row is put back.
+    pub identity: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -263,12 +265,14 @@ mod tests {
                 type_name: "bigint".into(),
                 key_position: Some(1),
                 generated: false,
+                identity: false,
             },
             ColumnMeta {
                 name: "say \"hi\"".into(),
                 type_name: "text".into(),
                 key_position: None,
                 generated: false,
+                identity: false,
             },
         ]
     }

@@ -15,6 +15,8 @@ pub(crate) struct Step {
     pub what: String,
     /// Set when the statement must change exactly one row: the error to give when it doesn't.
     pub conflict: Option<String>,
+    /// Set when the statement returns the primary key of the row it added.
+    pub returns_key: bool,
 }
 
 #[derive(Default)]
@@ -131,6 +133,7 @@ impl Writer {
             shown: format!("{};", self.shown),
             what,
             conflict,
+            returns_key: false,
         }
     }
 }
@@ -185,8 +188,13 @@ pub(crate) fn rows(
         if row.is_empty() {
             w.text(" DEFAULT VALUES");
         } else {
-            let targets = row.iter().map(|v| writable(columns, &v.column)).collect::<Result<Vec<_>, _>>()?;
-            w.text(" (").names(targets.iter().map(|c| c.name.as_str())).text(")\nVALUES (");
+            let targets = row.iter().map(|v| insertable(columns, &v.column)).collect::<Result<Vec<_>, _>>()?;
+            w.text(" (").names(targets.iter().map(|c| c.name.as_str())).text(")");
+            // Only a row being put back, as when an agent's delete is undone, names an identity column.
+            if targets.iter().any(|c| c.identity) {
+                w.text("\nOVERRIDING SYSTEM VALUE");
+            }
+            w.text("\nVALUES (");
             for (i, (value, column)) in row.iter().zip(&targets).enumerate() {
                 if i > 0 {
                     w.text(", ");
@@ -195,7 +203,19 @@ pub(crate) fn rows(
             }
             w.text(")");
         }
-        steps.push(w.step(format!("Adding new row {}", n + 1), None));
+        let returns_key = !key.is_empty();
+        if returns_key {
+            w.text("\nRETURNING ");
+            for (i, column) in key.iter().enumerate() {
+                if i > 0 {
+                    w.text(", ");
+                }
+                w.name(&column.name).text("::text");
+            }
+        }
+        let mut step = w.step(format!("Adding new row {}", n + 1), None);
+        step.returns_key = returns_key;
+        steps.push(step);
     }
     Ok(steps)
 }
@@ -323,6 +343,19 @@ fn writable<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta,
         return Err(Error::new(
             ErrorKind::Invalid,
             format!("Postgres fills {name} itself, so it can't be written."),
+        ));
+    }
+    Ok(column)
+}
+
+/// A column a new row may name: any but one Postgres computes itself. An identity column can be written, which puts
+/// a deleted row back as it was.
+fn insertable<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta, Error> {
+    let column = find(columns, name)?;
+    if column.generated && !column.identity {
+        return Err(Error::new(
+            ErrorKind::Invalid,
+            format!("Postgres computes {name} itself, so it can't be written."),
         ));
     }
     Ok(column)
@@ -537,9 +570,10 @@ mod tests {
             type_name: type_name.into(),
             key_position,
             generated,
+            identity: name == "id",
         };
         vec![
-            column("id", "bigint", Some(1), false),
+            column("id", "bigint", Some(1), true),
             column("status", "text", None, false),
             column("Note", "text", None, false),
             column("doubled", "numeric", None, true),
@@ -597,11 +631,21 @@ mod tests {
             shown,
             [
                 "DELETE FROM public.invoices\n WHERE id = 7;",
-                "INSERT INTO public.invoices (status, \"Note\")\nVALUES ('open', NULL);",
-                "INSERT INTO public.invoices DEFAULT VALUES;",
+                "INSERT INTO public.invoices (status, \"Note\")\nVALUES ('open', NULL)\nRETURNING id::text;",
+                "INSERT INTO public.invoices DEFAULT VALUES\nRETURNING id::text;",
             ]
         );
-        assert!(steps[1].conflict.is_none());
+        assert!(steps[1].conflict.is_none() && steps[1].returns_key);
+    }
+
+    #[test]
+    fn puts_a_deleted_row_back_with_its_own_identity() {
+        let restore = vec![vec![value("id", Some("7")), value("status", Some("open"))]];
+        let steps = rows(&table(), &[], &[], &restore, &columns()).unwrap();
+        assert_eq!(
+            steps[0].shown,
+            "INSERT INTO public.invoices (id, status)\nOVERRIDING SYSTEM VALUE\nVALUES (7, 'open')\nRETURNING id::text;"
+        );
     }
 
     #[test]

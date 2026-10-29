@@ -80,6 +80,12 @@ export const commands = {
 	cancelPasswordRequest: (id: string) => __TAURI_INVOKE<null>("cancel_password_request", { id }),
 	setAgentsPaused: (paused: boolean) => __TAURI_INVOKE<null>("set_agents_paused", { paused }),
 	agentActivity: (limit: number) => __TAURI_INVOKE<ActivityEntry[]>("agent_activity", { limit }),
+	/**  The reverse of an agent's row change, to stage in its table and commit the usual way. */
+	undoChange: (call: string) => __TAURI_INVOKE<UndoRecord>("undo_change", { call }),
+	/**  The reverse was committed, so the change has nothing left to undo. */
+	forgetUndo: (call: string) => __TAURI_INVOKE<null>("forget_undo", { call }),
+	/**  Hides a column from agents, or shows it to them again. It applies from their next call. */
+	setColumnHidden: (connectionId: string, database: string, table: TableRef, column: string, hidden: boolean) => __TAURI_INVOKE<ConnectionSpec>("set_column_hidden", { connectionId, database, table, column, hidden }),
 	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
 	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
 	/**  Does what `plan_client` showed. Returns what to do next, if anything. */
@@ -121,6 +127,8 @@ export type ActivityEntry = {
 	elapsedMs: number | null,
 	code: string | null,
 	reason: string | null,
+	/**  Its row changes can still be undone. */
+	undo: boolean,
 };
 
 /**  What an AI agent may do on a connection. A read-only connection stays read-only whatever this says. */
@@ -201,6 +209,8 @@ export type ColumnValue = {
 export type Committed = {
 	statements: number,
 	elapsedMs: number,
+	/**  The primary key of each row added, in the order they were added, as Postgres printed it. */
+	inserted: ColumnValue[][],
 };
 
 /**  A connection as the form holds it: without an id until it is first saved, and with what to do about each secret. */
@@ -244,6 +254,8 @@ export type ConnectionSpec = {
 	 *  label's default.
 	 */
 	agentAccess?: AgentAccess | null,
+	/**  Columns whose values agents never see, wherever a query would return them. */
+	hiddenColumns?: HiddenColumn[],
 };
 
 export type Constraint = {
@@ -299,6 +311,14 @@ export type ForeignKey = {
 	columns: string[],
 	target: TableRef,
 	targetColumns: string[],
+};
+
+/**  A column hidden from agents, in one database of a connection. */
+export type HiddenColumn = {
+	database: string,
+	schema: string,
+	table: string,
+	column: string,
 };
 
 export type HistoryEntry = {
@@ -533,6 +553,19 @@ export type TlsMode = "disable" | "prefer" | "require" | "verify-full";
 export type Typed = {
 	password: string | null,
 	sshSecret: string | null,
+};
+
+export type UndoRecord = {
+	/**  The agent call that made the change, as the activity log names it. */
+	call: string,
+	agent: string,
+	connectionId: string,
+	database: string,
+	table: TableRef,
+	/**  The reverse of the change, to stage. */
+	changes: Changes,
+	/**  The rows it touches that exist now, so the table shows those. */
+	filter: Filter,
 };
 
 /**  What a pasted `postgres://` URL says, ready to fill in a connection form. */

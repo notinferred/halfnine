@@ -10,6 +10,7 @@ mod results;
 mod server;
 mod staging;
 mod tools;
+pub mod undo;
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use hn_core::{AgentAccess, Changes, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
+use hn_core::{AgentAccess, Changes, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
 use hn_pg::{PgDatabase, Secrets};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -33,6 +34,7 @@ use crate::sessions::{Session, Sessions};
 use crate::store::Store;
 use activity::{ActivityEntry, ActivityLog, Call, Done, Outcome};
 use results::{Reply, Status, plural};
+use undo::{UndoRecord, Undos};
 
 pub use desk::Desk;
 pub use server::Server;
@@ -141,6 +143,8 @@ pub struct Staged {
     /// What it changes, as in "wants to change 3 rows in users".
     pub summary: String,
     pub drops: bool,
+    /// For row changes, each deleted row whole, so the change can be undone; `None` when it can't be.
+    pub restore: Option<Vec<Vec<ColumnValue>>>,
 }
 
 struct Proposal {
@@ -229,6 +233,7 @@ pub struct Agents {
     sessions: Arc<Sessions>,
     desk: Arc<dyn Desk>,
     log: ActivityLog,
+    undos: Undos,
     settings: PathBuf,
     paused: AtomicBool,
     /// Each agent database session by (connection id, database), shared by every agent and apart from the window's.
@@ -260,6 +265,7 @@ impl Agents {
             sessions,
             desk,
             log: ActivityLog::open(dir.to_path_buf()),
+            undos: Undos::open(dir),
             settings,
             paused: AtomicBool::new(paused),
             databases: tokio::sync::Mutex::new(HashMap::new()),
@@ -657,7 +663,7 @@ impl Agents {
 
     /// The person approved a proposal in the window. It commits exactly what was staged.
     pub async fn approve(&self, id: &str, remember: bool) -> Result<(), Error> {
-        let (state, call, session_id, work, rows, allowance) = {
+        let (state, call, session, work, rows, restore, agent) = {
             let proposals = lock(&self.proposals);
             let p = proposals
                 .get(id)
@@ -669,27 +675,30 @@ impl Agents {
             (
                 p.state.clone(),
                 p.call.clone(),
-                p.session.session_id.clone(),
+                p.session.clone(),
                 p.staged.work.clone(),
                 p.staged.rows,
-                (p.agent.key.clone(), p.session.connection.id.clone()),
+                p.staged.restore.clone(),
+                p.agent.clone(),
             )
         };
         self.desk.changed();
         if remember {
-            lock(&self.allowed).insert(allowance);
+            lock(&self.allowed).insert((agent.key.clone(), session.connection.id.clone()));
         }
-        let ran = match self.sessions.get(&session_id).await {
-            Ok(session) => run(&session.db, &work, rows).await,
+        let hidden = self.hidden(&session.connection.id, &session.server.database);
+        let ran = match self.sessions.get(&session.session_id).await {
+            Ok(db_session) => run(&db_session.db, &work, rows, &hidden).await,
             Err(e) => Err(e),
         };
         let result = match ran {
-            Ok((statements, rows, elapsed_ms)) => {
-                self.end(&call, Outcome::Approved, Some(rows), Some(elapsed_ms), None, None);
+            Ok(ran) => {
+                self.end(&call, Outcome::Approved, Some(ran.rows), Some(ran.elapsed_ms), None, None);
+                self.keep_undo(&call, &agent, &session, &work, restore.as_deref(), &ran.inserted);
                 state.send_replace(ProposalState::Approved {
-                    statements,
-                    rows,
-                    elapsed_ms,
+                    statements: ran.statements,
+                    rows: ran.rows,
+                    elapsed_ms: ran.elapsed_ms,
                 });
                 Ok(())
             }
@@ -791,7 +800,60 @@ impl Agents {
     }
 
     pub fn activity(&self, limit: usize) -> Vec<ActivityEntry> {
-        self.log.recent(limit)
+        let mut entries = self.log.recent(limit);
+        for entry in &mut entries {
+            entry.undo = self.undos.get(&entry.call).is_some();
+        }
+        entries
+    }
+
+    /// The columns hidden from agents in a connection's database, as saved now.
+    fn hidden(&self, connection_id: &str, database: &str) -> Vec<ColumnRef> {
+        self.store.get(connection_id).map(|spec| spec.hidden_in(database)).unwrap_or_default()
+    }
+
+    /// Keeps the reverse of committed row changes, so the person can undo them from the Agents page.
+    fn keep_undo(
+        &self,
+        call: &str,
+        agent: &Agent,
+        session: &SessionInfo,
+        work: &Work,
+        restore: Option<&[Vec<ColumnValue>]>,
+        inserted: &[Vec<ColumnValue>],
+    ) {
+        let (Work::Changes(changes), Some(restore)) = (work, restore) else {
+            return;
+        };
+        let Some((reversed, filter)) = undo::reverse(changes, restore, inserted) else {
+            return;
+        };
+        let Changes::Rows { table, .. } = changes else { return };
+        let kept = self.undos.keep(UndoRecord {
+            call: call.to_string(),
+            agent: agent.title.clone(),
+            connection_id: session.connection.id.clone(),
+            database: session.server.database.clone(),
+            table: table.clone(),
+            changes: reversed,
+            filter,
+        });
+        if let Err(e) = kept {
+            log::warn!("An agent's change can't be undone: {}", e.message);
+        }
+        self.desk.activity();
+    }
+
+    pub fn undo(&self, call: &str) -> Result<UndoRecord, Error> {
+        self.undos
+            .get(call)
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "This change can no longer be undone here."))
+    }
+
+    pub fn undone(&self, call: &str) -> Result<(), Error> {
+        self.undos.forget(call)?;
+        self.desk.activity();
+        Ok(())
     }
 
     /// The write path every changing tool shares: the access rule, then either running it now or staging it for the
@@ -841,15 +903,17 @@ impl Agents {
         }
         if verdict(&spec, Ask::Write { drops: staged.drops }, self.allowed(agent, &spec)) == Verdict::Run {
             let started = Instant::now();
-            return match run(&session.db, &staged.work, staged.rows).await {
-                Ok((statements, rows, elapsed_ms)) => {
-                    self.end(&call, Outcome::Ok, Some(rows), Some(elapsed_ms), None, None);
+            let hidden = spec.hidden_in(&info.server.database);
+            return match run(&session.db, &staged.work, staged.rows, &hidden).await {
+                Ok(ran) => {
+                    self.end(&call, Outcome::Ok, Some(ran.rows), Some(ran.elapsed_ms), None, None);
+                    self.keep_undo(&call, agent, &info, &staged.work, staged.restore.as_deref(), &ran.inserted);
                     Reply::new(
                         Status::Ok,
                         format!(
                             "Committed {}, {}, in {} ms.",
-                            plural(statements as usize, "statement"),
-                            plural(rows as usize, "row"),
+                            plural(ran.statements as usize, "statement"),
+                            plural(ran.rows as usize, "row"),
                             hn_core::millis(started.elapsed())
                         ),
                     )
@@ -883,16 +947,33 @@ fn paused() -> Reply {
     )
 }
 
-/// Runs approved work: a commit of staged changes, or statements in one transaction. Returns the statements, rows
-/// and milliseconds it took.
-async fn run(db: &PgDatabase, work: &Work, rows: usize) -> Result<(u32, f64, u32), Error> {
+/// What committed work did.
+struct Ran {
+    statements: u32,
+    rows: f64,
+    elapsed_ms: u32,
+    /// The key of each row it added.
+    inserted: Vec<Vec<ColumnValue>>,
+}
+
+/// Runs approved work: a commit of staged changes, or statements in one transaction, which may not read a hidden column.
+async fn run(db: &PgDatabase, work: &Work, rows: usize, hidden: &[ColumnRef]) -> Result<Ran, Error> {
     match work {
-        Work::Changes(changes) => db.commit(changes).await.map(|c| (c.statements, rows as f64, c.elapsed_ms)),
+        Work::Changes(changes) => db.commit(changes).await.map(|c| Ran {
+            statements: c.statements,
+            rows: rows as f64,
+            elapsed_ms: c.elapsed_ms,
+            inserted: c.inserted,
+        }),
         Work::Statements(statements) => {
             let started = Instant::now();
-            let results = db.execute(statements).await?;
-            let affected = results.iter().map(|r| f64::from(r.rows_affected)).sum();
-            Ok((results.len() as u32, affected, hn_core::millis(started.elapsed())))
+            let results = db.execute(statements, hidden).await?;
+            Ok(Ran {
+                statements: results.len() as u32,
+                rows: results.iter().map(|r| f64::from(r.rows_affected)).sum(),
+                elapsed_ms: hn_core::millis(started.elapsed()),
+                inserted: Vec::new(),
+            })
         }
     }
 }

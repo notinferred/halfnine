@@ -26,6 +26,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
         ssh: None,
         save_password: false,
         agent_access: None,
+        hidden_columns: Vec::new(),
     };
     let secrets = Secrets {
         password: parts.password,
@@ -685,18 +686,18 @@ async fn an_agent_query_only_ever_reads() {
         "COPY hn_fixture.customers TO STDOUT",
         "SET search_path = x",
     ] {
-        assert_eq!(db.read(refused, 10).await.unwrap_err().kind, ErrorKind::Invalid, "{refused}");
+        assert_eq!(db.read(refused, 10, &[]).await.unwrap_err().kind, ErrorKind::Invalid, "{refused}");
     }
-    let writes = db.read("SELECT hn_fixture.touch()", 10).await.unwrap_err();
+    let writes = db.read("SELECT hn_fixture.touch()", 10, &[]).await.unwrap_err();
     assert_eq!(writes.code.as_deref(), Some("25006"));
-    assert!(db.read("SELECT 1; SELECT 2", 10).await.is_err());
+    assert!(db.read("SELECT 1; SELECT 2", 10, &[]).await.is_err());
     let hidden = "WITH gone AS (DELETE FROM hn_fixture.customers RETURNING 1) SELECT count(*) FROM gone";
-    assert!(db.read(hidden, 10).await.is_err());
+    assert!(db.read(hidden, 10, &[]).await.is_err());
     assert_eq!(
-        db.read("SELECT count(*) FROM hn_fixture.customers", 1).await.unwrap().rows,
+        db.read("SELECT count(*) FROM hn_fixture.customers", 1, &[]).await.unwrap().rows,
         [[Some("50".to_string())]]
     );
-    let shown = db.read("show transaction_read_only", 1).await.unwrap();
+    let shown = db.read("show transaction_read_only", 1, &[]).await.unwrap();
     assert_eq!(shown.rows, [[Some("on".to_string())]]);
 }
 
@@ -704,12 +705,12 @@ async fn an_agent_query_only_ever_reads() {
 async fn an_agent_query_cannot_switch_read_only_off_for_later_ones() {
     let Some(db) = connect(true).await else { return };
     for _ in 0..3 {
-        db.read("SELECT set_config('default_transaction_read_only', 'off', false)", 1)
+        db.read("SELECT set_config('default_transaction_read_only', 'off', false)", 1, &[])
             .await
             .unwrap();
     }
     for _ in 0..3 {
-        let setting = db.read("SHOW default_transaction_read_only", 1).await.unwrap();
+        let setting = db.read("SHOW default_transaction_read_only", 1, &[]).await.unwrap();
         assert_eq!(setting.rows, [[Some("on".to_string())]]);
     }
 }
@@ -719,14 +720,14 @@ async fn an_agent_query_stops_at_its_limit() {
     let Some(db) = connect(false).await else { return };
     let started = std::time::Instant::now();
     let endless = db
-        .read("SELECT a.id, b.id FROM hn_fixture.invoices a, hn_fixture.invoices b", 10)
+        .read("SELECT a.id, b.id FROM hn_fixture.invoices a, hn_fixture.invoices b", 10, &[])
         .await
         .unwrap();
     assert_eq!((endless.rows.len(), endless.total_rows), (10, 11));
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
-    let none = db.read("SELECT 1 WHERE false", 10).await.unwrap();
+    let none = db.read("SELECT 1 WHERE false", 10, &[]).await.unwrap();
     assert_eq!((none.rows.len(), none.total_rows, none.columns.len()), (0, 0, 1));
-    let slow = db.read("SELECT pg_sleep(20)", 1).await.unwrap_err();
+    let slow = db.read("SELECT pg_sleep(20)", 1, &[]).await.unwrap_err();
     assert_eq!((slow.kind, slow.code.as_deref()), (ErrorKind::Timeout, Some("57014")));
 }
 
@@ -736,22 +737,28 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
     let scratch = scratch(&db, "agent_scratch").await;
     let name = format!("hn_fixture.{}", scratch.name);
     let done = db
-        .execute(&statements(&[
-            &format!("INSERT INTO {name} (body) VALUES ('a'), ('b') RETURNING body"),
-            &format!("UPDATE {name} SET n = 1 WHERE body = 'a'"),
-            "SET search_path = nowhere",
-        ]))
+        .execute(
+            &statements(&[
+                &format!("INSERT INTO {name} (body) VALUES ('a'), ('b') RETURNING body"),
+                &format!("UPDATE {name} SET n = 1 WHERE body = 'a'"),
+                "SET search_path = nowhere",
+            ]),
+            &[],
+        )
         .await
         .unwrap();
     assert_eq!((done[0].rows.len(), done[1].rows_affected), (2, 1));
-    let search_path = db.read("SELECT current_setting('search_path')", 1).await.unwrap();
+    let search_path = db.read("SELECT current_setting('search_path')", 1, &[]).await.unwrap();
     assert_ne!(search_path.rows, [[Some("nowhere".to_string())]]);
 
     let failed = db
-        .execute(&statements(&[
-            &format!("INSERT INTO {name} (body) VALUES ('c')"),
-            "INSERT INTO hn_fixture.nowhere VALUES (1)",
-        ]))
+        .execute(
+            &statements(&[
+                &format!("INSERT INTO {name} (body) VALUES ('c')"),
+                "INSERT INTO hn_fixture.nowhere VALUES (1)",
+            ]),
+            &[],
+        )
         .await
         .unwrap_err();
     assert!(failed.message.starts_with("Statement 2 failed, so nothing was written"));
@@ -759,13 +766,13 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
     assert_eq!(bodies(&page), [Some("a".to_string()), Some("b".to_string())]);
 
     for refused in ["COMMIT", "  /* why */ begin", "SAVEPOINT x", "COPY hn_fixture.customers TO STDOUT"] {
-        let error = db.execute(&statements(&[refused])).await.unwrap_err();
+        let error = db.execute(&statements(&[refused]), &[]).await.unwrap_err();
         assert_eq!(error.kind, ErrorKind::Invalid, "{refused}");
     }
 
     let Some(read_only) = connect(true).await else { return };
     let refused = read_only
-        .execute(&statements(&[&format!("INSERT INTO {name} (body) VALUES ('d')")]))
+        .execute(&statements(&[&format!("INSERT INTO {name} (body) VALUES ('d')")]), &[])
         .await
         .unwrap_err();
     assert_eq!(refused.code.as_deref(), Some("25006"));
@@ -786,4 +793,90 @@ async fn lists_every_foreign_key_once() {
             .any(|r| r.source == table("line_items") && r.target == table("invoices"))
     );
     assert!(references.iter().all(|r| !r.source.schema.starts_with("pg_")));
+}
+
+fn email() -> Vec<hn_core::ColumnRef> {
+    vec![hn_core::ColumnRef {
+        schema: "hn_fixture".into(),
+        table: "customers".into(),
+        column: "email".into(),
+    }]
+}
+
+#[tokio::test]
+async fn masks_a_hidden_column_wherever_a_query_returns_it() {
+    let Some(db) = connect(false).await else { return };
+    for query in [
+        "SELECT * FROM hn_fixture.customers WHERE id = 7",
+        "SELECT c.email AS contact, c.name FROM hn_fixture.customers c WHERE c.id = 7",
+        "SELECT i.id, c.email FROM hn_fixture.invoices i JOIN hn_fixture.customers c ON c.id = i.customer_id WHERE i.id = 7",
+    ] {
+        let result = db.read(query, 5, &email()).await.unwrap();
+        let text = format!("{:?}", result.rows);
+        assert!(text.contains("[hidden]") && !text.contains("@example.com"), "{query}: {text}");
+    }
+    let plain = db.read("SELECT name FROM hn_fixture.customers WHERE id = 7", 5, &email()).await.unwrap();
+    assert_eq!(plain.rows, [[Some("Customer 7".to_string())]]);
+}
+
+#[tokio::test]
+async fn refuses_a_query_that_computes_with_a_hidden_column() {
+    let Some(db) = connect(false).await else { return };
+    for query in [
+        "SELECT lower(email) FROM hn_fixture.customers",
+        "SELECT id FROM hn_fixture.customers WHERE email LIKE 'customer1%'",
+        "SELECT to_jsonb(c) FROM hn_fixture.customers c",
+        "SELECT count(*) FROM hn_fixture.invoices i JOIN hn_fixture.customers c ON c.email = i.note",
+    ] {
+        let error = db.read(query, 5, &email()).await.unwrap_err();
+        assert!(
+            error.message.contains("hn_fixture.customers.email is hidden from agents"),
+            "{query}: {}",
+            error.message
+        );
+    }
+    let error = db
+        .execute(&statements(&["UPDATE hn_fixture.customers SET name = email WHERE id = 1"]), &email())
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("is hidden from agents"), "{}", error.message);
+    db.execute(
+        &statements(&["UPDATE hn_fixture.customers SET name = name WHERE id = 1", "SELECT 1"]),
+        &email(),
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
+    let Some(db) = connect(false).await else { return };
+    let scratch = scratch(&db, "restored").await;
+    let insert = Changes::Rows {
+        table: scratch.clone(),
+        deletes: vec![],
+        updates: vec![],
+        inserts: vec![vec![value("body", Some("first"))], vec![value("body", Some("second"))]],
+    };
+    let added = db.commit(&insert).await.unwrap().inserted;
+    assert_eq!(added.len(), 2);
+    let first = added[0].clone();
+    let delete = Changes::Rows {
+        table: scratch.clone(),
+        deletes: vec![first.clone()],
+        updates: vec![],
+        inserts: vec![],
+    };
+    db.commit(&delete).await.unwrap();
+    let mut back = first.clone();
+    back.push(value("body", Some("first")));
+    let restore = Changes::Rows {
+        table: scratch.clone(),
+        deletes: vec![],
+        updates: vec![],
+        inserts: vec![back],
+    };
+    assert_eq!(db.commit(&restore).await.unwrap().inserted, [first]);
+    let page = db.page(&request(&scratch.name, None, None, 0, 10)).await.unwrap();
+    assert_eq!(bodies(&page), [Some("first".to_string()), Some("second".to_string())]);
 }

@@ -172,6 +172,15 @@ pub(crate) async fn begin_read_only(conn: &mut PgConnection) -> Result<(), Error
 /// Describes `sql` without running it. Postgres refuses to describe more than one statement at a time, which is how a
 /// piece of the editor is known to be exactly one statement before it runs.
 pub(crate) async fn describe(conn: &mut PgConnection, sql: &str) -> Result<Vec<PageColumn>, Error> {
+    Ok(describe_origins(conn, sql).await?.into_iter().map(|(column, _)| column).collect())
+}
+
+/// Where a result column comes from, as Postgres reports it: the table's oid and the column's number, when the column
+/// is a table column returned as it is.
+pub(crate) type Origin = Option<(u32, i16)>;
+
+/// As [`describe`], with each column's origin.
+pub(crate) async fn describe_origins(conn: &mut PgConnection, sql: &str) -> Result<Vec<(PageColumn, Origin)>, Error> {
     let statement = (&mut *conn).prepare(AssertSqlSafe(sql.to_string()).into_sql_str()).await.map_err(|e| {
         let error = from_sqlx(e);
         if error.message.contains("multiple commands") {
@@ -186,9 +195,13 @@ pub(crate) async fn describe(conn: &mut PgConnection, sql: &str) -> Result<Vec<P
     let columns = statement
         .columns()
         .iter()
-        .map(|c| PageColumn {
-            name: c.name().to_string(),
-            type_name: type_name(c.type_info().name()),
+        .map(|c| {
+            let column = PageColumn {
+                name: c.name().to_string(),
+                type_name: type_name(c.type_info().name()),
+            };
+            let origin = c.relation_id().zip(c.relation_attribute_no()).map(|(table, number)| (table.0, number));
+            (column, origin)
         })
         .collect();
     // Forgotten at once, so a statement that runs again after an ALTER TABLE is described afresh.

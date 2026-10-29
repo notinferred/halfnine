@@ -84,6 +84,13 @@ pub(crate) const REFERENCES: &str = "SELECT con.conname::text, sn.nspname::text,
      AND sn.nspname <> 'information_schema' AND sn.nspname NOT LIKE 'pg\\_%' \
      ORDER BY 2, 3, 1";
 
+/// Each named column's table oid and column number, for the columns that exist.
+pub(crate) const HIDDEN_COLUMNS: &str = "SELECT c.oid::int8, a.attnum \
+     FROM unnest($1::text[], $2::text[], $3::text[]) AS h(schema_name, table_name, column_name) \
+     JOIN pg_namespace n ON n.nspname = h.schema_name \
+     JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = h.table_name \
+     JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = h.column_name AND NOT a.attisdropped";
+
 pub(crate) fn reference(row: &PgRow) -> Result<Reference, sqlx::Error> {
     Ok(Reference {
         name: row.try_get(0)?,
@@ -100,9 +107,10 @@ pub(crate) fn reference(row: &PgRow) -> Result<Reference, sqlx::Error> {
     })
 }
 
-/// The columns of a page, with each one's place in the primary key, if it has one, and whether Postgres always fills it.
+/// The columns of a page, with each one's place in the primary key, if it has one, whether Postgres always fills it, and
+/// whether it is an identity column that only `OVERRIDING SYSTEM VALUE` can write.
 pub(crate) const PAGE_COLUMNS: &str = "SELECT a.attname::text, format_type(a.atttypid, a.atttypmod), array_position(i.indkey::int2[], a.attnum), \
-     a.attgenerated <> '' OR a.attidentity = 'a' \
+     a.attgenerated <> '' OR a.attidentity = 'a', a.attidentity = 'a' \
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
      JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped \
      LEFT JOIN pg_index i ON i.indrelid = c.oid AND i.indisprimary \

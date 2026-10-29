@@ -13,6 +13,8 @@ russh.workspace = true
 tokio.workspace = true
 futures-util.workspace = true
 log.workspace = true
+# Reads the JSON plans Postgres gives for an agent's statement, to find a hidden column it computes with.
+serde_json.workspace = true
 
 [lints]
 workspace = true

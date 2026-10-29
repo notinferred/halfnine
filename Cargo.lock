@@ -2178,6 +2178,7 @@ dependencies = [
  "hn-core",
  "log",
  "russh",
+ "serde_json",
  "sqlx",
  "tokio",
 ]

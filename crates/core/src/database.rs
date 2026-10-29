@@ -2,8 +2,8 @@ use std::future::Future;
 
 use crate::changes::{Changes, Choice, Committed};
 use crate::data::{
-    Activity, Cell, ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RunOutcome, SchemaNode, ServerInfo, StatementResult, Structure,
-    TableRef,
+    Activity, Cell, ColumnRef, ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RunOutcome, SchemaNode, ServerInfo, StatementResult,
+    Structure, TableRef,
 };
 use crate::error::Error;
 
@@ -47,11 +47,13 @@ pub trait Database: Send + Sync {
     ) -> impl Future<Output = Result<f64, Error>> + Send;
 
     /// One statement an agent sent, in a read-only transaction with time limits, keeping at most `limit` rows. When more
-    /// rows exist, `total_rows` is one more than the rows kept.
-    fn read(&self, statement: &str, limit: u32) -> impl Future<Output = Result<StatementResult, Error>> + Send;
+    /// rows exist, `total_rows` is one more than the rows kept. A `hidden` column's values come back as `[hidden]`, and
+    /// a statement that filters on one or computes with it is refused.
+    fn read(&self, statement: &str, limit: u32, hidden: &[ColumnRef]) -> impl Future<Output = Result<StatementResult, Error>> + Send;
     /// Statements an agent sent, each exactly one, in one transaction on a connection of their own that is closed
-    /// afterwards, so nothing they set outlasts them. Any error rolls back all of them.
-    fn execute(&self, statements: &[String]) -> impl Future<Output = Result<Vec<StatementResult>, Error>> + Send;
+    /// afterwards, so nothing they set outlasts them. Any error rolls back all of them, and so does a statement that
+    /// reads a `hidden` column.
+    fn execute(&self, statements: &[String], hidden: &[ColumnRef]) -> impl Future<Output = Result<Vec<StatementResult>, Error>> + Send;
     /// Every foreign key between the database's own tables.
     fn references(&self) -> impl Future<Output = Result<Vec<Reference>, Error>> + Send;
 }

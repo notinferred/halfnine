@@ -81,7 +81,9 @@ pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<Connecti
 #[tauri::command]
 #[specta::specta]
 pub async fn save_connection(state: State<'_, AppState>, draft: ConnectionDraft) -> Result<ConnectionSpec, Error> {
-    let spec = spec_from(&draft)?;
+    let mut spec = spec_from(&draft)?;
+    // The form doesn't show which columns are hidden from agents; the Structure view sets those.
+    spec.hidden_columns = state.store.get(&spec.id).map(|saved| saved.hidden_columns).unwrap_or_default();
     let was_saving = state.store.get(&spec.id).is_ok_and(|before| before.save_password);
     if spec.save_password {
         state.passwords.save(&spec.id, &draft.password, &draft.ssh_secret)?;
@@ -485,6 +487,7 @@ fn spec_from(draft: &ConnectionDraft) -> Result<ConnectionSpec, Error> {
         ssh,
         save_password: draft.save_password,
         agent_access: draft.agent_access,
+        hidden_columns: Vec::new(),
     })
 }
 

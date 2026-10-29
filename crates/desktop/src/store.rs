@@ -92,6 +92,7 @@ mod tests {
             ssh: None,
             save_password: true,
             agent_access: None,
+            hidden_columns: Vec::new(),
         }
     }
 

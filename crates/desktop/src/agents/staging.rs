@@ -87,6 +87,7 @@ pub async fn stage(db: &PgDatabase, asked: Asked) -> Result<Option<Staged>, Repl
                 rows: 0,
                 summary,
                 drops,
+                restore: None,
             }))
         }
         Asked::Statements(statements) => {
@@ -111,6 +112,7 @@ pub async fn stage(db: &PgDatabase, asked: Asked) -> Result<Option<Staged>, Repl
                 table: None,
                 filter: None,
                 rows: 0,
+                restore: None,
             }))
         }
     }
@@ -212,6 +214,30 @@ async fn rows(
         }
     }
     let deletes: Vec<Vec<ColumnValue>> = found_deletes.iter().map(|(_, printed_key, _)| printed_key.clone()).collect();
+    // Each deleted row whole, to put back if the change is undone. A column Postgres computes is left for it to compute
+    // again, and a row with a value too long to have been read whole can't be put back exactly.
+    let computed: HashSet<&str> = structure
+        .columns
+        .iter()
+        .filter(|c| c.generated && !c.default.as_deref().is_some_and(|d| d.starts_with("generated always as identity")))
+        .map(|c| c.name.as_str())
+        .collect();
+    let restore = found_deletes
+        .iter()
+        .map(|(row, _, columns)| {
+            row.cut.is_empty().then(|| {
+                columns
+                    .iter()
+                    .zip(&row.values)
+                    .filter(|(column, _)| !computed.contains(column.as_str()))
+                    .map(|(column, value)| ColumnValue {
+                        column: column.clone(),
+                        value: value.clone(),
+                    })
+                    .collect()
+            })
+        })
+        .collect::<Option<Vec<Vec<ColumnValue>>>>();
     touched.extend(deletes.iter().cloned());
     let inserts: Vec<Vec<ColumnValue>> = insert.iter().map(column_values).collect();
 
@@ -235,6 +261,7 @@ async fn rows(
         rows,
         summary,
         drops: false,
+        restore,
     }))
 }
 

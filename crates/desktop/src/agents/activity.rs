@@ -95,6 +95,8 @@ pub struct ActivityEntry {
     pub elapsed_ms: Option<u32>,
     pub code: Option<String>,
     pub reason: Option<String>,
+    /// Its row changes can still be undone.
+    pub undo: bool,
 }
 
 pub struct ActivityLog {
@@ -168,6 +170,7 @@ impl ActivityLog {
                             elapsed_ms: None,
                             code: None,
                             reason: None,
+                            undo: false,
                         },
                     );
                 }

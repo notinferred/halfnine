@@ -4,6 +4,7 @@ mod catalog;
 mod changes;
 mod editor;
 mod errors;
+mod hidden;
 mod sql;
 mod tunnel;
 
@@ -11,9 +12,9 @@ use std::time::{Duration, Instant};
 
 use futures_util::TryStreamExt;
 use hn_core::{
-    Activity, ByteSource, Changes, Choice, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource, Filter, Page, PageColumn,
-    PageRequest, Reference, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, StatementResult, Structure, StructureChange, TableRef,
-    TlsMode,
+    Activity, ByteSource, Changes, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource,
+    Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, StatementResult, Structure,
+    StructureChange, TableRef, TlsMode,
 };
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
@@ -168,6 +169,7 @@ impl PgDatabase {
                     type_name: r.try_get(1)?,
                     key_position: r.try_get(2)?,
                     generated: r.try_get(3)?,
+                    identity: r.try_get(4)?,
                 })
             })
             .collect::<Result<_, sqlx::Error>>()
@@ -415,12 +417,27 @@ impl Database for PgDatabase {
         let (mut tx, pid) = self.long_transaction(self.read_only).await?;
         let _running = self.running.enter(pid);
         let started = Instant::now();
+        let mut inserted = Vec::new();
         for step in steps {
             // Each statement is written once, so it isn't kept as a prepared statement.
-            let done = self.query(step.run).persistent(false).execute(&mut *tx).await;
+            let done = if step.returns_key {
+                match self.query(step.run).persistent(false).fetch_one(&mut *tx).await {
+                    Ok(row) => {
+                        inserted.push(returned_key(&row)?);
+                        Ok(1)
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                self.query(step.run)
+                    .persistent(false)
+                    .execute(&mut *tx)
+                    .await
+                    .map(|done| done.rows_affected())
+            };
             let failure = match done {
-                Ok(done) => match step.conflict {
-                    Some(conflict) if done.rows_affected() != 1 => Some(Error::new(ErrorKind::Conflict, conflict)),
+                Ok(affected) => match step.conflict {
+                    Some(conflict) if affected != 1 => Some(Error::new(ErrorKind::Conflict, conflict)),
                     _ => None,
                 },
                 Err(error) => {
@@ -440,6 +457,7 @@ impl Database for PgDatabase {
         Ok(Committed {
             statements,
             elapsed_ms: hn_core::millis(started.elapsed()),
+            inserted,
         })
     }
 
@@ -478,7 +496,7 @@ impl Database for PgDatabase {
         }
     }
 
-    async fn read(&self, statement: &str, limit: u32) -> Result<StatementResult, Error> {
+    async fn read(&self, statement: &str, limit: u32, hidden: &[ColumnRef]) -> Result<StatementResult, Error> {
         let word = editor::first_word(statement);
         if !AGENT_READS.contains(&word.as_str()) {
             return Err(Error::new(
@@ -486,6 +504,7 @@ impl Database for PgDatabase {
                 "A query only reads, so it starts with SELECT, WITH, VALUES, TABLE, SHOW or EXPLAIN.",
             ));
         }
+        let masked = self.hidden_columns(hidden).await?;
         let mut tx = self.reading().await?;
         sqlx::raw_sql("SET LOCAL statement_timeout = '15s'; SET LOCAL lock_timeout = '5s'")
             .execute(&mut *tx)
@@ -498,7 +517,7 @@ impl Database for PgDatabase {
             .map_err(from_sqlx)?;
         let read = {
             let _running = self.running.enter(pid);
-            read_rows(&mut tx, statement, limit).await
+            read_rows(&mut tx, statement, limit, hidden, &masked).await
         };
         // Whatever the statement set, such as `set_config`, ends with the transaction.
         let _ = tx.rollback().await;
@@ -511,7 +530,7 @@ impl Database for PgDatabase {
         Ok(result)
     }
 
-    async fn execute(&self, statements: &[String]) -> Result<Vec<StatementResult>, Error> {
+    async fn execute(&self, statements: &[String], hidden: &[ColumnRef]) -> Result<Vec<StatementResult>, Error> {
         if let Some(word) = statements
             .iter()
             .map(|s| editor::first_word(s))
@@ -525,7 +544,7 @@ impl Database for PgDatabase {
         let mut connection = editor::open(&self.options, self.read_only).await?;
         let executed = {
             let _running = self.running.enter(connection.pid);
-            self.execute_all(&mut connection.conn, statements).await
+            self.execute_all(&mut connection.conn, statements, hidden).await
         };
         // Closed rather than returned to a pool, so nothing the statements set reaches anything else.
         let _ = sqlx::Connection::close(connection.conn).await;
@@ -548,10 +567,13 @@ impl PgDatabase {
         }
     }
 
-    async fn execute_all(&self, conn: &mut PgConnection, statements: &[String]) -> Result<Vec<StatementResult>, Error> {
+    async fn execute_all(&self, conn: &mut PgConnection, statements: &[String], hidden: &[ColumnRef]) -> Result<Vec<StatementResult>, Error> {
         self.agent_transaction(conn).await?;
         let mut results = Vec::with_capacity(statements.len());
         for (index, statement) in statements.iter().enumerate() {
+            if !hidden.is_empty() {
+                refuse_hidden_reads(conn, statement, hidden).await?;
+            }
             let result = editor::run_in_transaction(conn, statement).await.map_err(|error| Error {
                 message: format!("Statement {} failed, so nothing was written: {}", index + 1, error.message),
                 ..error
@@ -560,6 +582,44 @@ impl PgDatabase {
         }
         sqlx::raw_sql("COMMIT").execute(&mut *conn).await.map_err(from_sqlx)?;
         Ok(results)
+    }
+}
+
+/// Refuses a statement whose plan reads a hidden column, which a write could copy somewhere an agent can see. Only some
+/// statements have a plan; the attempt is undone for the others, which read no values.
+async fn refuse_hidden_reads(conn: &mut PgConnection, statement: &str, hidden: &[ColumnRef]) -> Result<(), Error> {
+    sqlx::raw_sql("SAVEPOINT hn_hidden").execute(&mut *conn).await.map_err(from_sqlx)?;
+    let planned = plan(conn, statement).await;
+    let undo = if planned.is_ok() {
+        "RELEASE SAVEPOINT hn_hidden"
+    } else {
+        "ROLLBACK TO SAVEPOINT hn_hidden"
+    };
+    sqlx::raw_sql(undo).execute(&mut *conn).await.map_err(from_sqlx)?;
+    match planned.ok().and_then(|plan| hidden::misuse(&plan, hidden, hidden::Allow::Nothing)) {
+        Some(column) => Err(hidden_refused(&column, "This statement reads it")),
+        None => Ok(()),
+    }
+}
+
+impl PgDatabase {
+    /// Each hidden column's table oid and column number, as result columns report their origin.
+    async fn hidden_columns(&self, hidden: &[ColumnRef]) -> Result<Vec<(u32, i16)>, Error> {
+        if hidden.is_empty() {
+            return Ok(Vec::new());
+        }
+        let field = |f: fn(&ColumnRef) -> &String| hidden.iter().map(|h| f(h).clone()).collect::<Vec<String>>();
+        let rows = sqlx::query(catalog::HIDDEN_COLUMNS)
+            .bind(field(|h| &h.schema))
+            .bind(field(|h| &h.table))
+            .bind(field(|h| &h.column))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(from_sqlx)?;
+        rows.iter()
+            .map(|r| Ok((u32::try_from(r.try_get::<i64, _>(0)?).unwrap_or_default(), r.try_get(1)?)))
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(from_sqlx)
     }
 }
 
@@ -638,26 +698,89 @@ async fn export_rows(
 }
 
 /// Collects an agent's query: through a cursor when Postgres allows one, so it never produces more than one row past
-/// `limit`, or else whole, as for SHOW and EXPLAIN, whose results are small.
-async fn read_rows(tx: &mut PgConnection, statement: &str, limit: u32) -> Result<StatementResult, Error> {
+/// `limit`, or else whole, as for SHOW and EXPLAIN, whose results are small and hold no table's values. A hidden
+/// column is refused if the plan computes with it, and masked where the query returns it.
+async fn read_rows(
+    tx: &mut PgConnection,
+    statement: &str,
+    limit: u32,
+    hidden: &[ColumnRef],
+    masked: &[(u32, i16)],
+) -> Result<StatementResult, Error> {
     let word = editor::first_word(statement);
     if word == "SHOW" || word == "EXPLAIN" {
         return editor::run_in_transaction(tx, statement).await;
     }
-    let columns = editor::describe(tx, statement).await?;
+    if !hidden.is_empty() {
+        let plan = plan(tx, statement).await?;
+        if let Some(column) = hidden::misuse(&plan, hidden, hidden::Allow::Returned) {
+            return Err(hidden_refused(&column, "This query filters on it or computes with it"));
+        }
+    }
+    let described = editor::describe_origins(tx, statement).await?;
+    let hide: Vec<usize> = described
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, origin))| origin.is_some_and(|o| masked.contains(&o)))
+        .map(|(i, _)| i)
+        .collect();
+    let columns = described.into_iter().map(|(column, _)| column).collect();
     let started = Instant::now();
     // `describe` proved the statement is one statement, so it stays one after the prefix.
     let declare = format!("DECLARE hn_agent NO SCROLL CURSOR FOR {}", statement.trim().trim_end_matches(';'));
     sqlx::raw_sql(AssertSqlSafe(declare)).execute(&mut *tx).await.map_err(from_sqlx)?;
-    let (rows, cut, total_rows, _) = editor::collect(tx, &format!("FETCH {} FROM hn_agent", limit + 1)).await?;
+    let (mut rows, cut, total_rows, _) = editor::collect(tx, &format!("FETCH {} FROM hn_agent", limit + 1)).await?;
+    for row in &mut rows {
+        for &at in &hide {
+            if let Some(value) = row.get_mut(at).filter(|v| v.is_some()) {
+                *value = Some(hidden::MASK.to_string());
+            }
+        }
+    }
     Ok(StatementResult {
         columns,
         rows,
-        cut,
+        cut: cut.into_iter().filter(|c| !hide.contains(&(c.column as usize))).collect(),
         total_rows,
         rows_affected: 0,
         elapsed_ms: hn_core::millis(started.elapsed()),
     })
+}
+
+/// Postgres's plan for one statement, with every expression written out, without running it.
+async fn plan(conn: &mut PgConnection, statement: &str) -> Result<serde_json::Value, Error> {
+    let sql = format!("EXPLAIN (VERBOSE, FORMAT JSON) {}", statement.trim().trim_end_matches(';'));
+    let row = sqlx::raw_sql(AssertSqlSafe(sql)).fetch_one(&mut *conn).await.map_err(from_sqlx)?;
+    let text = editor::text_values(&row)?.into_iter().next().flatten().unwrap_or_default();
+    serde_json::from_str(&text).map_err(|e| Error::new(ErrorKind::Query, format!("Postgres's plan couldn't be read: {e}.")))
+}
+
+fn hidden_refused(column: &ColumnRef, why: &str) -> Error {
+    Error::new(
+        ErrorKind::Invalid,
+        format!(
+            "{}.{}.{} is hidden from agents. {why}, so Halfnine refused it. Its values show as {} when a query returns the column itself.",
+            column.schema,
+            column.table,
+            column.column,
+            hidden::MASK
+        ),
+    )
+}
+
+/// The key an INSERT returned, named by the table's key columns in order.
+fn returned_key(row: &sqlx::postgres::PgRow) -> Result<Vec<ColumnValue>, Error> {
+    let names: Vec<String> = row.columns().iter().map(|c| sqlx::Column::name(c).to_string()).collect();
+    names
+        .into_iter()
+        .enumerate()
+        .map(|(i, column)| {
+            Ok(ColumnValue {
+                column,
+                value: row.try_get(i).map_err(from_sqlx)?,
+            })
+        })
+        .collect()
 }
 
 fn not_found(table: &TableRef) -> Error {

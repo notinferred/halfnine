@@ -71,6 +71,8 @@ pub struct NewColumn {
 pub struct Committed {
     pub statements: u32,
     pub elapsed_ms: u32,
+    /// The primary key of each row added, in the order they were added, as Postgres printed it.
+    pub inserted: Vec<Vec<ColumnValue>>,
 }
 
 /// A value to pick for a foreign key: the key itself, and a column of the same row to recognise it by.

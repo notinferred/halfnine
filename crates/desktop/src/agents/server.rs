@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hn_core::{AgentAccess, Database, RelationKind, Structure, TableRef};
+use hn_core::{AgentAccess, ColumnRef, Database, RelationKind, Structure, TableRef};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Implementation, ProgressNotificationParam, ServerCapabilities, ServerConfig};
 use rmcp::service::RequestContext;
@@ -101,26 +101,33 @@ impl Server {
     async fn describe(&self, Parameters(input): Parameters<DescribeInput>, context: RequestContext<RoleServer>) -> CallToolResult {
         let agent = self.agent(&context);
         let (connection, database) = (input.connection.clone(), input.database.clone());
-        self.read(&agent, "describe", &connection, database.as_deref(), Vec::new(), |session| async move {
-            let db = &session.db;
-            match &input.table {
-                Some(name) => {
-                    let table = TableRef {
-                        schema: input.schema.clone().unwrap_or_else(|| "public".to_string()),
-                        name: name.clone(),
-                    };
-                    let structure = db.structure(&table).await?;
-                    Ok(Reply::new(Status::Ok, describe_table(&table, &structure)))
+        self.read(
+            &agent,
+            "describe",
+            &connection,
+            database.as_deref(),
+            Vec::new(),
+            |session, hidden| async move {
+                let db = &session.db;
+                match &input.table {
+                    Some(name) => {
+                        let table = TableRef {
+                            schema: input.schema.clone().unwrap_or_else(|| "public".to_string()),
+                            name: name.clone(),
+                        };
+                        let structure = db.structure(&table).await?;
+                        Ok(Reply::new(Status::Ok, describe_table(&table, &structure, &hidden)))
+                    }
+                    None => {
+                        let (server, schema, references) = tokio::try_join!(db.server(), db.schema(), db.references())?;
+                        Ok(Reply::new(
+                            Status::Ok,
+                            describe_database(&server, &schema, &references, input.schema.as_deref(), &hidden),
+                        ))
+                    }
                 }
-                None => {
-                    let (server, schema, references) = tokio::try_join!(db.server(), db.schema(), db.references())?;
-                    Ok(Reply::new(
-                        Status::Ok,
-                        describe_database(&server, &schema, &references, input.schema.as_deref()),
-                    ))
-                }
-            }
-        })
+            },
+        )
         .await
         .into_result()
     }
@@ -146,8 +153,8 @@ impl Server {
             &connection,
             database.as_deref(),
             vec![sql.clone()],
-            |session| async move {
-                let result = session.db.read(&sql, limit).await?;
+            |session, hidden| async move {
+                let result = session.db.read(&sql, limit, &hidden).await?;
                 let more = result.total_rows as usize > result.rows.len();
                 let (text, written) = rows(&result);
                 let mut head = format!("{} in {} ms", plural(written, "row"), result.elapsed_ms);
@@ -254,7 +261,7 @@ impl Server {
     /// A tool that only reads: logged, checked against the connection's access, then run on the agents' session.
     async fn read<F, Fut>(&self, agent: &Agent, tool: &str, connection: &str, database: Option<&str>, sql: Vec<String>, work: F) -> Reply
     where
-        F: FnOnce(Arc<crate::sessions::Session>) -> Fut,
+        F: FnOnce(Arc<crate::sessions::Session>, Vec<ColumnRef>) -> Fut,
         Fut: Future<Output = Result<Reply, hn_core::Error>>,
     {
         let spec = match self.agents.connection(connection) {
@@ -276,7 +283,10 @@ impl Server {
             Reply::new(Status::Refused, why)
         } else {
             match self.agents.database(agent, &spec, database).await {
-                Ok((session, _)) => work(session).await.unwrap_or_else(Reply::from),
+                Ok((session, _)) => {
+                    let hidden = spec.hidden_in(&session.database);
+                    work(session, hidden).await.unwrap_or_else(Reply::from)
+                }
                 Err(reply) => reply,
             }
         };
@@ -326,7 +336,13 @@ impl ServerHandler for Server {
     }
 }
 
-fn describe_table(table: &TableRef, s: &Structure) -> String {
+const HIDDEN_NOTE: &str = " (hidden from agents: its values show as [hidden])";
+
+fn is_hidden(hidden: &[ColumnRef], schema: &str, table: &str, column: &str) -> bool {
+    hidden.iter().any(|h| h.schema == schema && h.table == table && h.column == column)
+}
+
+fn describe_table(table: &TableRef, s: &Structure, hidden: &[ColumnRef]) -> String {
     let mut text = format!("{}.{}", table.schema, table.name);
     if let Some(rows) = s.estimated_rows {
         let _ = write!(text, " · about {} rows", rows.round() as i64);
@@ -342,6 +358,9 @@ fn describe_table(table: &TableRef, s: &Structure) -> String {
         }
         if c.generated {
             text.push_str(" (filled by Postgres)");
+        }
+        if is_hidden(hidden, &table.schema, &table.name, &c.name) {
+            text.push_str(HIDDEN_NOTE);
         }
         if let Some(comment) = &c.comment {
             let _ = write!(text, " -- {comment}");
@@ -381,7 +400,13 @@ fn describe_table(table: &TableRef, s: &Structure) -> String {
     text
 }
 
-fn describe_database(server: &hn_core::ServerInfo, schema: &[hn_core::SchemaNode], references: &[hn_core::Reference], only: Option<&str>) -> String {
+fn describe_database(
+    server: &hn_core::ServerInfo,
+    schema: &[hn_core::SchemaNode],
+    references: &[hn_core::Reference],
+    only: Option<&str>,
+    hidden: &[ColumnRef],
+) -> String {
     let mut text = format!(
         "Database {} · PostgreSQL {} · signed in as {}",
         server.database, server.version, server.user
@@ -406,7 +431,15 @@ fn describe_database(server: &hn_core::ServerInfo, schema: &[hn_core::SchemaNode
                 .estimated_rows
                 .map(|n| format!(" (about {} rows)", n.round() as i64))
                 .unwrap_or_default();
-            let columns: Vec<String> = r.columns.iter().zip(&r.column_types).map(|(c, t)| format!("{c} {t}")).collect();
+            let columns: Vec<String> = r
+                .columns
+                .iter()
+                .zip(&r.column_types)
+                .map(|(c, t)| {
+                    let mark = if is_hidden(hidden, &node.name, &r.name, c) { " (hidden)" } else { "" };
+                    format!("{c} {t}{mark}")
+                })
+                .collect();
             let _ = write!(body, "\n- {kind} {}{rows}: {}", r.name, columns.join(", "));
         }
         for e in &node.enums {

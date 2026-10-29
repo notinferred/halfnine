@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use url::Url;
 
+use crate::data::ColumnRef;
 use crate::error::{Error, ErrorKind};
 
 /// A saved connection, without its secrets: a password is saved only in the OS keychain, or not at all.
@@ -28,6 +29,19 @@ pub struct ConnectionSpec {
     /// label's default.
     #[serde(default)]
     pub agent_access: Option<AgentAccess>,
+    /// Columns whose values agents never see, wherever a query would return them.
+    #[serde(default)]
+    pub hidden_columns: Vec<HiddenColumn>,
+}
+
+/// A column hidden from agents, in one database of a connection.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenColumn {
+    pub database: String,
+    pub schema: String,
+    pub table: String,
+    pub column: String,
 }
 
 fn saved_before_the_choice() -> bool {
@@ -35,6 +49,19 @@ fn saved_before_the_choice() -> bool {
 }
 
 impl ConnectionSpec {
+    /// The columns hidden from agents in `database`.
+    pub fn hidden_in(&self, database: &str) -> Vec<ColumnRef> {
+        self.hidden_columns
+            .iter()
+            .filter(|h| h.database == database)
+            .map(|h| ColumnRef {
+                schema: h.schema.clone(),
+                table: h.table.clone(),
+                column: h.column.clone(),
+            })
+            .collect()
+    }
+
     /// The level agents get: the one picked, or else Off for a red label and Read for any other.
     pub fn agent_access(&self) -> AgentAccess {
         self.agent_access.unwrap_or(match self.label {

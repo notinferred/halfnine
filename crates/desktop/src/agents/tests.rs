@@ -53,6 +53,7 @@ fn spec(name: &str, access: Option<AgentAccess>, label: Label, read_only: bool, 
         ssh: None,
         save_password: false,
         agent_access: access,
+        hidden_columns: Vec::new(),
     }
 }
 
@@ -418,4 +419,72 @@ async fn asks_the_person_for_a_password_and_waits() {
     answer.await.unwrap();
     assert!(text.starts_with("OK 1 row"), "{text}");
     assert!(world.desk.forward.load(Ordering::SeqCst) >= 1);
+}
+
+#[tokio::test]
+async fn an_agent_sees_a_hidden_column_only_as_hidden() {
+    let Some(url) = database_url() else { return };
+    let world = world(Some(&url));
+    let mut full = world.agents.store.get("id-full").unwrap();
+    full.hidden_columns.push(hn_core::HiddenColumn {
+        database: full.database.clone(),
+        schema: "hn_fixture".into(),
+        table: "customers".into(),
+        column: "email".into(),
+    });
+    world.agents.store.save(full).unwrap();
+    let client = client(&world.agents, "claude-code").await;
+    let (text, _) = call(
+        &client,
+        "query",
+        json!({"connection": "full", "sql": "SELECT * FROM hn_fixture.customers WHERE id = 7"}),
+    )
+    .await;
+    assert!(text.contains("[hidden]") && !text.contains("@example.com"), "{text}");
+    let (text, _) = call(
+        &client,
+        "query",
+        json!({"connection": "full", "sql": "SELECT upper(email) FROM hn_fixture.customers"}),
+    )
+    .await;
+    assert!(text.starts_with("REFUSED") && text.contains("is hidden from agents"), "{text}");
+    let (text, _) = call(
+        &client,
+        "describe",
+        json!({"connection": "full", "schema": "hn_fixture", "table": "customers"}),
+    )
+    .await;
+    assert!(text.contains("- email text (hidden from agents"), "{text}");
+}
+
+#[tokio::test]
+async fn keeps_the_reverse_of_a_row_change_to_undo() {
+    let Some(url) = database_url() else { return };
+    let world = world(Some(&url));
+    let client = client(&world.agents, "claude-code").await;
+    scratch(&client, "agent_undo").await;
+    let change = json!({
+        "connection": "full",
+        "table": {"schema": "hn_fixture", "name": "agent_undo"},
+        "update": [{"key": {"id": 1}, "set": {"body": "uno"}}],
+        "delete": [{"id": 2}],
+        "insert": [{"id": 3, "body": "tres"}],
+    });
+    let (text, _) = call(&client, "change_rows", change).await;
+    assert!(text.starts_with("OK Committed"), "{text}");
+    let made = world.agents.activity(1).remove(0);
+    assert!(made.undo, "the change can be undone");
+    let record = world.agents.undo(&made.call).unwrap();
+    let info = world.agents.databases.lock().await.values().next().cloned().unwrap();
+    let session = world.agents.sessions.get(&info.session_id).await.unwrap();
+    session.db.commit(&record.changes).await.unwrap();
+    world.agents.undone(&made.call).unwrap();
+    assert!(!world.agents.activity(1)[0].undo);
+    let (rows, _) = call(
+        &client,
+        "query",
+        json!({"connection": "full", "sql": "SELECT id, body FROM hn_fixture.agent_undo ORDER BY id"}),
+    )
+    .await;
+    assert!(rows.contains("[\"1\",\"one\"]\n[\"2\",\"two\"]\n</rows>"), "{rows}");
 }
