@@ -39,7 +39,7 @@ import { ImportSheet } from "./import-sheet.tsx";
 import { KeyPicker } from "./key-picker.tsx";
 import { RowPanel } from "./row-panel.tsx";
 import { structureChanges } from "./structure-draft.ts";
-import { StructureView } from "./structure-view.tsx";
+import { type AgentColumns, StructureView } from "./structure-view.tsx";
 import "./table.css";
 
 const PAGE = 500;
@@ -81,6 +81,7 @@ export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab
     queryKey: ["structure", id, tab.table.schema, tab.table.name],
     queryFn: () => commands.structure(id, tab.table),
   });
+  const connections = useQuery({ queryKey: ["connections"], queryFn: commands.listConnections });
   const pages = useInfiniteQuery({
     queryKey: ["page", id, tab.table.schema, tab.table.name, sort, tab.filter],
     queryFn: ({ pageParam }) => commands.page(id, { table: tab.table, sort, filter: tab.filter, offset: pageParam, limit: PAGE }),
@@ -136,8 +137,12 @@ export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab
   }, [rows, columns, s, tab.edits, canEditRows, proposal]);
 
   const inserts = useMemo(
-    () => tab.edits.inserts.map((row) => ({ id: row.id, values: columns.map((c) => (c.name in row.values ? row.values[c.name] : undefined)) })),
-    [tab.edits.inserts, columns],
+    () =>
+      [...tab.edits.inserts, ...tab.edits.restores].map((row) => ({
+        id: row.id,
+        values: columns.map((c) => (c.name in row.values ? row.values[c.name] : undefined)),
+      })),
+    [tab.edits.inserts, tab.edits.restores, columns],
   );
 
   /** Changes the staged edits from the latest ones, so several changes in a row never undo each other. */
@@ -213,6 +218,23 @@ export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab
           onDeleteRows: () => undefined,
         }
       : undefined;
+
+  // Hiding a column from agents is the person's own setting, so an agent's proposal doesn't offer it.
+  const saved = connections.data?.find((c) => c.id === session.connection.id) ?? session.connection;
+  const agentColumns: AgentColumns | undefined = proposal
+    ? undefined
+    : {
+        hidden: new Set(
+          (saved.hiddenColumns ?? [])
+            .filter((h) => h.database === session.server.database && h.schema === tab.table.schema && h.table === tab.table.name)
+            .map((h) => h.column),
+        ),
+        onToggle: (column, hide) =>
+          void commands
+            .setColumnHidden(session.connection.id, session.server.database, tab.table, column, hide)
+            .then(() => queries.invalidateQueries({ queryKey: ["connections"] }))
+            .catch((error) => setNote(describe(error))),
+      };
 
   const rowChanges = countEdits(tab.edits);
   const structureChangeList = tab.draft ? structureChanges(tab.draft) : [];
@@ -469,6 +491,7 @@ export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab
             structure={structure}
             draft={tab.draft}
             staged={proposal !== undefined}
+            agents={agentColumns}
             onDraft={canEditStructure ? (draft) => updateTable(tab.id, { draft }) : undefined}
           />
         )}
@@ -514,6 +537,10 @@ export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab
           onDiscard={() => updateTable(tab.id, { edits: noEdits })}
           onCommitted={(done) => {
             updateTable(tab.id, { edits: noEdits });
+            // Undoing an agent's change, once committed, leaves nothing to undo.
+            if (tab.undoOf) {
+              void commands.forgetUndo(tab.undoOf).then(() => queries.invalidateQueries({ queryKey: ["agentActivity"] }));
+            }
             setNote(`Committed ${plural(done.statements, "statement")} in ${done.elapsedMs.toLocaleString()} ms.`);
             refresh();
           }}

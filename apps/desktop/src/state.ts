@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { countEdits, noEdits, type RowEdits } from "./features/table/edits.ts";
+import { countEdits, fromChanges, noEdits, type RowEdits } from "./features/table/edits.ts";
 import { newTableDraft, type StructureDraft, structureChanges } from "./features/table/structure-draft.ts";
-import type { Filter, SessionInfo, TableRef } from "./ipc/bindings.ts";
+import type { Filter, SessionInfo, TableRef, UndoRecord } from "./ipc/bindings.ts";
 
 export type TableTab = {
   kind: "table";
@@ -13,6 +13,8 @@ export type TableTab = {
   edits: RowEdits;
   /** The structure as it is being edited, or `null` while nothing has changed. */
   draft: StructureDraft | null;
+  /** The agent call whose change these edits undo, if they do. */
+  undoOf?: string;
 };
 
 export type NewTableTab = { kind: "newTable"; id: string; schema: string; name: string; draft: StructureDraft };
@@ -67,6 +69,8 @@ type Workspace = {
   activate: (id: string) => void;
   setFilter: (id: string, filter: Filter | null) => void;
   setPaletteOpen: (open: boolean) => void;
+  /** Opens the reverse of an agent's change in its own tab, staged like the person's own edits. */
+  openUndo: (undo: UndoRecord) => void;
   /** Opens a tab for an agent's proposal, beside the others, and shows it. */
   openProposal: (proposalId: string) => void;
   /** Marks a proposal answered, so its tab no longer holds the connection open. */
@@ -129,6 +133,16 @@ export const useWorkspace = create<Workspace>((set, get) => {
     activate: (id) => set({ active: id }),
     setFilter: (id, filter) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "table" ? { ...t, filter } : t)) })),
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+    openUndo: (undo) =>
+      add({
+        kind: "table",
+        id: crypto.randomUUID(),
+        table: undo.table,
+        filter: undo.filter,
+        edits: fromChanges(undo.changes),
+        draft: null,
+        undoOf: undo.call,
+      }),
     openProposal: (proposalId) => {
       if (get().tabs.some((t) => t.kind === "proposal" && t.proposalId === proposalId)) return;
       add({ kind: "proposal", id: crypto.randomUUID(), proposalId, settled: false });

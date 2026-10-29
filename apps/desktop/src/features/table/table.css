@@ -642,3 +642,16 @@ tr:hover .structure-drop,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Hiding a column from agents. A column whose name looks sensitive takes the accent until someone decides. */
+.agent-eye {
+  color: var(--text-2);
+}
+
+.agent-eye[data-suggested] {
+  color: var(--accent);
+}
+
+.agent-eye[aria-pressed="true"] {
+  color: var(--text);
+}

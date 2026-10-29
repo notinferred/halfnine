@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type ActivityEntry, commands, type Outcome } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
+import { useWorkspace } from "../../state.ts";
 import { ago } from "../../ui/time.ts";
 import { Connect } from "./connect.tsx";
 import "../queries/queries.css";
@@ -44,6 +45,23 @@ export function AgentsPage() {
     }
   };
 
+  // The reverse opens in the table like the person's own edits, on its connection, to review and commit.
+  const undo = async (entry: ActivityEntry) => {
+    setError(null);
+    try {
+      const record = await commands.undoChange(entry.call);
+      const { session, enter, openUndo } = useWorkspace.getState();
+      if (session && (session.connection.id !== record.connectionId || session.server.database !== record.database)) {
+        setError(`Open ${entry.connection ?? "its connection"} to undo this change.`);
+        return;
+      }
+      if (!session) enter(await commands.openSession(record.connectionId, record.database, null));
+      openUndo(record);
+    } catch (e) {
+      setError(describe(e));
+    }
+  };
+
   return (
     <div className="queries-page">
       <header className="queries-header">
@@ -69,12 +87,17 @@ export function AgentsPage() {
         </p>
       )}
       {(error ?? activity.error) && <p className="queries-empty status-error">{error ?? describe(activity.error)}</p>}
-      {showing === "activity" ? <Activity entries={activity.data ?? []} onConnect={() => setChosen("connect")} /> : <Connect />}
+      {showing === "activity" ? (
+        <Activity entries={activity.data ?? []} onConnect={() => setChosen("connect")} onUndo={(entry) => void undo(entry)} />
+      ) : (
+        <Connect />
+      )}
     </div>
   );
 }
 
-function Activity({ entries, onConnect }: { entries: ActivityEntry[]; onConnect: () => void }) {
+function Activity(props: { entries: ActivityEntry[]; onConnect: () => void; onUndo: (entry: ActivityEntry) => void }) {
+  const { entries, onConnect } = props;
   if (entries.length === 0) {
     return (
       <div className="queries-empty agents-start">
@@ -110,6 +133,11 @@ function Activity({ entries, onConnect }: { entries: ActivityEntry[]; onConnect:
               </summary>
               {entry.sql.length > 0 && <pre className="review-sql mono agents-sql">{entry.sql.join("\n\n")}</pre>}
             </details>
+            {entry.undo && (
+              <button type="button" className="btn btn-quiet agents-undo" onClick={() => props.onUndo(entry)}>
+                Undo
+              </button>
+            )}
           </li>
         );
       })}

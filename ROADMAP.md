@@ -138,18 +138,25 @@ An agent that needs a table, a query answered, or a fresh database asks Halfnine
 - [x] **Dan's check** (2026-10-29): "its all good and approved". Claude Code itself wasn't connected during it, so the first real session is still to come.
 - [ ] **Windows check,** from a release build: stdio through the app binary, the app opening apart from the agent, and coming forward.
 
-### Next in M5
+### Safety (built 2026-10-29)
 
-- **Undo:** before an agent's write runs, the rows it changes are saved, so the write can be reverted from the activity log. Schema changes go through migrations or copies.
+Dan chose to release sooner: this step, then v0.2.0 with agents, then the rest of M5.
+
+- [x] **Hidden columns:** an eye on each column in the Structure view hides it from agents, and suggests it for names like email, phone, token, password and secret. Its values show as `[hidden]` wherever an agent's query returns them; a query that filters on it or computes with it, and a write that reads it, is refused, using Postgres's own plan. It stops accidental exposure, not an agent deliberately working around it through a view or a kept-apart subquery.
+- [x] **Undo for `change_rows`:** the reverse of each committed row change is kept, deleted rows' values included, and Undo on the Agents page stages it in the table like your own edits. `run_sql` and structure changes can't be undone there.
+- [ ] **Dan's check.**
+
+### Release
+
+- [ ] **v0.2.0** with the agent core and the safety step, built by `release.yml` from a tag.
+- [ ] **Listed:** the repository's description without "(coming soon)", the topics mcp, mcp-server, ai-agents and claude-code, and Halfnine in the official MCP Registry, Smithery, mcp.so and awesome-mcp-servers.
+- [ ] **A Claude Code plugin and a Claude Desktop extension,** if the listings want them.
+
+### Next in M5
 - **Migrations, not direct DDL:** when the agent's project has migrations (Drizzle, Prisma, sqlx and others, found through the project folder the agent shares by MCP roots), a schema change becomes a migration file in that project rather than a direct change to the database. Direct DDL is only for databases nothing owns, such as a scratch Docker database.
 - **Work on a copy:** clone a database before risky work. On a local server this is `CREATE DATABASE … TEMPLATE`; for Docker, a cloned container. The agent works on the copy, and Dan keeps it or discards it.
-- **Sensitive columns hidden:**
-  - Columns marked sensitive are masked in everything an agent sees, in `agents::results::shown`.
-  - Halfnine suggests columns to mark from their names: email, phone, token, password, secret.
-  - Whatever an agent reads is sent to its AI provider, which is why this matters.
 - **Credentials:** an agent may receive the URL of a Docker database Halfnine created, because those credentials are local and throwaway. Every other connection's credentials never leave the app.
 - **Agents create, copy and delete local databases,** with Docker below. Databases Halfnine created in Docker start at Full.
-- **A Claude Code plugin and a Claude Desktop extension,** for the listings when M5 ships.
 
 ### Docker
 

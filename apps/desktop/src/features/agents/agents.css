@@ -36,6 +36,11 @@
   display: none;
 }
 
+.agents-undo {
+  height: 24px;
+  margin: var(--space-3) var(--space-2) 0 0;
+}
+
 .agents-reason {
   font-size: var(--text-sm);
   color: var(--text-2);

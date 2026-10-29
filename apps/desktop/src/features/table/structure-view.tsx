@@ -1,8 +1,34 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { KeyRound, Plus } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Plus } from "lucide-react";
 import type { Structure } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { COMMON_TYPES, type ColumnDraft, changed, draftFrom, newColumnDraft, type StructureDraft } from "./structure-draft.ts";
+
+/** Which of a table's columns are hidden from agents, and how to change that. */
+export type AgentColumns = { hidden: Set<string>; onToggle: (column: string, hide: boolean) => void };
+
+/** Names that usually hold something an AI provider shouldn't receive, offered for hiding. */
+const SENSITIVE = /email|phone|token|password|secret/i;
+
+/** Hides a column from agents, or shows it to them again. A column whose name looks sensitive is suggested. */
+function AgentEye(props: { column: string; agents: AgentColumns }) {
+  const hidden = props.agents.hidden.has(props.column);
+  const suggested = !hidden && SENSITIVE.test(props.column);
+  const Icon = hidden ? EyeOff : Eye;
+  return (
+    <button
+      type="button"
+      className="btn btn-icon agent-eye"
+      data-suggested={suggested || undefined}
+      aria-pressed={hidden}
+      aria-label={hidden ? `Show ${props.column} to agents` : `Hide ${props.column} from agents`}
+      title={hidden ? "Hidden from agents" : suggested ? "Looks sensitive: hide it from agents?" : "Hide from agents"}
+      onClick={() => props.agents.onToggle(props.column, !hidden)}
+    >
+      <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
+    </button>
+  );
+}
 
 /** A table's structure. Given `onDraft`, its columns and indexes edit in place and each change is staged. */
 export function StructureView(props: {
@@ -11,6 +37,8 @@ export function StructureView(props: {
   onDraft?: (draft: StructureDraft) => void;
   /** Shows the draft's staged changes but lets nothing change them, as for an agent's proposal. */
   staged?: boolean;
+  /** Offers to hide each column from agents. */
+  agents?: AgentColumns;
 }) {
   const { structure } = props;
   const onDraft = props.onDraft ?? (props.staged ? () => undefined : undefined);
@@ -25,7 +53,7 @@ export function StructureView(props: {
       <section>
         <h2>Columns</h2>
         {onDraft ? (
-          <ColumnsEditor draft={draft} onDraft={onDraft} />
+          <ColumnsEditor draft={draft} onDraft={onDraft} agents={props.agents} />
         ) : (
           <table className="structure-table">
             <thead>
@@ -34,6 +62,11 @@ export function StructureView(props: {
                 <th>Type</th>
                 <th>Null</th>
                 <th>Default</th>
+                {props.agents && (
+                  <th>
+                    <span className="visually-hidden">Agents</span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -46,6 +79,11 @@ export function StructureView(props: {
                   <td className="mono muted">{c.typeName}</td>
                   <td className="muted">{c.nullable ? "null" : "not null"}</td>
                   <td className="mono muted">{c.default ?? "—"}</td>
+                  {props.agents && (
+                    <td className="structure-row-action">
+                      <AgentEye column={c.name} agents={props.agents} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -77,7 +115,7 @@ export function StructureView(props: {
 }
 
 /** The columns as editable rows. A new table also chooses its primary key here. */
-export function ColumnsEditor(props: { draft: StructureDraft; onDraft: (draft: StructureDraft) => void; creating?: boolean }) {
+export function ColumnsEditor(props: { draft: StructureDraft; onDraft: (draft: StructureDraft) => void; creating?: boolean; agents?: AgentColumns }) {
   const { draft, onDraft } = props;
   const update = (id: string, change: Partial<ColumnDraft>) =>
     onDraft({ ...draft, columns: draft.columns.map((c) => (c.id === id ? { ...c, ...change } : c)) });
@@ -94,6 +132,11 @@ export function ColumnsEditor(props: { draft: StructureDraft; onDraft: (draft: S
             <th>Type</th>
             <th>Null</th>
             <th>Default</th>
+            {props.agents && (
+              <th>
+                <span className="visually-hidden">Agents</span>
+              </th>
+            )}
             <th>
               <span className="visually-hidden">Drop</span>
             </th>
@@ -163,6 +206,7 @@ export function ColumnsEditor(props: { draft: StructureDraft; onDraft: (draft: S
                     onChange={(e) => update(c.id, { default: e.target.value })}
                   />
                 </td>
+                {props.agents && <td className="structure-row-action">{c.was && <AgentEye column={c.was.name} agents={props.agents} />}</td>}
                 <td className="structure-row-action">
                   {c.dropped ? (
                     <button type="button" className="btn btn-quiet" onClick={() => update(c.id, { dropped: false })}>
