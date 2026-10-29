@@ -11,6 +11,13 @@
   padding-top: 0;
 }
 
+.agents-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
 .agents-entry {
   flex: 1;
   min-width: 0;

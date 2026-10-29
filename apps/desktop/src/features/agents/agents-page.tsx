@@ -25,10 +25,14 @@ export function AgentsPage() {
   const queries = useQueryClient();
   const agents = useQuery({ queryKey: ["agents"], queryFn: commands.agentState });
   const activity = useQuery({ queryKey: ["agentActivity"], queryFn: () => commands.agentActivity(300) });
+  const setups = useQuery({ queryKey: ["clientSetups"], queryFn: commands.clientSetups });
   const [error, setError] = useState<string | null>(null);
-  const [showing, setShowing] = useState<"activity" | "connect">("activity");
+  const [chosen, setChosen] = useState<"activity" | "connect" | null>(null);
   const paused = agents.data?.paused ?? false;
   const clients = agents.data?.clients ?? [];
+  // Until an agent is set up or connected, connecting one is the page's next step, so it opens there.
+  const anyAgent = clients.length > 0 || (setups.data ?? []).some((s) => s.connected);
+  const showing = chosen ?? (setups.isPending || anyAgent ? "activity" : "connect");
 
   const pause = async () => {
     setError(null);
@@ -45,10 +49,10 @@ export function AgentsPage() {
       <header className="queries-header">
         <h1>Agents</h1>
         <fieldset className="segmented" aria-label="Show">
-          <button type="button" aria-pressed={showing === "activity"} onClick={() => setShowing("activity")}>
+          <button type="button" aria-pressed={showing === "activity"} onClick={() => setChosen("activity")}>
             Activity
           </button>
-          <button type="button" aria-pressed={showing === "connect"} onClick={() => setShowing("connect")}>
+          <button type="button" aria-pressed={showing === "connect"} onClick={() => setChosen("connect")}>
             Connect
           </button>
         </fieldset>
@@ -57,21 +61,30 @@ export function AgentsPage() {
           <button type="button" className="switch" aria-labelledby="agents-pause-label" aria-pressed={paused} onClick={() => void pause()} />
         </div>
       </header>
-      <p className="queries-empty muted agents-status">
-        {paused
-          ? "Paused: agents can't read or change anything until you turn this off."
-          : clients.length === 0
-            ? "No agent is connected now."
+      {(paused || clients.length > 0) && (
+        <p className="queries-empty muted agents-status">
+          {paused
+            ? "Paused: agents can't read or change anything until you turn this off."
             : clients.map((c) => `${c.agent} connected ${ago(c.sinceMs)}`).join(" · ")}
-      </p>
+        </p>
+      )}
       {(error ?? activity.error) && <p className="queries-empty status-error">{error ?? describe(activity.error)}</p>}
-      {showing === "activity" ? <Activity entries={activity.data ?? []} /> : <Connect />}
+      {showing === "activity" ? <Activity entries={activity.data ?? []} onConnect={() => setChosen("connect")} /> : <Connect />}
     </div>
   );
 }
 
-function Activity({ entries }: { entries: ActivityEntry[] }) {
-  if (entries.length === 0) return <p className="queries-empty muted">Nothing yet. Every call an agent makes is listed here.</p>;
+function Activity({ entries, onConnect }: { entries: ActivityEntry[]; onConnect: () => void }) {
+  if (entries.length === 0) {
+    return (
+      <div className="queries-empty agents-start">
+        <p className="muted">No agent has used Halfnine yet.</p>
+        <button type="button" className="btn btn-primary" onClick={onConnect}>
+          Connect an agent
+        </button>
+      </div>
+    );
+  }
   return (
     <ul className="queries-list">
       {entries.map((entry) => {
