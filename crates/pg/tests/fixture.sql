@@ -1,8 +1,8 @@
 -- The database the Postgres tests read, and the one Dan's local check opens. Every shape here exists to break something:
 -- awkward names, a table without a key, keys in both directions, every common type, NULL beside '', and one huge value.
-DROP SCHEMA IF EXISTS tu_fixture CASCADE;
-CREATE SCHEMA tu_fixture;
-SET search_path = tu_fixture;
+DROP SCHEMA IF EXISTS hn_fixture CASCADE;
+CREATE SCHEMA hn_fixture;
+SET search_path = hn_fixture;
 
 CREATE TYPE mood AS ENUM ('calm', 'busy', 'it''s complicated');
 
@@ -50,7 +50,7 @@ CREATE FUNCTION add_one(i integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SE
 -- The table is named in full because the function runs with the caller's search_path, not this file's.
 CREATE FUNCTION touch() RETURNS boolean LANGUAGE plpgsql AS $$
 BEGIN
-  UPDATE tu_fixture.customers SET name = name WHERE id = 1;
+  UPDATE hn_fixture.customers SET name = name WHERE id = 1;
   RETURN true;
 END
 $$;

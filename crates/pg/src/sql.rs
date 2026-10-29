@@ -1,6 +1,6 @@
 //! The SQL the app builds. Identifiers only ever enter it through [`ident`]; values only as bound parameters.
 
-use tu_core::{Error, ErrorKind, Filter, PageRequest, Sort, TableRef};
+use hn_core::{Error, ErrorKind, Filter, PageRequest, Sort, TableRef};
 
 /// The longest value the grid receives; longer ones are cut and marked, so one huge cell can't stall a page.
 pub(crate) const CELL_LIMIT: usize = 65_536;
@@ -192,7 +192,7 @@ pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter
         _ => {
             return Err(Error::new(
                 ErrorKind::Invalid,
-                "TableUltra reads files whose values are separated by commas, semicolons, tabs or bars.",
+                "Halfnine reads files whose values are separated by commas, semicolons, tabs or bars.",
             ));
         }
     };
@@ -224,10 +224,10 @@ pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter
         .collect::<Vec<_>>()
         .join(", ");
     Ok(Import {
-        create: format!("CREATE TEMPORARY TABLE tu_import ({staging}) ON COMMIT DROP"),
-        copy: format!("COPY tu_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER {delimiter})"),
+        create: format!("CREATE TEMPORARY TABLE hn_import ({staging}) ON COMMIT DROP"),
+        copy: format!("COPY hn_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER {delimiter})"),
         insert: format!(
-            "INSERT INTO {} ({}) SELECT {} FROM tu_import",
+            "INSERT INTO {} ({}) SELECT {} FROM hn_import",
             table(table_ref),
             into.join(", "),
             from.join(", ")
@@ -238,7 +238,7 @@ pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tu_core::ColumnValue;
+    use hn_core::ColumnValue;
 
     fn columns() -> Vec<ColumnMeta> {
         vec![
@@ -406,12 +406,12 @@ mod tests {
         .unwrap();
         assert_eq!(
             import.create,
-            "CREATE TEMPORARY TABLE tu_import (\"c1\" text, \"c2\" text, \"c3\" text) ON COMMIT DROP"
+            "CREATE TEMPORARY TABLE hn_import (\"c1\" text, \"c2\" text, \"c3\" text) ON COMMIT DROP"
         );
-        assert_eq!(import.copy, "COPY tu_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER ';')");
+        assert_eq!(import.copy, "COPY hn_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER ';')");
         assert_eq!(
             import.insert,
-            "INSERT INTO \"s\".\"t\" (\"say \"\"hi\"\"\", \"id\") SELECT \"c2\"::text, \"c3\"::bigint FROM tu_import"
+            "INSERT INTO \"s\".\"t\" (\"say \"\"hi\"\"\", \"id\") SELECT \"c2\"::text, \"c3\"::bigint FROM hn_import"
         );
         let twice = vec![Some("id".to_string()), Some("id".to_string())];
         assert_eq!(

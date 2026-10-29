@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 use specta::Type;
-use tu_core::{ByteSource, Error, ErrorKind};
+use hn_core::{ByteSource, Error, ErrorKind};
 
 use crate::files::storage;
 
@@ -52,7 +52,7 @@ impl Imports {
             Err(_) => {
                 return Err(Error::new(
                     ErrorKind::Invalid,
-                    "TableUltra reads CSV files saved as UTF-8. Save it as UTF-8, then import it again.",
+                    "Halfnine reads CSV files saved as UTF-8. Save it as UTF-8, then import it again.",
                 ));
             }
         };
@@ -100,7 +100,7 @@ impl Imports {
 }
 
 fn busy() -> Error {
-    Error::new(ErrorKind::Storage, "The list of chosen files couldn't be read. Restart TableUltra.")
+    Error::new(ErrorKind::Storage, "The list of chosen files couldn't be read. Restart Halfnine.")
 }
 
 /// The separator the first line uses most: a comma, a semicolon (common where the comma is a decimal point), a tab or a bar.

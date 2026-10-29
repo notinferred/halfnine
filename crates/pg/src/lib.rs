@@ -1,4 +1,4 @@
-//! TableUltra's Postgres adapter: it implements [`tu_core::Database`] over a small sqlx pool, optionally through an SSH tunnel.
+//! Halfnine's Postgres adapter: it implements [`hn_core::Database`] over a small sqlx pool, optionally through an SSH tunnel.
 
 mod catalog;
 mod changes;
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use futures_util::TryStreamExt;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
-use tu_core::{
+use hn_core::{
     Activity, ByteSource, Changes, Choice, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource, Filter, Page, PageColumn,
     PageRequest, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, Structure, StructureChange, TableRef, TlsMode,
 };
@@ -68,7 +68,7 @@ impl PgDatabase {
             .username(&spec.user)
             .database(database.unwrap_or(&spec.database))
             .ssl_mode(ssl_mode)
-            .application_name("TableUltra");
+            .application_name("Halfnine");
         if let Some(password) = &secrets.password {
             options = options.password(password);
         }
@@ -250,7 +250,7 @@ impl Database for PgDatabase {
         let mut tx = self.reading().await?;
         let started = Instant::now();
         let rows = self.query(built).fetch_all(&mut *tx).await.map_err(from_sqlx)?;
-        let elapsed_ms = tu_core::millis(started.elapsed());
+        let elapsed_ms = hn_core::millis(started.elapsed());
         let _ = tx.rollback().await;
 
         let limit = request.limit.clamp(1, sql::PAGE_LIMIT) as usize;
@@ -419,7 +419,7 @@ impl Database for PgDatabase {
         tx.commit().await.map_err(from_sqlx)?;
         Ok(Committed {
             statements,
-            elapsed_ms: tu_core::millis(started.elapsed()),
+            elapsed_ms: hn_core::millis(started.elapsed()),
         })
     }
 

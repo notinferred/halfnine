@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tu_core::Error;
+use hn_core::Error;
 
 use crate::files;
 
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn keeps_the_newest_runs_and_the_saved_queries_across_reopening() {
-        let dir = std::env::temp_dir().join(format!("tableultra-queries-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("halfnine-queries-{}", uuid::Uuid::new_v4()));
         let queries = Queries::open(dir.clone()).unwrap();
         for n in 0..HISTORY_LIMIT + 5 {
             queries.record(entry(n)).unwrap();

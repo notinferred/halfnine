@@ -8,12 +8,12 @@ use std::sync::Mutex;
 
 use keyring_core::Entry;
 use serde::{Deserialize, Serialize};
-use tu_core::{Error, ErrorKind};
-use tu_pg::Secrets;
+use hn_core::{Error, ErrorKind};
+use hn_pg::Secrets;
 
 use crate::commands::SecretChange;
 
-const SERVICE: &str = "com.notinferred.tableultra";
+const SERVICE: &str = "com.notinferred.halfnine";
 const ACCOUNT: &str = "passwords";
 const VERSION: u32 = 1;
 
@@ -133,7 +133,7 @@ fn read() -> Result<Saved, Error> {
             if saved.version > VERSION {
                 return Err(Error::new(
                     ErrorKind::Keychain,
-                    "A newer TableUltra saved these passwords, so this one won't change them.",
+                    "A newer Halfnine saved these passwords, so this one won't change them.",
                 ));
             }
             Ok(saved)
@@ -174,7 +174,7 @@ fn secrets(pair: Option<&Pair>) -> Secrets {
 }
 
 fn busy() -> Error {
-    Error::new(ErrorKind::Keychain, "The saved passwords couldn't be read. Restart TableUltra.")
+    Error::new(ErrorKind::Keychain, "The saved passwords couldn't be read. Restart Halfnine.")
 }
 
 fn keychain(e: keyring_core::Error) -> Error {
@@ -182,5 +182,5 @@ fn keychain(e: keyring_core::Error) -> Error {
 }
 
 fn keychain_text(e: &serde_json::Error) -> Error {
-    Error::new(ErrorKind::Keychain, format!("TableUltra's keychain entry couldn't be read: {e}."))
+    Error::new(ErrorKind::Keychain, format!("Halfnine's keychain entry couldn't be read: {e}."))
 }

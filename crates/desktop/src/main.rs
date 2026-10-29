@@ -51,5 +51,5 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("TableUltra could not start");
+        .expect("Halfnine could not start");
 }

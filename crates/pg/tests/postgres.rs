@@ -1,18 +1,18 @@
-//! The adapter against a real Postgres loaded with `fixture.sql`. CI provides one through `TU_TEST_DATABASE_URL`;
+//! The adapter against a real Postgres loaded with `fixture.sql`. CI provides one through `HN_TEST_DATABASE_URL`;
 //! without that variable these tests report that they were skipped and pass, so a laptop never needs a database.
 
-use tu_core::{
+use hn_core::{
     ByteSource, Cell, CellChange, Changes, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, NewColumn, PageRequest,
     RelationKind, RowSink, RowUpdate, Sort, StructureChange, TableRef, TlsMode,
 };
-use tu_pg::{PgDatabase, Secrets};
+use hn_pg::{PgDatabase, Secrets};
 
 async fn connect(read_only: bool) -> Option<PgDatabase> {
-    let Ok(url) = std::env::var("TU_TEST_DATABASE_URL") else {
-        eprintln!("skipped: TU_TEST_DATABASE_URL is not set");
+    let Ok(url) = std::env::var("HN_TEST_DATABASE_URL") else {
+        eprintln!("skipped: HN_TEST_DATABASE_URL is not set");
         return None;
     };
-    let parts = tu_core::parse_url(&url).expect("TU_TEST_DATABASE_URL is a postgres:// URL");
+    let parts = hn_core::parse_url(&url).expect("HN_TEST_DATABASE_URL is a postgres:// URL");
     let spec = ConnectionSpec {
         id: "test".into(),
         name: "test".into(),
@@ -39,7 +39,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
 
 fn table(name: &str) -> TableRef {
     TableRef {
-        schema: "tu_fixture".into(),
+        schema: "hn_fixture".into(),
         name: name.into(),
     }
 }
@@ -54,7 +54,7 @@ fn request(name: &str, filter: Option<Filter>, sort: Option<Sort>, offset: u32, 
     }
 }
 
-fn column(page: &tu_core::Page, name: &str) -> usize {
+fn column(page: &hn_core::Page, name: &str) -> usize {
     page.columns.iter().position(|c| c.name == name).expect("the column is on the page")
 }
 
@@ -70,7 +70,7 @@ async fn reports_the_server_and_its_databases() {
 async fn lists_every_kind_of_object_but_partitions() {
     let Some(db) = connect(false).await else { return };
     let schema = db.schema().await.unwrap();
-    let node = schema.iter().find(|n| n.name == "tu_fixture").unwrap();
+    let node = schema.iter().find(|n| n.name == "hn_fixture").unwrap();
     let kind = |name: &str| node.relations.iter().find(|r| r.name == name).map(|r| r.kind);
     assert_eq!(kind("invoices"), Some(RelationKind::Table));
     let invoices = node.relations.iter().find(|r| r.name == "invoices").unwrap();
@@ -202,7 +202,7 @@ async fn keeps_postgres_codes_on_errors() {
     assert_eq!((error.kind, error.code.as_deref()), (ErrorKind::Query, Some("42703")));
 
     let second = Filter::Where {
-        sql: "true; DROP TABLE tu_fixture.customers".into(),
+        sql: "true; DROP TABLE hn_fixture.customers".into(),
     };
     assert!(db.page(&request("invoices", Some(second), None, 0, 10)).await.is_err());
     assert!(db.structure(&table("customers")).await.is_ok());
@@ -213,13 +213,13 @@ async fn read_only_connections_are_refused_by_the_server() {
     let Some(writable) = connect(false).await else { return };
     let touch = || {
         Some(Filter::Where {
-            sql: "tu_fixture.touch()".into(),
+            sql: "hn_fixture.touch()".into(),
         })
     };
     // Browsing only reads, on every connection, so a filter can't write even where the editor may.
     let error = writable.page(&request("customers", touch(), None, 0, 1)).await.unwrap_err();
     assert_eq!(error.code.as_deref(), Some("25006"));
-    assert!(writable.run(&statements(&["SELECT tu_fixture.touch()"])).await.unwrap().failed.is_none());
+    assert!(writable.run(&statements(&["SELECT hn_fixture.touch()"])).await.unwrap().failed.is_none());
 
     let Some(read_only) = connect(true).await else { return };
     let error = read_only.page(&request("customers", touch(), None, 0, 1)).await.unwrap_err();
@@ -236,7 +236,7 @@ async fn a_browse_filter_cannot_switch_read_only_off_for_later_queries() {
         db.page(&request("customers", Some(switch_off.clone()), None, 0, 1)).await.unwrap();
     }
     let touch = Filter::Where {
-        sql: "tu_fixture.touch()".into(),
+        sql: "hn_fixture.touch()".into(),
     };
     assert_eq!(
         db.page(&request("customers", Some(touch), None, 0, 1)).await.unwrap_err().kind,
@@ -254,7 +254,7 @@ async fn runs_statements_and_keeps_the_session_between_runs() {
     let outcome = db
         .run(&statements(&[
             "SELECT 1 AS one, NULL::text AS nothing, ''::text AS empty",
-            "SELECT * FROM tu_fixture.invoices WHERE false",
+            "SELECT * FROM hn_fixture.invoices WHERE false",
             "CREATE TEMP TABLE scratch (x int)",
             "INSERT INTO scratch VALUES (1), (2)",
             "SELECT x FROM scratch ORDER BY x",
@@ -308,14 +308,14 @@ async fn the_read_only_editor_cannot_be_talked_out_of_it() {
     let attempts: [&[&str]; 4] = [
         &[
             "SET default_transaction_read_only = off",
-            "UPDATE tu_fixture.customers SET name = name WHERE id = 1",
+            "UPDATE hn_fixture.customers SET name = name WHERE id = 1",
         ],
-        &["COMMIT", "UPDATE tu_fixture.customers SET name = name WHERE id = 1"],
+        &["COMMIT", "UPDATE hn_fixture.customers SET name = name WHERE id = 1"],
         &[
             "SELECT set_config('default_transaction_read_only', 'off', false)",
-            "SELECT tu_fixture.touch()",
+            "SELECT hn_fixture.touch()",
         ],
-        &["SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE", "SELECT tu_fixture.touch()"],
+        &["SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE", "SELECT hn_fixture.touch()"],
     ];
     for attempt in attempts {
         let outcome = db.run(&statements(attempt)).await.unwrap();
@@ -343,11 +343,11 @@ async fn cancels_a_running_statement() {
 #[tokio::test]
 async fn explains_and_rolls_back_what_analyze_ran() {
     let Some(db) = connect(false).await else { return };
-    let plan = db.explain("SELECT * FROM tu_fixture.invoices WHERE id = 5;", false).await.unwrap();
+    let plan = db.explain("SELECT * FROM hn_fixture.invoices WHERE id = 5;", false).await.unwrap();
     assert!(plan.contains("Index Scan") && !plan.contains("Actual Total Time"));
 
     let measured = db
-        .explain("UPDATE tu_fixture.customers SET name = 'changed' WHERE id = 2", true)
+        .explain("UPDATE hn_fixture.customers SET name = 'changed' WHERE id = 2", true)
         .await
         .unwrap();
     assert!(measured.contains("Actual Total Time"));
@@ -361,7 +361,7 @@ async fn explains_and_rolls_back_what_analyze_ran() {
     assert_eq!(page.rows[0][column(&page, "name")].as_deref(), Some("Customer 2"));
 
     assert_eq!(
-        db.explain("SELECT 1; DROP TABLE tu_fixture.customers", false).await.unwrap_err().kind,
+        db.explain("SELECT 1; DROP TABLE hn_fixture.customers", false).await.unwrap_err().kind,
         ErrorKind::Invalid
     );
 }
@@ -373,12 +373,12 @@ struct Collected {
 }
 
 impl RowSink for Collected {
-    fn columns(&mut self, columns: &[tu_core::PageColumn]) -> Result<(), tu_core::Error> {
+    fn columns(&mut self, columns: &[hn_core::PageColumn]) -> Result<(), hn_core::Error> {
         self.columns = columns.iter().map(|c| c.name.clone()).collect();
         Ok(())
     }
 
-    fn row(&mut self, row: &[Cell]) -> Result<(), tu_core::Error> {
+    fn row(&mut self, row: &[Cell]) -> Result<(), hn_core::Error> {
         self.rows.push(row.to_vec());
         Ok(())
     }
@@ -410,7 +410,7 @@ async fn exports_every_row_and_never_writes() {
     assert_eq!(long.rows.last().unwrap()[0].as_deref(), Some("20000"));
 
     let write = ExportSource::Statement {
-        sql: "UPDATE tu_fixture.customers SET name = name RETURNING id".into(),
+        sql: "UPDATE hn_fixture.customers SET name = name RETURNING id".into(),
     };
     assert_eq!(db.export(&write, &mut Collected::default()).await.unwrap_err().kind, ErrorKind::ReadOnly);
 }
@@ -419,7 +419,7 @@ async fn exports_every_row_and_never_writes() {
 async fn lists_sessions_and_stops_them_only_when_allowed() {
     let Some(db) = connect(false).await else { return };
     let sessions = db.activity().await.unwrap();
-    assert!(sessions.iter().any(|a| a.application == "TableUltra"));
+    assert!(sessions.iter().any(|a| a.application == "Halfnine"));
     assert!(!db.stop(999_999, false).await.unwrap());
 
     let Some(read_only) = connect(true).await else { return };
@@ -465,7 +465,7 @@ async fn scratch(db: &PgDatabase, name: &str) -> TableRef {
     scratch
 }
 
-fn bodies(page: &tu_core::Page) -> Vec<Cell> {
+fn bodies(page: &hn_core::Page) -> Vec<Cell> {
     page.rows.iter().map(|r| r[column(page, "body")].clone()).collect()
 }
 
@@ -582,7 +582,7 @@ async fn changes_structure_in_one_transaction() {
 
     let smuggled = vec![StructureChange::SetDefault {
         column: "state".into(),
-        to: Some("'x'; DROP TABLE tu_fixture.customers".into()),
+        to: Some("'x'; DROP TABLE hn_fixture.customers".into()),
     }];
     assert!(db.commit(&structure(&t, smuggled)).await.is_err());
     assert!(db.structure(&table("customers")).await.is_ok());
@@ -613,7 +613,7 @@ impl Pieces {
 }
 
 impl ByteSource for Pieces {
-    fn next(&mut self) -> Result<Option<Vec<u8>>, tu_core::Error> {
+    fn next(&mut self) -> Result<Option<Vec<u8>>, hn_core::Error> {
         Ok(if self.0.is_empty() { None } else { Some(self.0.remove(0)) })
     }
 }

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use sqlx::Row;
 use sqlx::postgres::PgRow;
-use tu_core::{ColumnInfo, Constraint, EnumType, ForeignKey, IncomingKey, Index, Relation, RelationKind, SchemaNode, Structure, TableRef};
+use hn_core::{ColumnInfo, Constraint, EnumType, ForeignKey, IncomingKey, Index, Relation, RelationKind, SchemaNode, Structure, TableRef};
 
 pub(crate) const SERVER: &str = "SELECT current_setting('server_version'), current_database()::text, current_user::text, \
      ARRAY(SELECT datname::text FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname)";

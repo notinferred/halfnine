@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tu_core::{ConnectionSpec, Error, ErrorKind};
+use hn_core::{ConnectionSpec, Error, ErrorKind};
 
 use crate::files;
 
@@ -76,7 +76,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tu_core::{Label, TlsMode};
+    use hn_core::{Label, TlsMode};
 
     fn spec(id: &str, name: &str) -> ConnectionSpec {
         ConnectionSpec {
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn saves_replaces_and_removes_across_reopening() {
-        let dir = std::env::temp_dir().join(format!("tableultra-store-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("halfnine-store-{}", uuid::Uuid::new_v4()));
         let store = Store::open(dir.clone()).unwrap();
         store.save(spec("a", "First")).unwrap();
         store.save(spec("b", "Second")).unwrap();
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn refuses_a_file_from_a_newer_version() {
-        let dir = std::env::temp_dir().join(format!("tableultra-store-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("halfnine-store-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("connections.json"), r#"{"version":99,"connections":[]}"#).unwrap();
         assert_eq!(Store::open(dir.clone()).err().unwrap().kind, ErrorKind::Storage);

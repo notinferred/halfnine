@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tu_core::{Error, ErrorKind};
+use hn_core::{Error, ErrorKind};
 
 #[derive(Serialize, Deserialize)]
 struct Versioned<T> {
@@ -24,7 +24,7 @@ pub fn load<T: DeserializeOwned + Default>(path: &Path, version: u32, what: &str
             if file.version > version {
                 return Err(Error::new(
                     ErrorKind::Storage,
-                    format!("A newer TableUltra wrote {what}, so this one won't change them."),
+                    format!("A newer Halfnine wrote {what}, so this one won't change them."),
                 ));
             }
             Ok(file.body)

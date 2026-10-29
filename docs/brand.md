@@ -1,10 +1,10 @@
 # Brand
 
-**TableUltra** is a working name. The icon and the visual language don't depend on it, so a rename touches only words.
+**Halfnine** is the name, chosen by Dan for v0.1. Its app ID, `com.notinferred.halfnine`, names the Keychain entry and the settings folder, so it stays fixed from v0.1 even if the name ever changes. The icon and the visual language don't depend on the name.
 
 ## Character
 
-TableUltra is calm, quick and exact. It borrows Apple's design philosophy, not Apple's look:
+Halfnine is calm, quick and exact. It borrows Apple's design philosophy, not Apple's look:
 
 - **Deference.** Your data is the subject, and the interface stays quiet around it.
 - **Clarity.** Every element says what it does, in plain words.

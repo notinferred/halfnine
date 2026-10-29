@@ -1,19 +1,19 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TableUltra",
+  "productName": "Halfnine",
   "version": "0.1.0",
-  "identifier": "com.notinferred.tableultra",
+  "identifier": "com.notinferred.halfnine",
   "build": {
     "devUrl": "http://localhost:1420",
     "frontendDist": "../../apps/desktop/dist",
-    "beforeDevCommand": "pnpm --filter @tableultra/desktop dev",
-    "beforeBuildCommand": "pnpm --filter @tableultra/desktop build"
+    "beforeDevCommand": "pnpm --filter @halfnine/desktop dev",
+    "beforeBuildCommand": "pnpm --filter @halfnine/desktop build"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "TableUltra",
+        "title": "Halfnine",
         "width": 1200,
         "height": 760,
         "minWidth": 720,

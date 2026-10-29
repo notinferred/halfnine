@@ -2126,6 +2126,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "hn-core"
+version = "0.1.0"
+dependencies = [
+ "percent-encoding",
+ "serde",
+ "specta",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
+name = "hn-desktop"
+version = "0.1.0"
+dependencies = [
+ "apple-native-keyring-store",
+ "csv",
+ "hn-core",
+ "hn-pg",
+ "keyring-core",
+ "log",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+ "tauri-specta",
+ "tokio",
+ "uuid",
+ "windows-native-keyring-store",
+]
+
+[[package]]
+name = "hn-pg"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "hn-core",
+ "log",
+ "russh",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5683,55 +5732,6 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
-
-[[package]]
-name = "tu-core"
-version = "0.1.0"
-dependencies = [
- "percent-encoding",
- "serde",
- "specta",
- "thiserror 2.0.21",
- "url",
-]
-
-[[package]]
-name = "tu-desktop"
-version = "0.1.0"
-dependencies = [
- "apple-native-keyring-store",
- "csv",
- "keyring-core",
- "log",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
- "tauri-specta",
- "tokio",
- "tu-core",
- "tu-pg",
- "uuid",
- "windows-native-keyring-store",
-]
-
-[[package]]
-name = "tu-pg"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "log",
- "russh",
- "sqlx",
- "tokio",
- "tu-core",
-]
 
 [[package]]
 name = "typeid"

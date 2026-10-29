@@ -1,4 +1,4 @@
-//! The types every part of TableUltra shares, and the [`Database`] trait each database adapter implements.
+//! The types every part of Halfnine shares, and the [`Database`] trait each database adapter implements.
 //! Nothing here does I/O: values are parsed into these types once, at the edge, and trusted from then on.
 
 mod changes;

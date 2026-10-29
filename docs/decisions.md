@@ -57,3 +57,7 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
   - **Asked:** build it that way. **Chose:** build it.
   - **Built:** a menu beside Password, Save in Keychain or Ask each time, which also covers the SSH password. All saved passwords share one keychain entry, read once per launch. Typed passwords are remembered until the app quits. Nothing is removed until the form is saved, and the field says so first. The Save password switch is gone.
 - **M3, after using the app.** **Dan:** "Ok its good though, lets move on commit and get live". M3 committed.
+- **Ship v0.1 as TableUltra?** **Chose:** rename first. **Not chosen:** keep TableUltra.
+  - **Offered:** Mesita, Veta and Tamiz (checked earlier the same day), or a new round. **Dan:** "Halfnine".
+  - Checked: no app or database tool is called Halfnine. A two-person US IT-services firm, founded 2023, uses the name. halfnine.com and halfnine.app are registered; halfnine.dev, gethalfnine.app and halfnineapp.com were free. The "halfnine" GitHub organization exists, dormant since 2012. The crate and npm names were free. Trademarks weren't checked.
+  - Renamed everywhere but this file. The app ID is now `com.notinferred.halfnine`.

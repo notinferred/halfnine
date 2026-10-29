@@ -1,17 +1,17 @@
 # Architecture
 
-TableUltra is one desktop process. A Rust core opens the database connections, keeps the secrets and owns the files the app writes. The UI is a React app in the system's own webview (WebKit on macOS, WebView2 on Windows), so there is no bundled browser. The UI reaches the core only through typed Tauri commands, and the window may call only the commands its capability file grants.
+Halfnine is one desktop process. A Rust core opens the database connections, keeps the secrets and owns the files the app writes. The UI is a React app in the system's own webview (WebKit on macOS, WebView2 on Windows), so there is no bundled browser. The UI reaches the core only through typed Tauri commands, and the window may call only the commands its capability file grants.
 
 ## Shape
 
 ```
 apps/desktop      UI: React + Vite. Calls the core through bindings generated from the Rust commands (src/ipc/bindings.ts).
-crates/desktop    tu-desktop: the Tauri app. Window, commands, keychain, saved connections, open sessions.
-crates/pg         tu-pg: the Postgres adapter. Implements core's Database trait; owns quoting, the SQL it builds, and SSH tunnels.
-crates/core       tu-core: pure types and the Database trait. No I/O.
+crates/desktop    hn-desktop: the Tauri app. Window, commands, keychain, saved connections, open sessions.
+crates/pg         hn-pg: the Postgres adapter. Implements core's Database trait; owns quoting, the SQL it builds, and SSH tunnels.
+crates/core       hn-core: pure types and the Database trait. No I/O.
 ```
 
-From M5, AI agents reach the app through `tableultra mcp`, the same binary started by the agent over stdio. That process holds no logic. It forwards each call over a local socket to the running app, which owns the access check, approvals, the activity log and the database connections.
+From M5, AI agents reach the app through `halfnine mcp`, the same binary started by the agent over stdio. That process holds no logic. It forwards each call over a local socket to the running app, which owns the access check, approvals, the activity log and the database connections.
 
 Dependencies point inward: desktop, then the adapters, then core. Each crate's `Cargo.toml` enforces this, because core can't import a library it doesn't depend on. Adding MySQL later means adding a new adapter crate that implements `Database`. Nothing else changes.
 
@@ -46,7 +46,7 @@ This table checks the app against Dan's `architecture-invariants.md` and `ENGINE
 |---|---|---|
 | Resilience | Connects and SSH time out after 10 s, and browsing sets `statement_timeout = 30s`. The editor, explains and exports have no time limit and stop on Cancel, which signals their server process with `pg_cancel_backend`. The pool checks a connection before lending it, and the editor's own connection is replaced after a network error, so a dropped one is replaced on its next use. A browse that fails on the network or a timeout is retried once; a terminal error (auth, TLS) is shown with its code | partly: there is no TCP keepalive |
 | Admission control | Each connection pools at most 3 sessions, plus the editor's own. Pages are 500 rows and the server caps a page at 1,000. The editor keeps the first 10,000 rows of a result and counts the rest, while an export streams every row in constant memory. Cells over 64 KB are cut and marked. A connection runs one editor run at a time | holds |
-| Parse, don't validate | Every command's input is a typed Rust struct. A pasted URL is parsed once (`tu_core::parse_url`), a draft connection is checked once (`spec_from`), and each row becomes `Cell` values once | holds |
+| Parse, don't validate | Every command's input is a typed Rust struct. A pasted URL is parsed once (`hn_core::parse_url`), a draft connection is checked once (`spec_from`), and each row becomes `Cell` values once | holds |
 | Injection | Identifiers go through `sql::ident` and values are always `$n` parameters. Everything the app builds runs through `PgDatabase::query`, the one place marked `AssertSqlSafe`, except an import's `COPY`, which has its own protocol and is fixed text. The only text taken as SQL is what someone typed for their own table: a WHERE condition, or a column's type or default. Postgres runs each as part of one prepared statement, refusing a second statement. Review SQL is written in the same pass as the statement that runs, with the values written in | holds |
 | Secrets | Saved passwords and SSH secrets live together in one OS keychain entry, read at most once per launch (the first time one is needed) and then kept in memory until the app quits, so macOS asks at most once. A connection set to ask each time asks when it opens and remembers what was typed until the app quits. Choosing Ask each time removes the saved password only when the form is saved. As TablePlus, FileZilla and DataGrip do it. The store, the logs and every command's reply carry nothing about them. macOS asks before a build that didn't save a secret reads it, and an unsigned build is a new app to macOS each time it is built | holds |
 | Authorization enforced by the server | Browsing, exports and read-only explains run in `READ ONLY` transactions. Commits and imports run in a transaction that Postgres makes read-only on a read-only connection, which the window also doesn't offer to edit. On a read-only connection, every editor statement runs in its own `READ ONLY` transaction, which has taken its snapshot first, so Postgres refuses to make it read-write. Postgres describes each piece first and refuses one holding two statements. Tests try `SET`, `COMMIT`, `set_config` and `SESSION CHARACTERISTICS`, and each is refused. Stopping other sessions is refused on read-only connections, by the app | holds, except through extensions that open their own connections, such as dblink |
@@ -54,7 +54,7 @@ This table checks the app against Dan's `architecture-invariants.md` and `ENGINE
 | Caching | Every query key holds its session, so ⌘R refreshes everything that session loaded. Nothing refetches on focus or a timer. After an editor run that did more than read, everything for the session is refreshed | holds |
 | Single-owner schema evolution | `connections.json` has a `version`. The app refuses one from a newer version, writes it to a temporary file and renames it over the old one, and the single-instance plugin keeps a second copy from writing at the same time | holds |
 | Observability | The log plugin writes to the app's log folder. Each editor run has an id, which is logged with its statement count, time and outcome, and kept in history. Nothing logged holds a secret, a row or SQL text. There is no telemetry | holds |
-| Test fidelity | `tu-core` and the SQL builder have unit tests. `tu-pg` is tested against Postgres 18 loaded with `crates/pg/tests/fixture.sql`, which has hostile names, every common type and a 70 KB value. Nothing mocks the database | holds: all 50 Rust tests passed on 2026-10-28, 23 of them against Postgres 18; CI runs them on every push once the repository is on GitHub |
+| Test fidelity | `hn-core` and the SQL builder have unit tests. `hn-pg` is tested against Postgres 18 loaded with `crates/pg/tests/fixture.sql`, which has hostile names, every common type and a 70 KB value. Nothing mocks the database | holds: all 50 Rust tests passed on 2026-10-28, 23 of them against Postgres 18; CI runs them on every push once the repository is on GitHub |
 | Least privilege in the window | The capability file denies by default, and the CSP loads nothing from outside the app | holds |
 | Pinned dependencies | Versions are exact, published at least two weeks before they were added, with lockfiles. GitHub Actions are pinned to commit SHAs | partly: pnpm enforces the age for every JavaScript package, but Cargo can't for the crates beneath ours |
 | One artifact, promoted | A tag builds the installers once, into a draft release that Dan publishes | planned, M4 |

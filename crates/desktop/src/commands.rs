@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
-use tu_core::{
+use hn_core::{
     Activity, Changes, Choice, Committed, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome,
     SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
-use tu_pg::{PgDatabase, Secrets};
+use hn_pg::{PgDatabase, Secrets};
 
 use crate::AppState;
 use crate::export::{ExportDone, ExportFormat, Sink};
@@ -121,7 +121,7 @@ pub async fn test_connection(state: State<'_, AppState>, draft: ConnectionDraft)
     let server = db.server().await;
     db.close().await;
     Ok(TestResult {
-        elapsed_ms: tu_core::millis(started.elapsed()),
+        elapsed_ms: hn_core::millis(started.elapsed()),
         server_version: server?.version,
     })
 }
@@ -129,7 +129,7 @@ pub async fn test_connection(state: State<'_, AppState>, draft: ConnectionDraft)
 #[tauri::command]
 #[specta::specta]
 pub fn parse_connection_url(url: String) -> Result<UrlParts, Error> {
-    tu_core::parse_url(&url)
+    hn_core::parse_url(&url)
 }
 
 /// Opens a connection with what was just typed, or else with what is saved for it, or typed earlier this launch.

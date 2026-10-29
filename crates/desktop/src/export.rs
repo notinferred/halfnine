@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tu_core::{Cell, Error, PageColumn, RowSink};
+use hn_core::{Cell, Error, PageColumn, RowSink};
 
 use crate::files::storage;
 
@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     fn write(format: ExportFormat) -> String {
-        let path = std::env::temp_dir().join(format!("tableultra-export-{}.{}", uuid::Uuid::new_v4(), format.extension()));
+        let path = std::env::temp_dir().join(format!("halfnine-export-{}.{}", uuid::Uuid::new_v4(), format.extension()));
         let mut sink = Sink::create(&path, format).unwrap();
         let columns = [
             PageColumn {

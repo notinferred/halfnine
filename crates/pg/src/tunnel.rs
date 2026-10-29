@@ -11,7 +11,7 @@ use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tu_core::{Error, ErrorKind, SshAuth, SshSpec};
+use hn_core::{Error, ErrorKind, SshAuth, SshSpec};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 

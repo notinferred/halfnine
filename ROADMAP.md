@@ -2,13 +2,13 @@
 
 ## Where things stand (2026-10-28)
 
-M0 to M3 are done. M4, the first release, is next.
+M0 to M3 are done, and M4, the first release, is under way:
 
-- All 50 Rust tests passed against Postgres 18 loaded with the test fixture, run on Dan's Mac at his request. 23 of them run against the database, 10 of those new in M3.
-- Dan used M3 and found the Keychain prompts too much. Passwords now work as in TablePlus: Save in Keychain or Ask each time, with at most one macOS prompt per launch.
-- The repository isn't on GitHub yet, so CI hasn't run.
+- The app is now **Halfnine**, Dan's choice, with the app ID `com.notinferred.halfnine`. The repository is `github.com/notinferred/halfnine` (public).
+- CI passed on GitHub for M3: lint, types, the build, and all 50 Rust tests, 23 of them against Postgres 18.
+- `release.yml` is written. Pushing the tag `v0.1.0` builds the macOS and Windows installers into a draft release for Dan to check and publish.
 
-The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes TableUltra the database tool AI agents use, and adds local Docker databases.
+The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes Halfnine the database tool AI agents use, and adds local Docker databases.
 
 ## M0: Foundation
 
@@ -62,9 +62,9 @@ The scope grew on 2026-10-28. M1–M3 now include the everyday features of a dat
 Dan used the app against the throwaway check database:
 
 1. Connect by pasting its URL.
-2. Browse `tu_fixture.invoices` (120,001 rows) smoothly, sort it, and filter it.
+2. Browse `hn_fixture.invoices` (120,001 rows) smoothly, sort it, and filter it.
 3. Follow `customer_id` to its customer, and back through "Referenced by".
-4. Turn on read-only, then filter `customers` with `tu_fixture.touch()`. Postgres refuses with code 25006. The test `read_only_connections_are_refused_by_the_server` proves this step. It first found that the fixture's `touch()` named its table without the schema, which is now fixed.
+4. Turn on read-only, then filter `customers` with `hn_fixture.touch()`. Postgres refuses with code 25006. The test `read_only_connections_are_refused_by_the_server` proves this step. It first found that the fixture's `touch()` named its table without the schema, which is now fixed.
 
 ## M2: Query
 
@@ -109,18 +109,21 @@ Dan used the app against the throwaway check database:
 
 ## M4: v0.1
 
-- `release.yml` builds an unsigned `.dmg` (Apple silicon) and a per-user `-setup.exe` (x64) into a draft GitHub Release whenever a version tag is pushed.
-- The final icon and the README's install steps.
-- **Keychain prompts after an update.** An unsigned release is a new app to macOS, so after each update macOS asks once before TableUltra reads a saved password. The README says to choose Always Allow. Signing (under Next) ends it.
-- **Measured budgets:** an installer under 15 MB, a window ready in under 1 second, and idle memory recorded on both systems.
+- [x] **The name:** Halfnine, chosen by Dan before v0.1, since the app ID it carries stays fixed from then on.
+- [x] **`release.yml`:** a version tag builds an unsigned `.dmg` (Apple silicon) and a per-user `-setup.exe` (x64) into a draft GitHub Release. tauri-action is pinned to v1.0.0's commit.
+- [x] **The README's install steps**, which the release notes repeat.
+- [ ] **The first draft release** from the tag `v0.1.0`, checked and published by Dan.
+- [ ] **Measured budgets:** an installer under 15 MB, a window ready in under 1 second, and idle memory recorded on both systems.
+- **Keychain prompts after an update.** An unsigned release is a new app to macOS, so after each update macOS asks once before Halfnine reads a saved password. The README says to choose Always Allow. Signing (under Next) ends it.
+- The icon stays as drawn in M0; it never depended on the name.
 
 ## M5: The database tool for AI agents, and local Docker databases
 
-An agent that needs a table, a query answered, or a fresh database asks TableUltra over MCP instead of asking Dan. Docker databases on the machine show up and are managed like any other connection.
+An agent that needs a table, a query answered, or a fresh database asks Halfnine over MCP instead of asking Dan. Docker databases on the machine show up and are managed like any other connection.
 
 ### Agents
 
-- **The connection: MCP.** `tableultra mcp` is the same app binary, started by the agent and talking to it over stdio. It works with any MCP client: Claude Code, Claude Desktop, Cursor, Codex, VS Code.
+- **The connection: MCP.** `halfnine mcp` is the same app binary, started by the agent and talking to it over stdio. It works with any MCP client: Claude Code, Claude Desktop, Cursor, Codex, VS Code.
   - It talks to the running app over a local socket, and opens the app if it is closed, so approvals and the activity log always live in the app.
   - A "Connect an agent" screen sets up each client.
   - The keypaste MCP bridge is the precedent.
@@ -131,7 +134,7 @@ An agent that needs a table, a query answered, or a fresh database asks TableUlt
   - Propose changes.
   - Create, copy and delete local databases.
 - **Access per connection:** each connection is set to Off, Read, Read with approved writes, or Full.
-  - Defaults: databases TableUltra created in Docker are Full. Red-labelled connections are Off. Every other connection is Read.
+  - Defaults: databases Halfnine created in Docker are Full. Red-labelled connections are Off. Every other connection is Read.
   - A read-only connection stays read-only whatever its level.
 - **Approvals:**
   - A write that needs approval appears in the app as staged SQL, in the same Review SQL view, named with the agent that sent it. Dan approves or rejects it there, and a notification appears if the app is in the background.
@@ -144,10 +147,10 @@ An agent that needs a table, a query answered, or a fresh database asks TableUlt
 - **Work on a copy:** clone a database before risky work. On a local server this is `CREATE DATABASE … TEMPLATE`; for Docker, a cloned container. The agent works on the copy, and Dan keeps it or discards it.
 - **Sensitive columns hidden:**
   - Columns marked sensitive are masked in everything an agent sees.
-  - TableUltra suggests columns to mark from their names: email, phone, token, password, secret.
+  - Halfnine suggests columns to mark from their names: email, phone, token, password, secret.
   - Whatever an agent reads is sent to its AI provider, which is why this matters.
 - **Credentials:**
-  - An agent may receive the URL of a Docker database TableUltra created, because those credentials are local and throwaway, and the project it's building may need them.
+  - An agent may receive the URL of a Docker database Halfnine created, because those credentials are local and throwaway, and the project it's building may need them.
   - Every other connection's credentials never leave the app.
 - **One switch pauses all agent access.**
 
@@ -158,7 +161,7 @@ An agent that needs a table, a query answered, or a fresh database asks TableUlt
 - **Create:**
   - Choose a Postgres version and a name. The port is picked automatically.
   - Optionally load a dump or an SQL file.
-  - Each database gets its own volume, and TableUltra labels its containers so it knows which are its own.
+  - Each database gets its own volume, and Halfnine labels its containers so it knows which are its own.
 - **Agents create their own:** an agent can ask for a fresh database and get one without asking Dan. It shows in the sidebar marked with the agent's name.
 
 ### Candidates, checked when M5 starts
@@ -174,7 +177,6 @@ The official MCP Rust SDK (`rmcp`) and the Docker Engine API client `bollard`. E
 - Signing.
 - Homebrew and winget.
 - A website.
-- The final name.
 
 ## Not planned
 

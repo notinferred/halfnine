@@ -1,0 +1,45 @@
+# Builds the installers once, when a version tag such as v0.1.0 is pushed, into a draft GitHub Release that Dan publishes.
+# Nothing is signed yet: the macOS app is signed ad hoc and the Windows installer not at all. The README says how to open them.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest runs on Apple silicon, so it builds for Apple silicon.
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Halfnine ${{ github.ref_name }}
+          releaseDraft: true
+          releaseBody: |
+            A small, calm PostgreSQL client for macOS and Windows.
+
+            These builds aren't signed yet, so each system asks once before opening them:
+
+            - **macOS** (Apple silicon, macOS 13 or later): open the `.dmg` and drag Halfnine to Applications. Open it once, then choose System Settings › Privacy & Security › Open Anyway.
+            - **Windows** (x64): run the `-setup.exe`. At the SmartScreen warning choose More info › Run anyway. It installs for the current user.
+
+            When a connection saves its password, macOS asks once before Halfnine first reads it. Choose Always Allow.

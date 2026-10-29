@@ -14,8 +14,8 @@ unsafe_code = "forbid"
 # One version of each dependency for the whole workspace; crates refer to it with `workspace = true`.
 # Exact, as each was published at least two weeks before it was added (2026-10-28).
 [workspace.dependencies]
-tu-core = { path = "crates/core" }
-tu-pg = { path = "crates/pg" }
+hn-core = { path = "crates/core" }
+hn-pg = { path = "crates/pg" }
 
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
