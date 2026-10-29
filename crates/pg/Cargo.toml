@@ -3,6 +3,7 @@ name = "hn-pg"
 description = "Halfnine's Postgres adapter: connections, SSH tunnels, the catalog, and the SQL the app builds."
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
 publish.workspace = true
 
 [dependencies]

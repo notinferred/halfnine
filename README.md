@@ -45,3 +45,7 @@ docker stop halfnine-check
 - `apps/desktop`: the UI, in React and Vite. Design tokens are in `src/ui/tokens.css`.
 - `crates/desktop`: the Tauri app that hosts the UI, with its window, permissions and icons.
 - `docs/`: [architecture](docs/architecture.md), [decisions](docs/decisions.md) and [brand](docs/brand.md).
+
+## License
+
+Halfnine is source-available under the [PolyForm Shield License 1.0.0](LICENSE.md). You may use it for any purpose, at work included, and change it, but not to sell it or to provide a product that competes with it. Copyright 2026 notInferred.

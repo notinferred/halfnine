@@ -112,6 +112,7 @@ Dan used the app against the throwaway check database:
 - [x] **The name:** Halfnine, chosen by Dan before v0.1, since the app ID it carries stays fixed from then on.
 - [x] **`release.yml`:** a version tag builds an unsigned `.dmg` (Apple silicon) and a per-user `-setup.exe` (x64) into a draft GitHub Release. tauri-action is pinned to v1.0.0's commit.
 - [x] **The README's install steps**, which the release notes repeat.
+- [x] **License:** PolyForm Shield 1.0.0, copyright notInferred, in every commit since the first. The repository's description leads with AI agents, marked as coming, and its topics are ones people browse.
 - [ ] **The first draft release** from the tag `v0.1.0`, checked and published by Dan.
 - [ ] **Measured budgets:** an installer under 15 MB, a window ready in under 1 second, and idle memory recorded on both systems.
 - **Keychain prompts after an update.** An unsigned release is a new app to macOS, so after each update macOS asks once before Halfnine reads a saved password. The README says to choose Always Allow. Signing (under Next) ends it.
@@ -120,6 +121,8 @@ Dan used the app against the throwaway check database:
 ## M5: The database tool for AI agents, and local Docker databases
 
 An agent that needs a table, a query answered, or a fresh database asks Halfnine over MCP instead of asking Dan. Docker databases on the machine show up and are managed like any other connection.
+
+**When M5 ships:** drop "(coming soon)" from the repository's description, add the topics mcp, mcp-server, ai-agents and claude-code, and list Halfnine where people look for MCP servers: the official MCP Registry, Smithery, mcp.so and awesome-mcp-servers.
 
 ### Agents
 

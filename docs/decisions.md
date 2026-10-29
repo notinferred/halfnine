@@ -61,3 +61,8 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
   - **Offered:** Mesita, Veta and Tamiz (checked earlier the same day), or a new round. **Dan:** "Halfnine".
   - Checked: no app or database tool is called Halfnine. A two-person US IT-services firm, founded 2023, uses the name. halfnine.com and halfnine.app are registered; halfnine.dev, gethalfnine.app and halfnineapp.com were free. The "halfnine" GitHub organization exists, dormant since 2012. The crate and npm names were free. Trademarks weren't checked.
   - Renamed everywhere but this file. The app ID is now `com.notinferred.halfnine`.
+- **License, description and topics.** **Dan:** "Lets add the correct repo tags descriptions and license to the project make sure it was since the first commit".
+  - **Which license?** **Dan:** "Just not used for resale or others to profit idk how i could even do it myself but yeah thats it". **Offered:** PolyForm Shield (recommended), PolyForm Noncommercial, the Functional Source License. **Dan:** "Go", to the recommendation.
+  - **Since the first commit?** **Chose:** rewrite history, so LICENSE.md is in every commit from the first. **Not chosen:** add it in a new commit.
+  - **Copyright?** **Chose:** notInferred.
+  - **Topics.** **Dan:** "I dont like those topics try some people actually look at", then: "Think of it its a tableplus alternatives FOR database management for AI features too", "Thats the selling point AI But the tags for AI suck idk man Help me out". **Offered:** a description that leads with AI agents, marked as coming until M5 ships, and twelve topics people browse now, with mcp, mcp-server, ai-agents and claude-code added when M5 ships. **Dan:** "Go".

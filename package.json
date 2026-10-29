@@ -1,6 +1,7 @@
 {
   "name": "halfnine",
   "private": true,
+  "license": "PolyForm-Shield-1.0.0",
   "type": "module",
   "packageManager": "pnpm@12.13.0",
   "engines": {

@@ -9,6 +9,7 @@ Each fact has one home, and everything else points to it. Docs don't repeat what
 | What | Where | Changes when |
 |---|---|---|
 | Commands and install steps | README.md | A command changes |
+| The license | LICENSE.md, PolyForm Shield 1.0.0, in every commit since the first | Only by Dan |
 | Now and next | ROADMAP.md | A stage finishes; it is rewritten, not appended to |
 | The design, its tools and why, the invariants | docs/architecture.md | The design changes |
 | Dan's decisions, in his words | docs/decisions.md | Dan decides; entries are never reworded |

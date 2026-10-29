@@ -3,6 +3,7 @@ name = "hn-core"
 description = "The types every part of Halfnine shares, and the Database trait each adapter implements. No I/O."
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
 publish.workspace = true
 
 [dependencies]

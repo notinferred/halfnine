@@ -3,6 +3,7 @@ name = "hn-desktop"
 description = "Halfnine's desktop app: the window, the saved connections, and the commands the UI calls."
 edition.workspace = true
 version.workspace = true
+license-file.workspace = true
 publish.workspace = true
 
 [[bin]]
