@@ -1,10 +1,10 @@
 //! The typed bridge to the UI: which commands exist, and the TypeScript that calls them.
 
-use specta_typescript::Typescript;
 use tauri_specta::{Builder, ErrorHandlingMode, collect_commands};
 
 use crate::commands;
 
+#[cfg(any(debug_assertions, test))]
 const OUTPUT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/desktop/src/ipc/bindings.ts");
 
 pub fn builder() -> Builder<tauri::Wry> {
@@ -42,11 +42,13 @@ pub fn builder() -> Builder<tauri::Wry> {
 }
 
 /// Writes `apps/desktop/src/ipc/bindings.ts`. A debug build does it on start and the tests do it in CI, where a
-/// changed file fails the check.
+/// changed file fails the check. A release build never writes it, so it doesn't have this at all.
+#[cfg(any(debug_assertions, test))]
 pub fn export(builder: &Builder<tauri::Wry>) {
     builder
         .export(
-            Typescript::default().header("// Generated from crates/desktop/src/commands.rs by crates/desktop/src/bindings.rs. Don't edit.\n"),
+            specta_typescript::Typescript::default()
+                .header("// Generated from crates/desktop/src/commands.rs by crates/desktop/src/bindings.rs. Don't edit.\n"),
             OUTPUT,
         )
         .expect("the TypeScript bindings could not be written");
