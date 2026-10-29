@@ -311,6 +311,8 @@ export type Relation = {
 	estimatedRows: number | null,
 	/**  Column names in table order, for the editor's autocomplete. */
 	columns: string[],
+	/**  Each column's type as Postgres writes it, in the same order. */
+	columnTypes: string[],
 };
 
 export type RelationKind = "table" | "partitionedTable" | "view" | "materializedView" | "foreignTable";

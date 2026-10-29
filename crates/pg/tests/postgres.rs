@@ -76,6 +76,7 @@ async fn lists_every_kind_of_object_but_partitions() {
     assert_eq!(kind("invoices"), Some(RelationKind::Table));
     let invoices = node.relations.iter().find(|r| r.name == "invoices").unwrap();
     assert_eq!(invoices.columns[..3], ["id", "customer_id", "amount"]);
+    assert_eq!(invoices.column_types[..3], ["bigint", "bigint", "numeric(12,2)"]);
     assert_eq!(kind("odd \"table\""), Some(RelationKind::Table));
     assert_eq!(kind("events"), Some(RelationKind::PartitionedTable));
     assert_eq!(kind("events_2026"), None);
@@ -662,4 +663,127 @@ async fn shows_every_keyword_quoted_as_postgres_requires() {
     for (word, line) in words.iter().zip(&shown) {
         assert!(line.ends_with(&format!("TO \"{word}\";")), "{word} is shown bare");
     }
+}
+
+#[tokio::test]
+async fn picks_rows_by_their_keys() {
+    let Some(db) = connect(false).await else { return };
+    let key = |invoice: &str| vec![value("invoice_id", Some(invoice)), value("line", Some("1"))];
+    let keys = Filter::Keys {
+        keys: vec![key("3"), key("7"), key("100000")],
+    };
+    let page = db.page(&request("line_items", Some(keys), None, 0, 10)).await.unwrap();
+    let invoices: Vec<Cell> = page.rows.iter().map(|r| r[column(&page, "invoice_id")].clone()).collect();
+    assert_eq!(invoices, [Some("3".to_string()), Some("7".to_string())]);
+}
+
+#[tokio::test]
+async fn an_agent_query_only_ever_reads() {
+    let Some(db) = connect(false).await else { return };
+    for refused in [
+        "UPDATE hn_fixture.customers SET name = name",
+        "COPY hn_fixture.customers TO STDOUT",
+        "SET search_path = x",
+    ] {
+        assert_eq!(db.read(refused, 10).await.unwrap_err().kind, ErrorKind::Invalid, "{refused}");
+    }
+    let writes = db.read("SELECT hn_fixture.touch()", 10).await.unwrap_err();
+    assert_eq!(writes.code.as_deref(), Some("25006"));
+    assert!(db.read("SELECT 1; SELECT 2", 10).await.is_err());
+    let hidden = "WITH gone AS (DELETE FROM hn_fixture.customers RETURNING 1) SELECT count(*) FROM gone";
+    assert!(db.read(hidden, 10).await.is_err());
+    assert_eq!(
+        db.read("SELECT count(*) FROM hn_fixture.customers", 1).await.unwrap().rows,
+        [[Some("50".to_string())]]
+    );
+    let shown = db.read("show transaction_read_only", 1).await.unwrap();
+    assert_eq!(shown.rows, [[Some("on".to_string())]]);
+}
+
+#[tokio::test]
+async fn an_agent_query_cannot_switch_read_only_off_for_later_ones() {
+    let Some(db) = connect(true).await else { return };
+    for _ in 0..3 {
+        db.read("SELECT set_config('default_transaction_read_only', 'off', false)", 1)
+            .await
+            .unwrap();
+    }
+    for _ in 0..3 {
+        let setting = db.read("SHOW default_transaction_read_only", 1).await.unwrap();
+        assert_eq!(setting.rows, [[Some("on".to_string())]]);
+    }
+}
+
+#[tokio::test]
+async fn an_agent_query_stops_at_its_limit() {
+    let Some(db) = connect(false).await else { return };
+    let started = std::time::Instant::now();
+    let endless = db
+        .read("SELECT a.id, b.id FROM hn_fixture.invoices a, hn_fixture.invoices b", 10)
+        .await
+        .unwrap();
+    assert_eq!((endless.rows.len(), endless.total_rows), (10, 11));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let none = db.read("SELECT 1 WHERE false", 10).await.unwrap();
+    assert_eq!((none.rows.len(), none.total_rows, none.columns.len()), (0, 0, 1));
+    let slow = db.read("SELECT pg_sleep(20)", 1).await.unwrap_err();
+    assert_eq!((slow.kind, slow.code.as_deref()), (ErrorKind::Timeout, Some("57014")));
+}
+
+#[tokio::test]
+async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
+    let Some(db) = connect(false).await else { return };
+    let scratch = scratch(&db, "agent_scratch").await;
+    let name = format!("hn_fixture.{}", scratch.name);
+    let done = db
+        .execute(&statements(&[
+            &format!("INSERT INTO {name} (body) VALUES ('a'), ('b') RETURNING body"),
+            &format!("UPDATE {name} SET n = 1 WHERE body = 'a'"),
+            "SET search_path = nowhere",
+        ]))
+        .await
+        .unwrap();
+    assert_eq!((done[0].rows.len(), done[1].rows_affected), (2, 1));
+    let search_path = db.read("SELECT current_setting('search_path')", 1).await.unwrap();
+    assert_ne!(search_path.rows, [[Some("nowhere".to_string())]]);
+
+    let failed = db
+        .execute(&statements(&[
+            &format!("INSERT INTO {name} (body) VALUES ('c')"),
+            "INSERT INTO hn_fixture.nowhere VALUES (1)",
+        ]))
+        .await
+        .unwrap_err();
+    assert!(failed.message.starts_with("Statement 2 failed, so nothing was written"));
+    let page = db.page(&request(&scratch.name, None, None, 0, 10)).await.unwrap();
+    assert_eq!(bodies(&page), [Some("a".to_string()), Some("b".to_string())]);
+
+    for refused in ["COMMIT", "  /* why */ begin", "SAVEPOINT x", "COPY hn_fixture.customers TO STDOUT"] {
+        let error = db.execute(&statements(&[refused])).await.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Invalid, "{refused}");
+    }
+
+    let Some(read_only) = connect(true).await else { return };
+    let refused = read_only
+        .execute(&statements(&[&format!("INSERT INTO {name} (body) VALUES ('d')")]))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code.as_deref(), Some("25006"));
+}
+
+#[tokio::test]
+async fn lists_every_foreign_key_once() {
+    let Some(db) = connect(false).await else { return };
+    let references = db.references().await.unwrap();
+    let invoices = references.iter().find(|r| r.source == table("invoices")).unwrap();
+    assert_eq!(
+        (invoices.source_columns.as_slice(), &invoices.target, invoices.target_columns.as_slice()),
+        (&["customer_id".to_string()][..], &table("customers"), &["id".to_string()][..])
+    );
+    assert!(
+        references
+            .iter()
+            .any(|r| r.source == table("line_items") && r.target == table("invoices"))
+    );
+    assert!(references.iter().all(|r| !r.source.schema.starts_with("pg_")));
 }

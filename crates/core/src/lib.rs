@@ -11,7 +11,7 @@ pub use changes::{CellChange, Changes, Choice, Committed, NewColumn, RowUpdate, 
 pub use connection::{AgentAccess, ConnectionSpec, Label, SshAuth, SshSpec, TlsMode, UrlParts, parse_url};
 pub use data::{
     Activity, Cell, ColumnInfo, ColumnValue, Constraint, CutCell, EnumType, ExportSource, Filter, ForeignKey, IncomingKey, Index, Page, PageColumn,
-    PageRequest, Relation, RelationKind, RunFailure, RunOutcome, SchemaNode, ServerInfo, Sort, StatementResult, Structure, TableRef,
+    PageRequest, Reference, Relation, RelationKind, RunFailure, RunOutcome, SchemaNode, ServerInfo, Sort, StatementResult, Structure, TableRef,
 };
 pub use database::{ByteSource, Database, RowSink};
 pub use error::{Error, ErrorKind};

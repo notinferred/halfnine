@@ -40,6 +40,8 @@ pub struct Relation {
     pub estimated_rows: Option<f64>,
     /// Column names in table order, for the editor's autocomplete.
     pub columns: Vec<String>,
+    /// Each column's type as Postgres writes it, in the same order.
+    pub column_types: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Type, PartialEq, Eq)]
@@ -110,6 +112,17 @@ pub struct Constraint {
 pub struct ForeignKey {
     pub name: String,
     pub columns: Vec<String>,
+    pub target: TableRef,
+    pub target_columns: Vec<String>,
+}
+
+/// A foreign key anywhere in the database: `source_columns` in `source` point at `target_columns` in `target`.
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Reference {
+    pub name: String,
+    pub source: TableRef,
+    pub source_columns: Vec<String>,
     pub target: TableRef,
     pub target_columns: Vec<String>,
 }

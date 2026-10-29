@@ -1,7 +1,10 @@
 use std::future::Future;
 
 use crate::changes::{Changes, Choice, Committed};
-use crate::data::{Activity, Cell, ExportSource, Filter, Page, PageColumn, PageRequest, RunOutcome, SchemaNode, ServerInfo, Structure, TableRef};
+use crate::data::{
+    Activity, Cell, ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RunOutcome, SchemaNode, ServerInfo, StatementResult, Structure,
+    TableRef,
+};
 use crate::error::Error;
 
 /// What the app needs from a database. Each adapter (Postgres today) implements it; the app depends only on this.
@@ -42,6 +45,15 @@ pub trait Database: Send + Sync {
         delimiter: u8,
         source: &mut dyn ByteSource,
     ) -> impl Future<Output = Result<f64, Error>> + Send;
+
+    /// One statement an agent sent, in a read-only transaction with time limits, keeping at most `limit` rows. When more
+    /// rows exist, `total_rows` is one more than the rows kept.
+    fn read(&self, statement: &str, limit: u32) -> impl Future<Output = Result<StatementResult, Error>> + Send;
+    /// Statements an agent sent, each exactly one, in one transaction on a connection of their own that is closed
+    /// afterwards, so nothing they set outlasts them. Any error rolls back all of them.
+    fn execute(&self, statements: &[String]) -> impl Future<Output = Result<Vec<StatementResult>, Error>> + Send;
+    /// Every foreign key between the database's own tables.
+    fn references(&self) -> impl Future<Output = Result<Vec<Reference>, Error>> + Send;
 }
 
 /// Where an import's bytes come from, a piece at a time, so a file of any size streams without being held in memory.

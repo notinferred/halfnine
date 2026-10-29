@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use futures_util::TryStreamExt;
 use hn_core::{
     Activity, ByteSource, Changes, Choice, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource, Filter, Page, PageColumn,
-    PageRequest, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, Structure, StructureChange, TableRef, TlsMode,
+    PageRequest, Reference, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, StatementResult, Structure, StructureChange, TableRef,
+    TlsMode,
 };
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
@@ -23,7 +24,26 @@ use crate::errors::from_sqlx;
 use crate::sql::{Built, ColumnMeta};
 use crate::tunnel::Tunnel;
 
+pub use crate::editor::first_word;
+
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How an agent's query may begin. Anything else is refused before it reaches Postgres, which runs these read-only.
+const AGENT_READS: [&str; 6] = ["SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN"];
+/// Statements an agent's change may not hold: it runs as one transaction that Halfnine begins and ends, and COPY needs a
+/// protocol of its own.
+const NOT_IN_A_CHANGE: [&str; 10] = [
+    "BEGIN",
+    "START",
+    "COMMIT",
+    "END",
+    "ROLLBACK",
+    "ABORT",
+    "SAVEPOINT",
+    "RELEASE",
+    "PREPARE",
+    "COPY",
+];
 
 /// The secrets a connection needs: read from the keychain, or typed, just before connecting.
 #[derive(Clone, Default)]
@@ -457,6 +477,90 @@ impl Database for PgDatabase {
             }
         }
     }
+
+    async fn read(&self, statement: &str, limit: u32) -> Result<StatementResult, Error> {
+        let word = editor::first_word(statement);
+        if !AGENT_READS.contains(&word.as_str()) {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                "A query only reads, so it starts with SELECT, WITH, VALUES, TABLE, SHOW or EXPLAIN.",
+            ));
+        }
+        let mut tx = self.reading().await?;
+        sqlx::raw_sql("SET LOCAL statement_timeout = '15s'; SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *tx)
+            .await
+            .map_err(from_sqlx)?;
+        // The first snapshot, after which Postgres won't make the transaction read-write.
+        let pid = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(from_sqlx)?;
+        let read = {
+            let _running = self.running.enter(pid);
+            read_rows(&mut tx, statement, limit).await
+        };
+        // Whatever the statement set, such as `set_config`, ends with the transaction.
+        let _ = tx.rollback().await;
+        let mut result = read?;
+        let kept = limit as usize;
+        if result.rows.len() > kept {
+            result.rows.truncate(kept);
+            result.cut.retain(|c| (c.row as usize) < kept);
+        }
+        Ok(result)
+    }
+
+    async fn execute(&self, statements: &[String]) -> Result<Vec<StatementResult>, Error> {
+        if let Some(word) = statements
+            .iter()
+            .map(|s| editor::first_word(s))
+            .find(|w| NOT_IN_A_CHANGE.contains(&w.as_str()))
+        {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!("{word} isn't allowed here: Halfnine runs the statements as one transaction of its own."),
+            ));
+        }
+        let mut connection = editor::open(&self.options, self.read_only).await?;
+        let executed = {
+            let _running = self.running.enter(connection.pid);
+            self.execute_all(&mut connection.conn, statements).await
+        };
+        // Closed rather than returned to a pool, so nothing the statements set reaches anything else.
+        let _ = sqlx::Connection::close(connection.conn).await;
+        executed
+    }
+
+    async fn references(&self) -> Result<Vec<Reference>, Error> {
+        let rows = sqlx::query(catalog::REFERENCES).fetch_all(&self.pool).await.map_err(from_sqlx)?;
+        rows.iter().map(catalog::reference).collect::<Result<_, _>>().map_err(from_sqlx)
+    }
+}
+
+impl PgDatabase {
+    /// Begins the transaction an agent's statements run in: read-only when the connection is.
+    async fn agent_transaction(&self, conn: &mut PgConnection) -> Result<(), Error> {
+        if self.read_only {
+            editor::begin_read_only(conn).await
+        } else {
+            sqlx::raw_sql("BEGIN").execute(&mut *conn).await.map(|_| ()).map_err(from_sqlx)
+        }
+    }
+
+    async fn execute_all(&self, conn: &mut PgConnection, statements: &[String]) -> Result<Vec<StatementResult>, Error> {
+        self.agent_transaction(conn).await?;
+        let mut results = Vec::with_capacity(statements.len());
+        for (index, statement) in statements.iter().enumerate() {
+            let result = editor::run_in_transaction(conn, statement).await.map_err(|error| Error {
+                message: format!("Statement {} failed, so nothing was written: {}", index + 1, error.message),
+                ..error
+            })?;
+            results.push(result);
+        }
+        sqlx::raw_sql("COMMIT").execute(&mut *conn).await.map_err(from_sqlx)?;
+        Ok(results)
+    }
 }
 
 /// Streams the file into Postgres's own CSV reader, which tells NULL (an empty field) from empty text (`""`).
@@ -531,6 +635,29 @@ async fn export_rows(
         (ExportSource::Table { table, .. }, None) => return Err(not_found(table)),
     }
     Ok(written as f64)
+}
+
+/// Collects an agent's query: through a cursor when Postgres allows one, so it never produces more than one row past
+/// `limit`, or else whole, as for SHOW and EXPLAIN, whose results are small.
+async fn read_rows(tx: &mut PgConnection, statement: &str, limit: u32) -> Result<StatementResult, Error> {
+    let word = editor::first_word(statement);
+    if word == "SHOW" || word == "EXPLAIN" {
+        return editor::run_in_transaction(tx, statement).await;
+    }
+    let columns = editor::describe(tx, statement).await?;
+    let started = Instant::now();
+    // `describe` proved the statement is one statement, so it stays one after the prefix.
+    let declare = format!("DECLARE hn_agent NO SCROLL CURSOR FOR {}", statement.trim().trim_end_matches(';'));
+    sqlx::raw_sql(AssertSqlSafe(declare)).execute(&mut *tx).await.map_err(from_sqlx)?;
+    let (rows, cut, total_rows, _) = editor::collect(tx, &format!("FETCH {} FROM hn_agent", limit + 1)).await?;
+    Ok(StatementResult {
+        columns,
+        rows,
+        cut,
+        total_rows,
+        rows_affected: 0,
+        elapsed_ms: hn_core::millis(started.elapsed()),
+    })
 }
 
 fn not_found(table: &TableRef) -> Error {

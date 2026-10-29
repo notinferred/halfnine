@@ -102,6 +102,62 @@ async fn run_one(conn: &mut PgConnection, sql: &str, read_only: bool) -> Result<
     })
 }
 
+/// Describes `sql`, then runs it, on a connection already inside the transaction it belongs to.
+pub(crate) async fn run_in_transaction(conn: &mut PgConnection, sql: &str) -> Result<StatementResult, Error> {
+    let columns = describe(conn, sql).await?;
+    let started = Instant::now();
+    let (rows, cut, total_rows, rows_affected) = collect(conn, sql).await?;
+    Ok(StatementResult {
+        columns,
+        rows,
+        cut,
+        total_rows,
+        rows_affected,
+        elapsed_ms: hn_core::millis(started.elapsed()),
+    })
+}
+
+/// The statement's first keyword in capitals, after any spaces, comments and opening parentheses, such as `SELECT`.
+pub fn first_word(sql: &str) -> String {
+    let mut rest = sql;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
+        if let Some(line) = rest.strip_prefix("--") {
+            rest = line.split_once('\n').map_or("", |(_, after)| after);
+        } else if rest.starts_with("/*") {
+            rest = after_block_comment(rest);
+        } else {
+            break;
+        }
+    }
+    rest.chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_uppercase()
+}
+
+/// What follows the block comment `sql` starts with. Postgres nests them, so `/* a /* b */ c */` is one comment.
+fn after_block_comment(sql: &str) -> &str {
+    let mut depth = 0;
+    let mut at = 0;
+    while at < sql.len() {
+        let rest = &sql[at..];
+        if rest.starts_with("/*") {
+            depth += 1;
+            at += 2;
+        } else if rest.starts_with("*/") {
+            depth -= 1;
+            at += 2;
+            if depth == 0 {
+                return &sql[at..];
+            }
+        } else {
+            at += rest.chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    ""
+}
+
 /// A read-only transaction that has already taken its first snapshot. From then on Postgres refuses to make the
 /// transaction read-write, so nothing a statement does inside it can lift the protection.
 pub(crate) async fn begin_read_only(conn: &mut PgConnection) -> Result<(), Error> {
@@ -140,9 +196,10 @@ pub(crate) async fn describe(conn: &mut PgConnection, sql: &str) -> Result<Vec<P
     Ok(columns)
 }
 
-type Collected = (Vec<Vec<Cell>>, Vec<CutCell>, u32, u32);
+/// Rows kept, cells cut, rows returned and rows written.
+pub(crate) type Collected = (Vec<Vec<Cell>>, Vec<CutCell>, u32, u32);
 
-async fn collect(conn: &mut PgConnection, sql: &str) -> Result<Collected, Error> {
+pub(crate) async fn collect(conn: &mut PgConnection, sql: &str) -> Result<Collected, Error> {
     let mut stream = sqlx::raw_sql(AssertSqlSafe(sql.to_string())).fetch_many(&mut *conn);
     let mut rows = Vec::new();
     let mut cuts = Vec::new();
@@ -246,4 +303,21 @@ pub(crate) fn activity(row: &PgRow) -> Result<Activity, sqlx::Error> {
         duration_ms: row.try_get(7)?,
         query: row.try_get(8)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_word;
+
+    #[test]
+    fn finds_the_first_keyword_past_comments_and_parentheses() {
+        assert_eq!(first_word("select 1"), "SELECT");
+        assert_eq!(
+            first_word("  -- why\n /* a /* nested */ comment */ (WITH x AS (SELECT 1) TABLE x)"),
+            "WITH"
+        );
+        assert_eq!(first_word("/* unclosed"), "");
+        assert_eq!(first_word("drop_me()"), "DROP_ME");
+        assert_eq!(first_word("TRUNCATE ünïcödé"), "TRUNCATE");
+    }
 }

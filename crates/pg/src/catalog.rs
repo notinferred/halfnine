@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use hn_core::{ColumnInfo, Constraint, EnumType, ForeignKey, IncomingKey, Index, Relation, RelationKind, SchemaNode, Structure, TableRef};
+use hn_core::{ColumnInfo, Constraint, EnumType, ForeignKey, IncomingKey, Index, Reference, Relation, RelationKind, SchemaNode, Structure, TableRef};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
@@ -16,7 +16,8 @@ pub(crate) const SCHEMAS: &str =
 
 pub(crate) const RELATIONS: &str = "SELECT n.nspname::text, c.relname::text, c.relkind::text, \
      CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::float8 END, \
-     ARRAY(SELECT a.attname::text FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) \
+     ARRAY(SELECT a.attname::text FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum), \
+     ARRAY(SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) \
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
      WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND NOT c.relispartition \
      AND n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\\_%' \
@@ -70,6 +71,35 @@ pub(crate) const REFERENCED_BY: &str = "SELECT con.conname::text, sn.nspname::te
      FROM pg_constraint con JOIN pg_class sc ON sc.oid = con.conrelid JOIN pg_namespace sn ON sn.oid = sc.relnamespace \
      WHERE con.contype = 'f' AND con.confrelid = $1::oid ORDER BY 2, 3, 1";
 
+/// Every foreign key between tables outside Postgres's own schemas, each partition's copy left out as partitions are.
+pub(crate) const REFERENCES: &str = "SELECT con.conname::text, sn.nspname::text, sc.relname::text, \
+     ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY k(attnum, ord) \
+       JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum ORDER BY k.ord), \
+     tn.nspname::text, tc.relname::text, \
+     ARRAY(SELECT a.attname::text FROM unnest(con.confkey) WITH ORDINALITY k(attnum, ord) \
+       JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum ORDER BY k.ord) \
+     FROM pg_constraint con JOIN pg_class sc ON sc.oid = con.conrelid JOIN pg_namespace sn ON sn.oid = sc.relnamespace \
+     JOIN pg_class tc ON tc.oid = con.confrelid JOIN pg_namespace tn ON tn.oid = tc.relnamespace \
+     WHERE con.contype = 'f' AND NOT sc.relispartition \
+     AND sn.nspname <> 'information_schema' AND sn.nspname NOT LIKE 'pg\\_%' \
+     ORDER BY 2, 3, 1";
+
+pub(crate) fn reference(row: &PgRow) -> Result<Reference, sqlx::Error> {
+    Ok(Reference {
+        name: row.try_get(0)?,
+        source: TableRef {
+            schema: row.try_get(1)?,
+            name: row.try_get(2)?,
+        },
+        source_columns: row.try_get(3)?,
+        target: TableRef {
+            schema: row.try_get(4)?,
+            name: row.try_get(5)?,
+        },
+        target_columns: row.try_get(6)?,
+    })
+}
+
 /// The columns of a page, with each one's place in the primary key, if it has one, and whether Postgres always fills it.
 pub(crate) const PAGE_COLUMNS: &str = "SELECT a.attname::text, format_type(a.atttypid, a.atttypmod), array_position(i.indkey::int2[], a.attnum), \
      a.attgenerated <> '' OR a.attidentity = 'a' \
@@ -116,6 +146,7 @@ pub(crate) fn schema_tree(schemas: &[PgRow], relations: &[PgRow], functions: &[P
         };
         node.relations.push(Relation {
             columns: row.try_get(4)?,
+            column_types: row.try_get(5)?,
             name,
             kind,
             estimated_rows: row.try_get(3)?,
