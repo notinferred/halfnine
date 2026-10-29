@@ -1,6 +1,7 @@
 //! TableUltra's Postgres adapter: it implements [`tu_core::Database`] over a small sqlx pool, optionally through an SSH tunnel.
 
 mod catalog;
+mod changes;
 mod editor;
 mod errors;
 mod sql;
@@ -12,10 +13,11 @@ use futures_util::TryStreamExt;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
 use tu_core::{
-    Activity, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource, Filter, Page, PageColumn, PageRequest, RowSink, RunOutcome,
-    SchemaNode, ServerInfo, Structure, TableRef, TlsMode,
+    Activity, ByteSource, Changes, Choice, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource, Filter, Page, PageColumn,
+    PageRequest, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, Structure, StructureChange, TableRef, TlsMode,
 };
 
+use crate::changes::Step;
 use crate::editor::{EditorConnection, Running};
 use crate::errors::from_sqlx;
 use crate::sql::{Built, ColumnMeta};
@@ -23,8 +25,8 @@ use crate::tunnel::Tunnel;
 
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The secrets a connection needs, read from the keychain just before connecting and never kept.
-#[derive(Default)]
+/// The secrets a connection needs: read from the keychain, or typed, just before connecting.
+#[derive(Clone, Default)]
 pub struct Secrets {
     pub password: Option<String>,
     pub ssh: Option<String>,
@@ -112,8 +114,9 @@ impl PgDatabase {
         self.pool.begin_with("BEGIN TRANSACTION READ ONLY").await.map_err(from_sqlx)
     }
 
-    /// The same, for work that may take as long as it needs and can be cancelled: an explain or an export.
-    async fn reading_at_length(&self, read_only: bool) -> Result<(Transaction<'static, Postgres>, i32), Error> {
+    /// A transaction for work that may take as long as it needs and can be cancelled: an explain, an export, a commit or
+    /// an import. With `read_only`, or on a read-only connection, Postgres refuses any write in it.
+    async fn long_transaction(&self, read_only: bool) -> Result<(Transaction<'static, Postgres>, i32), Error> {
         let begin = if read_only { "BEGIN TRANSACTION READ ONLY" } else { "BEGIN" };
         let mut tx = self.pool.begin_with(begin).await.map_err(from_sqlx)?;
         sqlx::raw_sql("SET LOCAL statement_timeout = 0")
@@ -144,15 +147,49 @@ impl PgDatabase {
                     name: r.try_get(0)?,
                     type_name: r.try_get(1)?,
                     key_position: r.try_get(2)?,
+                    generated: r.try_get(3)?,
                 })
             })
             .collect::<Result<_, sqlx::Error>>()
             .map_err(from_sqlx)
     }
 
+    async fn relation_kind(&self, table: &TableRef) -> Result<Option<RelationKind>, Error> {
+        let found = sqlx::query(catalog::RELATION)
+            .bind(&table.schema)
+            .bind(&table.name)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(from_sqlx)?;
+        Ok(match found {
+            Some(row) => catalog::relation_kind(&row.try_get::<String, _>(2).map_err(from_sqlx)?),
+            None => None,
+        })
+    }
+
+    async fn steps(&self, changes: &Changes) -> Result<Vec<Step>, Error> {
+        match changes {
+            Changes::Rows {
+                table,
+                deletes,
+                updates,
+                inserts,
+            } => changes::rows(table, deletes, updates, inserts, &self.columns(table).await?),
+            Changes::Structure { table, changes } => {
+                let kind = if changes.iter().any(|c| matches!(c, StructureChange::Drop)) {
+                    self.relation_kind(table).await?
+                } else {
+                    None
+                };
+                changes::structure(table, kind, changes)
+            }
+        }
+    }
+
     fn query(&self, built: Built) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
         // Every statement the app builds passes through here. Its identifiers came through `sql::ident` and its values are
-        // bound parameters; the only text taken as SQL is a WHERE condition someone typed for their own table.
+        // bound parameters. The only text taken as SQL is what someone typed for their own table: a WHERE condition, or a
+        // column's type or default. Postgres runs each as part of one prepared statement, which refuses a second statement.
         let mut query = sqlx::query(AssertSqlSafe(built.sql));
         for param in built.params {
             query = query.bind(param);
@@ -195,7 +232,6 @@ impl Database for PgDatabase {
             .map_err(from_sqlx)?
             .ok_or_else(|| not_found(table))?;
         let oid: i64 = found.try_get(0).map_err(from_sqlx)?;
-        let estimated_rows: Option<f64> = found.try_get(1).map_err(from_sqlx)?;
         let (columns, key, indexes, constraints, outgoing, incoming) = tokio::try_join!(
             sqlx::query(catalog::COLUMNS).bind(oid).fetch_all(&self.pool),
             sqlx::query(catalog::PRIMARY_KEY).bind(oid).fetch_optional(&self.pool),
@@ -205,7 +241,7 @@ impl Database for PgDatabase {
             sqlx::query(catalog::REFERENCED_BY).bind(oid).fetch_all(&self.pool),
         )
         .map_err(from_sqlx)?;
-        catalog::structure(estimated_rows, &columns, key.as_ref(), &indexes, &constraints, &outgoing, &incoming).map_err(from_sqlx)
+        catalog::structure(&found, &columns, key.as_ref(), &indexes, &constraints, &outgoing, &incoming).map_err(from_sqlx)
     }
 
     async fn page(&self, request: &PageRequest) -> Result<Page, Error> {
@@ -299,7 +335,7 @@ impl Database for PgDatabase {
     }
 
     async fn explain(&self, statement: &str, analyze: bool) -> Result<String, Error> {
-        let (mut tx, pid) = self.reading_at_length(self.read_only).await?;
+        let (mut tx, pid) = self.long_transaction(self.read_only).await?;
         let options = if analyze { "FORMAT JSON, ANALYZE, BUFFERS" } else { "FORMAT JSON" };
         let sql = format!("EXPLAIN ({options}) {}", statement.trim().trim_end_matches(';'));
         editor::describe(&mut tx, &sql).await?;
@@ -322,7 +358,7 @@ impl Database for PgDatabase {
             ExportSource::Statement { .. } => None,
         };
         // An export only reads, whatever the connection allows, so it runs read-only everywhere.
-        let (mut tx, pid) = self.reading_at_length(true).await?;
+        let (mut tx, pid) = self.long_transaction(true).await?;
         let _running = self.running.enter(pid);
         let written = export_rows(&mut tx, source, columns, sink, self).await;
         let _ = tx.rollback().await;
@@ -348,6 +384,110 @@ impl Database for PgDatabase {
         };
         sqlx::query_scalar(sql).bind(pid).fetch_one(&self.pool).await.map_err(from_sqlx)
     }
+
+    async fn review(&self, changes: &Changes) -> Result<Vec<String>, Error> {
+        Ok(self.steps(changes).await?.into_iter().map(|step| step.shown).collect())
+    }
+
+    async fn commit(&self, changes: &Changes) -> Result<Committed, Error> {
+        let steps = self.steps(changes).await?;
+        let statements = steps.len() as u32;
+        let (mut tx, pid) = self.long_transaction(self.read_only).await?;
+        let _running = self.running.enter(pid);
+        let started = Instant::now();
+        for step in steps {
+            // Each statement is written once, so it isn't kept as a prepared statement.
+            let done = self.query(step.run).persistent(false).execute(&mut *tx).await;
+            let failure = match done {
+                Ok(done) => match step.conflict {
+                    Some(conflict) if done.rows_affected() != 1 => Some(Error::new(ErrorKind::Conflict, conflict)),
+                    _ => None,
+                },
+                Err(error) => {
+                    let error = from_sqlx(error);
+                    Some(Error {
+                        message: format!("{} failed, so nothing was written: {}", step.what, error.message),
+                        ..error
+                    })
+                }
+            };
+            if let Some(error) = failure {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        }
+        tx.commit().await.map_err(from_sqlx)?;
+        Ok(Committed {
+            statements,
+            elapsed_ms: tu_core::millis(started.elapsed()),
+        })
+    }
+
+    async fn choices(&self, table: &TableRef, column: &str, search: &str) -> Result<Vec<Choice>, Error> {
+        let built = sql::choices(table, column, search, &self.columns(table).await?)?;
+        let mut tx = self.reading().await?;
+        let rows = self.query(built).fetch_all(&mut *tx).await.map_err(from_sqlx)?;
+        let _ = tx.rollback().await;
+        rows.iter()
+            .map(|r| {
+                Ok(Choice {
+                    value: r.try_get(0)?,
+                    label: r.try_get(1)?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(from_sqlx)
+    }
+
+    async fn import(&self, table: &TableRef, columns: &[Option<String>], delimiter: u8, source: &mut dyn ByteSource) -> Result<f64, Error> {
+        let import = sql::import(table, columns, delimiter, &self.columns(table).await?)?;
+        let (mut tx, pid) = self.long_transaction(self.read_only).await?;
+        let _running = self.running.enter(pid);
+        match import_rows(&mut tx, &import, source, self).await {
+            Ok(rows) => {
+                tx.commit().await.map_err(from_sqlx)?;
+                Ok(rows as f64)
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(Error {
+                    message: format!("The import failed, so nothing was written: {}", error.message),
+                    ..error
+                })
+            }
+        }
+    }
+}
+
+/// Streams the file into Postgres's own CSV reader, which tells NULL (an empty field) from empty text (`""`).
+async fn import_rows(tx: &mut PgConnection, import: &sql::Import, source: &mut dyn ByteSource, db: &PgDatabase) -> Result<u64, Error> {
+    let statement = |sql: &str| {
+        db.query(Built {
+            sql: sql.to_string(),
+            params: Vec::new(),
+        })
+        .persistent(false)
+    };
+    statement(&import.create).execute(&mut *tx).await.map_err(from_sqlx)?;
+    // COPY has its own protocol, so it can't go through `query`. Its statement is fixed text: no name or value in it
+    // comes from outside.
+    let mut copy = tx.copy_in_raw(&import.copy).await.map_err(from_sqlx)?;
+    loop {
+        match source.next() {
+            Ok(Some(chunk)) => {
+                let sent = copy.send(chunk).await.map(|_| ());
+                sent.map_err(from_sqlx)?;
+            }
+            Ok(None) => break,
+            Err(error) => {
+                let _ = copy.abort("The file couldn't be read.").await;
+                return Err(error);
+            }
+        }
+    }
+    copy.finish().await.map_err(from_sqlx)?;
+    let inserted = statement(&import.insert).execute(&mut *tx).await.map_err(from_sqlx)?;
+    Ok(inserted.rows_affected())
 }
 
 async fn export_rows(

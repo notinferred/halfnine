@@ -1,33 +1,70 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Columns3, Download, PanelRight, RotateCw, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { commands, type ExportFormat, type Filter, type ForeignKey, type IncomingKey, type SessionInfo, type Sort } from "../../ipc/bindings.ts";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Columns3, Download, PanelRight, Plus, RotateCw, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  commands,
+  type ExportFormat,
+  type Filter,
+  type ForeignKey,
+  type ImportPreview,
+  type IncomingKey,
+  type SessionInfo,
+  type Sort,
+} from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { type TableTab as Tab, useWorkspace } from "../../state.ts";
 import { copy, toCsv, toInsert, toJson } from "../../ui/copy.ts";
 import { Menu } from "../../ui/menu.tsx";
 import { useShortcuts } from "../../ui/shortcuts.ts";
-import { DataGrid } from "./data-grid.tsx";
+import { ChangesBar, StagedMark, stagedSummary } from "./changes-bar.tsx";
+import { type CellEdit, DataGrid, type GridEditing } from "./data-grid.tsx";
+import {
+  type At,
+  addRow,
+  type Cell,
+  countEdits,
+  deleteRows,
+  editCell,
+  editNew,
+  keyId,
+  keyOf,
+  noEdits,
+  type RowEdits,
+  restoreRow,
+  toChanges,
+} from "./edits.ts";
+import { ImportSheet } from "./import-sheet.tsx";
+import { KeyPicker } from "./key-picker.tsx";
 import { RowPanel } from "./row-panel.tsx";
+import { structureChanges } from "./structure-draft.ts";
 import { StructureView } from "./structure-view.tsx";
 import "./table.css";
 
 const PAGE = 500;
+/** Values longer than this, or on several lines, are edited in the row panel rather than in the cell. */
+const LONG = 200;
 
 function describeFilter(filter: Filter): string {
   if (filter.kind === "where") return filter.sql;
   return filter.values.map((v) => (v.value === null ? `${v.column} is null` : `${v.column} = ${v.value}`)).join(" and ");
 }
 
+const plural = (n: number, one: string) => `${n.toLocaleString()} ${n === 1 ? one : `${one}s`}`;
+
 export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
   const id = session.sessionId;
-  const { setFilter, openTable } = useWorkspace();
+  const queries = useQueryClient();
+  const { setFilter, openTable, updateTable } = useWorkspace();
+  const held = useWorkspace((s) => s.held === tab.id);
   const [view, setView] = useState<"data" | "structure">("data");
   const [sort, setSort] = useState<Sort | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [choosingColumns, setChoosingColumns] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [focused, setFocused] = useState<number | null>(null);
+  const [focused, setFocused] = useState<At | null>(null);
+  const [panelFocus, setPanelFocus] = useState<{ column: number; nonce: number } | null>(null);
+  const [picking, setPicking] = useState<{ at: At; column: number; key: ForeignKey } | null>(null);
+  const [importing, setImporting] = useState<ImportPreview | null>(null);
   const [where, setWhere] = useState(tab.filter?.kind === "where" ? tab.filter.sql : "");
   const [count, setCount] = useState<{ text: string; error?: boolean } | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -44,6 +81,12 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
     getNextPageParam: (last, all) => (last.hasMore ? all.length * PAGE : undefined),
   });
 
+  const s = structure.data;
+  const readOnly = session.connection.readOnly;
+  const holdsRows = s?.kind === "table" || s?.kind === "partitionedTable" || s?.kind === "foreignTable";
+  const canEditRows = !readOnly && holdsRows && (s?.primaryKey.length ?? 0) > 0;
+  const canEditStructure = !readOnly && (s?.kind === "table" || s?.kind === "partitionedTable");
+
   const columns = pages.data?.pages[0]?.columns ?? [];
   const rows = useMemo(() => pages.data?.pages.flatMap((p) => p.rows) ?? [], [pages.data]);
   const cut = useMemo(() => {
@@ -57,20 +100,137 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
     return cells;
   }, [pages.data]);
   // Only single-column keys get a link in the grid; every key is in the row panel.
-  const keys = useMemo(
-    () => new Map((structure.data?.foreignKeys ?? []).filter((k) => k.columns.length === 1).map((k) => [k.columns[0] ?? "", k])),
-    [structure.data],
+  const keys = useMemo(() => new Map((s?.foreignKeys ?? []).filter((k) => k.columns.length === 1).map((k) => [k.columns[0] ?? "", k])), [s]);
+  const locked = useMemo(() => new Set((s?.columns ?? []).filter((c) => c.generated).map((c) => c.name)), [s]);
+
+  const keyFor = (row: Cell[]) => keyOf(row, columns, s?.primaryKey ?? []);
+
+  // The rows as they will be once committed: staged values in place, deleted rows marked.
+  const staged = useMemo(() => {
+    const cells = new Map<number, Set<number>>();
+    const deleted = new Set<number>();
+    if (!canEditRows) return { shown: rows, cells, deleted };
+    const key = s?.primaryKey ?? [];
+    const shown = rows.map((row, r) => {
+      const rowId = keyId(keyOf(row, columns, key));
+      if (tab.edits.deletes[rowId]) deleted.add(r);
+      const update = tab.edits.updates[rowId];
+      if (!update) return row;
+      const marks = new Set<number>();
+      cells.set(r, marks);
+      return row.map((value, c) => {
+        const cell = update.cells[columns[c]?.name ?? ""];
+        if (!cell) return value;
+        marks.add(c);
+        return cell.to;
+      });
+    });
+    return { shown, cells, deleted };
+  }, [rows, columns, s, tab.edits, canEditRows]);
+
+  const inserts = useMemo(
+    () => tab.edits.inserts.map((row) => ({ id: row.id, values: columns.map((c) => (c.name in row.values ? row.values[c.name] : undefined)) })),
+    [tab.edits.inserts, columns],
   );
 
-  const cellOf = (row: number, column: string) => rows[row]?.[columns.findIndex((c) => c.name === column)] ?? null;
+  /** Changes the staged edits from the latest ones, so several changes in a row never undo each other. */
+  const stage = (change: (edits: RowEdits) => RowEdits) => {
+    const current = useWorkspace.getState().tabs.find((t) => t.id === tab.id);
+    if (current?.kind === "table") updateTable(tab.id, { edits: change(current.edits) });
+  };
+
+  const stageCells = (cells: CellEdit[]) =>
+    stage((edits) =>
+      cells.reduce((next, cell) => {
+        const name = columns[cell.column]?.name;
+        if (name === undefined) return next;
+        if ("insert" in cell.at) return editNew(next, cell.at.insert, name, cell.value);
+        const row = rows[cell.at.row];
+        return row ? editCell(next, keyFor(row), name, row[cell.column] ?? null, cell.value ?? null) : next;
+      }, edits),
+    );
+
+  const deleteAt = (ats: At[]) =>
+    stage((edits) =>
+      deleteRows(
+        edits,
+        ats.flatMap((at) => ("row" in at && rows[at.row] ? [keyFor(rows[at.row] ?? [])] : [])),
+        ats.flatMap((at) => ("insert" in at ? [at.insert] : [])),
+      ),
+    );
+
+  const valueAt = (at: At, column: number): Cell | undefined =>
+    "insert" in at ? inserts.find((r) => r.id === at.insert)?.values[column] : staged.shown[at.row]?.[column];
+
+  const openInPanel = (at: At, column: number) => {
+    setFocused(at);
+    setPanelOpen(true);
+    setPanelFocus({ column, nonce: Date.now() });
+  };
+
+  // The grid reads its handlers at the moment they fire, so this object may be new on every render.
+  const editing: GridEditing | undefined = canEditRows
+    ? {
+        locked,
+        staged: staged.cells,
+        deleted: staged.deleted,
+        cut,
+        inserts,
+        onEdit: (cells) => stageCells(cells),
+        onOpen: (at, column) => {
+          const key = keys.get(columns[column]?.name ?? "");
+          if (key) {
+            setPicking({ at, column, key });
+            return true;
+          }
+          const value = valueAt(at, column);
+          const typeName = columns[column]?.typeName ?? "";
+          if (["json", "jsonb", "xml"].includes(typeName) || (typeof value === "string" && (value.includes("\n") || value.length > LONG))) {
+            openInPanel(at, column);
+            return true;
+          }
+          return false;
+        },
+        onDeleteRows: (ats) => deleteAt(ats),
+      }
+    : undefined;
+
+  const rowChanges = countEdits(tab.edits);
+  const structureChangeList = tab.draft ? structureChanges(tab.draft) : [];
+
+  // A tab held open for its staged changes shows them, whichever view has them.
+  useEffect(() => {
+    if (!held) return;
+    if (view === "data" && rowChanges === 0 && structureChangeList.length > 0) setView("structure");
+    if (view === "structure" && structureChangeList.length === 0 && rowChanges > 0) setView("data");
+  }, [held, view, rowChanges, structureChangeList.length]);
+
   const follow = (key: ForeignKey, row: number) =>
-    openTable(key.target, { kind: "equals", values: key.columns.map((c, i) => ({ column: key.targetColumns[i] ?? c, value: cellOf(row, c) })) });
+    openTable(key.target, {
+      kind: "equals",
+      values: key.columns.map((c, i) => ({
+        column: key.targetColumns[i] ?? c,
+        value: rows[row]?.[columns.findIndex((col) => col.name === c)] ?? null,
+      })),
+    });
   const references = (key: IncomingKey, row: number) =>
-    openTable(key.source, { kind: "equals", values: key.sourceColumns.map((c, i) => ({ column: c, value: cellOf(row, key.columns[i] ?? c) })) });
+    openTable(key.source, {
+      kind: "equals",
+      values: key.sourceColumns.map((c, i) => ({
+        column: c,
+        value: rows[row]?.[columns.findIndex((col) => col.name === (key.columns[i] ?? c))] ?? null,
+      })),
+    });
 
   const applyWhere = () => {
     setCount(null);
     setFilter(tab.id, where.trim() ? { kind: "where", sql: where.trim() } : null);
+  };
+
+  const refresh = () => {
+    setCount(null);
+    void structure.refetch();
+    void pages.refetch();
   };
 
   const countRows = async () => {
@@ -101,13 +261,43 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
     }
   };
 
+  const chooseImport = async () => {
+    try {
+      const preview = await commands.chooseImport();
+      if (preview) setImporting(preview);
+    } catch (error) {
+      setNote(describe(error));
+    }
+  };
+
+  // The panel's row: a loaded one by index, or a new one, which leaves the panel once it is removed.
+  const panel = (() => {
+    if (!panelOpen || view !== "data" || focused === null) return null;
+    if ("insert" in focused) {
+      const values = inserts.find((r) => r.id === focused.insert)?.values;
+      const set = new Set(values?.flatMap((v, i) => (v === undefined ? [] : [i])));
+      return values ? { at: focused, values, staged: set, cut: new Set<number>(), deleted: false } : null;
+    }
+    const r = focused.row;
+    const values = staged.shown[r];
+    if (!values) return null;
+    return {
+      at: focused,
+      values,
+      staged: staged.cells.get(r) ?? new Set<number>(),
+      cut: cut.get(r) ?? new Set<number>(),
+      deleted: staged.deleted.has(r),
+    };
+  })();
+
   const lastPage = pages.data?.pages.at(-1);
-  const estimate = structure.data?.estimatedRows;
+  const estimate = s?.estimatedRows;
   const status = pages.isError
     ? describe(pages.error)
     : pages.isPending
       ? "Loading…"
       : `${rows.length === 0 ? "No rows" : `Rows 1–${rows.length.toLocaleString()}${pages.hasNextPage ? "+" : ""}`} · ${Math.round(lastPage?.elapsedMs ?? 0)} ms`;
+  const why = readOnly ? " · read-only" : holdsRows && s?.primaryKey.length === 0 ? " · read-only: no primary key" : "";
 
   return (
     <div className="table-tab">
@@ -115,9 +305,11 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
         <fieldset className="segmented" aria-label="View">
           <button type="button" aria-pressed={view === "data"} onClick={() => setView("data")}>
             Data
+            {rowChanges > 0 && <StagedMark />}
           </button>
           <button type="button" aria-pressed={view === "structure"} onClick={() => setView("structure")}>
             Structure
+            {structureChangeList.length > 0 && <StagedMark />}
           </button>
         </fieldset>
         {tab.filter?.kind === "equals" ? (
@@ -155,6 +347,11 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
         >
           {count?.text ?? (estimate == null ? "Count rows" : `≈ ${Math.round(estimate).toLocaleString()} rows`)}
         </button>
+        {canEditRows && view === "data" && (
+          <button type="button" className="btn btn-icon" aria-label="Add a row" title="Add a row" onClick={() => stage(addRow)}>
+            <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        )}
         <div className="toolbar-menu">
           <button
             type="button"
@@ -187,7 +384,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
         </div>
         <Menu
           label=""
-          icon={<Download size={14} strokeWidth={1.5} aria-label="Copy or export" />}
+          icon={<Download size={14} strokeWidth={1.5} aria-label="Copy, export or import" />}
           disabled={columns.length === 0}
           items={[
             { label: "Copy rows as CSV", onSelect: () => void copyRows("csv") },
@@ -195,6 +392,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             { label: "Copy rows as INSERT", onSelect: () => void copyRows("insert") },
             { label: "Export table as CSV…", onSelect: () => void exportTable("csv") },
             { label: "Export table as JSON…", onSelect: () => void exportTable("json") },
+            ...(!readOnly && holdsRows ? [{ label: "Import CSV…", onSelect: () => void chooseImport() }] : []),
           ]}
         />
         <button
@@ -206,16 +404,7 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
         >
           <PanelRight size={14} strokeWidth={1.5} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className="btn btn-icon"
-          aria-label="Refresh"
-          onClick={() => {
-            setCount(null);
-            void structure.refetch();
-            void pages.refetch();
-          }}
-        >
+        <button type="button" className="btn btn-icon" aria-label="Refresh" onClick={refresh}>
           <RotateCw size={14} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </div>
@@ -228,15 +417,16 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             ) : (
               <DataGrid
                 columns={columns}
-                rows={rows}
+                rows={staged.shown}
                 hidden={hidden}
                 sort={sort}
                 keys={keys}
+                editing={editing}
                 onSort={(column) =>
                   setSort(sort?.column !== column ? { column, descending: false } : sort.descending ? null : { column, descending: true })
                 }
                 onFollow={follow}
-                onFocusRow={setFocused}
+                onFocus={setFocused}
                 onNearEnd={() => {
                   if (pages.hasNextPage && !pages.isFetchingNextPage) void pages.fetchNextPage();
                 }}
@@ -244,29 +434,104 @@ export function TableTab({ session, tab }: { session: SessionInfo; tab: Tab }) {
             )}
           </div>
         ) : (
-          <StructureView structure={structure} />
+          <StructureView structure={structure} draft={tab.draft} onDraft={canEditStructure ? (draft) => updateTable(tab.id, { draft }) : undefined} />
         )}
-        {panelOpen && view === "data" && focused !== null && rows[focused] && (
+        {panel && (
           <RowPanel
             columns={columns}
-            row={rows[focused]}
-            cut={cut.get(focused) ?? new Set()}
-            structure={structure.data}
-            onFollow={(key) => follow(key, focused)}
-            onReferences={(key) => references(key, focused)}
+            row={panel.values}
+            staged={panel.staged}
+            cut={panel.cut}
+            structure={s}
+            editing={
+              canEditRows
+                ? {
+                    locked,
+                    isNew: "insert" in panel.at,
+                    deleted: panel.deleted,
+                    focus: panelFocus,
+                    onChange: (column, value) => stageCells([{ at: panel.at, column, value }]),
+                    onPick: (key) => setPicking({ at: panel.at, column: columns.findIndex((c) => c.name === key.columns[0]), key }),
+                    onDelete: () => deleteAt([panel.at]),
+                    onRestore: () => {
+                      const row = "row" in panel.at ? rows[panel.at.row] : undefined;
+                      if (row) stage((edits) => restoreRow(edits, keyFor(row)));
+                    },
+                  }
+                : null
+            }
+            onFollow={(key) => "row" in panel.at && follow(key, panel.at.row)}
+            onReferences={(key) => "row" in panel.at && references(key, panel.at.row)}
             onClose={() => setPanelOpen(false)}
           />
         )}
       </div>
+
+      {view === "data" && rowChanges > 0 && (
+        <ChangesBar
+          session={session}
+          changes={toChanges(tab.table, tab.edits)}
+          summary={stagedSummary(rowChanges)}
+          promise="These statements run together in one transaction. If a row has changed since you loaded it, nothing is written."
+          held={held}
+          onDiscard={() => updateTable(tab.id, { edits: noEdits })}
+          onCommitted={(done) => {
+            updateTable(tab.id, { edits: noEdits });
+            setNote(`Committed ${plural(done.statements, "statement")} in ${done.elapsedMs.toLocaleString()} ms.`);
+            refresh();
+          }}
+        />
+      )}
+      {view === "structure" && tab.draft && structureChangeList.length > 0 && (
+        <ChangesBar
+          session={session}
+          changes={{ kind: "structure", table: tab.table, changes: structureChangeList }}
+          summary={stagedSummary(structureChangeList.length)}
+          promise="These statements run together in one transaction. If one fails, none of them is applied."
+          held={held}
+          onDiscard={() => updateTable(tab.id, { draft: null })}
+          onCommitted={(done) => {
+            updateTable(tab.id, { draft: null });
+            setNote(`Committed ${plural(done.statements, "statement")} in ${done.elapsedMs.toLocaleString()} ms.`);
+            void queries.invalidateQueries({ queryKey: ["schema", id] });
+            refresh();
+          }}
+        />
+      )}
 
       <div className="statusbar" role="status">
         <span className={pages.isError ? "status-error" : undefined}>{note ?? status}</span>
         {tab.filter && <span className="muted">· filtered</span>}
         <span className="statusbar-end">
           {tab.table.schema}.{tab.table.name}
-          {session.connection.readOnly && " · read-only"}
+          {why}
         </span>
       </div>
+
+      {picking && (
+        <KeyPicker
+          session={session}
+          foreignKey={picking.key}
+          current={valueAt(picking.at, picking.column)}
+          nullable={s?.columns.find((c) => c.name === picking.key.columns[0])?.nullable ?? true}
+          onPick={(value) => stageCells([{ at: picking.at, column: picking.column, value }])}
+          onClose={() => setPicking(null)}
+        />
+      )}
+      {importing && (
+        <ImportSheet
+          session={session}
+          table={tab.table}
+          columns={columns.filter((c) => !locked.has(c.name))}
+          preview={importing}
+          onImported={(n) => {
+            setImporting(null);
+            setNote(`Imported ${plural(n, "row")}.`);
+            refresh();
+          }}
+          onClose={() => setImporting(null)}
+        />
+      )}
     </div>
   );
 }

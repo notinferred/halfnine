@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use crate::changes::{Changes, Choice, Committed};
 use crate::data::{Activity, Cell, ExportSource, Filter, Page, PageColumn, PageRequest, RunOutcome, SchemaNode, ServerInfo, Structure, TableRef};
 use crate::error::Error;
 
@@ -25,6 +26,28 @@ pub trait Database: Send + Sync {
     fn activity(&self) -> impl Future<Output = Result<Vec<Activity>, Error>> + Send;
     /// Cancels another session's statement, or ends the session when `terminate`. `false` when it no longer existed.
     fn stop(&self, pid: i32, terminate: bool) -> impl Future<Output = Result<bool, Error>> + Send;
+
+    /// The statements `changes` would run, written out for someone to read before committing them.
+    fn review(&self, changes: &Changes) -> impl Future<Output = Result<Vec<String>, Error>> + Send;
+    /// Runs `changes` in one transaction. A row that changed after it was loaded rolls back everything, as does any error.
+    fn commit(&self, changes: &Changes) -> impl Future<Output = Result<Committed, Error>> + Send;
+    /// Up to 50 values of `column` in `table` that match `search`, to pick one for a foreign key.
+    fn choices(&self, table: &TableRef, column: &str, search: &str) -> impl Future<Output = Result<Vec<Choice>, Error>> + Send;
+    /// Adds every row of a CSV file to `table` in one transaction, and returns how many there were. The file's first
+    /// line names its columns; `columns` gives the table column each file column goes into, or `None` to skip it.
+    fn import(
+        &self,
+        table: &TableRef,
+        columns: &[Option<String>],
+        delimiter: u8,
+        source: &mut dyn ByteSource,
+    ) -> impl Future<Output = Result<f64, Error>> + Send;
+}
+
+/// Where an import's bytes come from, a piece at a time, so a file of any size streams without being held in memory.
+pub trait ByteSource: Send {
+    /// The next piece, or `None` at the end.
+    fn next(&mut self) -> Result<Option<Vec<u8>>, Error>;
 }
 
 /// Where an export's rows go, one at a time, so a table of any size streams without being held in memory.

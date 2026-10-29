@@ -18,10 +18,14 @@ pub enum ErrorKind {
     Network,
     Timeout,
     Auth,
+    /// The connection asks for its password each time, and none has been typed this launch.
+    PasswordNeeded,
     Tls,
     Ssh,
     Query,
     ReadOnly,
+    /// A row changed after it was loaded, so a commit wrote nothing.
+    Conflict,
     NotFound,
     Invalid,
     Storage,

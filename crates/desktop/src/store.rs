@@ -90,6 +90,7 @@ mod tests {
             label: Label::None,
             read_only: false,
             ssh: None,
+            save_password: true,
         }
     }
 

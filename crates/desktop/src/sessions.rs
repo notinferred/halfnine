@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 use tu_core::{ConnectionSpec, Error, ErrorKind};
-use tu_pg::PgDatabase;
+use tu_pg::{PgDatabase, Secrets};
 
 pub struct Session {
     pub connection: ConnectionSpec,
     pub database: String,
     pub db: PgDatabase,
+    /// Kept in memory while the session is open, so switching databases never asks for them again.
+    pub secrets: Secrets,
 }
 
 #[derive(Default)]

@@ -1,9 +1,11 @@
-import type { UseQueryResult } from "@tanstack/react-query";
-import { Activity, ChevronRight, Eye, Layers, Lock, ScrollText, Sheet, Table2 } from "lucide-react";
+import { type UseQueryResult, useQueryClient } from "@tanstack/react-query";
+import { Activity, ChevronRight, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Sheet, Table2 } from "lucide-react";
 import { useState } from "react";
-import type { RelationKind, SchemaNode, SessionInfo } from "../../ipc/bindings.ts";
+import type { RelationKind, SchemaNode, SessionInfo, TableRef } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
+import { Menu } from "../../ui/menu.tsx";
+import { ConfirmByName } from "./confirm-by-name.tsx";
 
 const KIND_ICON: Record<RelationKind, typeof Table2> = {
   table: Table2,
@@ -86,7 +88,7 @@ export function Sidebar(props: {
         {props.schema.isPending && <p className="tree-note muted">Loading…</p>}
         {props.schema.isError && <p className="tree-note status-error">{describe(props.schema.error)}</p>}
         {nodes.map((node) => (
-          <SchemaBranch key={node.name} node={node} query={query} startOpen={node.name === "public" || nodes.length === 1} />
+          <SchemaBranch key={node.name} session={props.session} node={node} query={query} startOpen={node.name === "public" || nodes.length === 1} />
         ))}
       </div>
       <Pages />
@@ -115,8 +117,14 @@ function Pages() {
   );
 }
 
-function SchemaBranch(props: { node: SchemaNode; query: string; startOpen: boolean }) {
+type Confirming = { table: TableRef; kind: RelationKind; action: "truncate" | "drop" };
+
+function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: string; startOpen: boolean }) {
+  const queries = useQueryClient();
   const openTable = useWorkspace((s) => s.openTable);
+  const newTable = useWorkspace((s) => s.newTable);
+  const [confirming, setConfirming] = useState<Confirming | null>(null);
+  const writable = !props.session.connection.readOnly;
   const active = useWorkspace((s) => {
     const tab = s.tabs.find((t) => t.id === s.active);
     return tab?.kind === "table" ? tab.table : undefined;
@@ -133,33 +141,81 @@ function SchemaBranch(props: { node: SchemaNode; query: string; startOpen: boole
 
   return (
     <div className="branch">
-      <button type="button" className="branch-toggle" aria-expanded={expanded} onClick={() => setOpen(!open)}>
-        <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
-        {node.name}
-      </button>
+      <div className="branch-row">
+        <button type="button" className="branch-toggle" aria-expanded={expanded} onClick={() => setOpen(!open)}>
+          <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
+          {node.name}
+        </button>
+        {writable && (
+          <button
+            type="button"
+            className="row-action"
+            aria-label={`New table in ${node.name}`}
+            title={`New table in ${node.name}`}
+            onClick={() => newTable(node.name)}
+          >
+            <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        )}
+      </div>
       {expanded && (
         <>
           {relations.map((r) => {
             const Icon = KIND_ICON[r.kind];
             const current = active?.schema === node.name && active.name === r.name;
+            const table = { schema: node.name, name: r.name };
+            const truncatable = r.kind === "table" || r.kind === "partitionedTable";
             return (
-              <button
-                key={r.name}
-                type="button"
-                className="leaf"
-                aria-current={current || undefined}
-                onClick={() => openTable({ schema: node.name, name: r.name })}
-                title={r.estimatedRows === null ? KIND_NAME[r.kind] : `${KIND_NAME[r.kind]} · ≈ ${r.estimatedRows.toLocaleString()} rows`}
-              >
-                <Icon size={14} strokeWidth={1.5} aria-label={KIND_NAME[r.kind]} />
-                <span>{r.name}</span>
-              </button>
+              <div key={r.name} className="leaf-row">
+                <button
+                  type="button"
+                  className="leaf"
+                  aria-current={current || undefined}
+                  onClick={() => openTable(table)}
+                  title={r.estimatedRows === null ? KIND_NAME[r.kind] : `${KIND_NAME[r.kind]} · ≈ ${r.estimatedRows.toLocaleString()} rows`}
+                >
+                  <Icon size={14} strokeWidth={1.5} aria-label={KIND_NAME[r.kind]} />
+                  <span>{r.name}</span>
+                </button>
+                {writable && (
+                  <Menu
+                    label=""
+                    icon={<Ellipsis size={14} strokeWidth={1.5} aria-label={`More for ${r.name}`} />}
+                    items={[
+                      ...(truncatable ? [{ label: "Truncate…", onSelect: () => setConfirming({ table, kind: r.kind, action: "truncate" }) }] : []),
+                      { label: "Drop…", onSelect: () => setConfirming({ table, kind: r.kind, action: "drop" }) },
+                    ]}
+                  />
+                )}
+              </div>
             );
           })}
           <Group title="Functions" items={functions.map((f) => ({ name: f }))} searching={query.length > 0} />
           <Group title="Sequences" items={sequences.map((s) => ({ name: s }))} searching={query.length > 0} />
           <Group title="Enums" items={enums.map((e) => ({ name: e.name, detail: e.values.join(", ") }))} searching={query.length > 0} />
         </>
+      )}
+      {confirming && (
+        <ConfirmByName
+          session={props.session}
+          table={confirming.table}
+          kind={confirming.kind}
+          action={confirming.action}
+          onClose={() => setConfirming(null)}
+          onDone={() => {
+            const { table, action } = confirming;
+            setConfirming(null);
+            const id = props.session.sessionId;
+            if (action === "drop") {
+              const { tabs, closeTab } = useWorkspace.getState();
+              for (const t of tabs) if (t.kind === "table" && t.table.schema === table.schema && t.table.name === table.name) closeTab(t.id);
+              void queries.invalidateQueries({ queryKey: ["schema", id] });
+            } else {
+              void queries.invalidateQueries({ queryKey: ["page", id, table.schema, table.name] });
+              void queries.invalidateQueries({ queryKey: ["structure", id, table.schema, table.name] });
+            }
+          }}
+        />
       )}
     </div>
   );

@@ -44,3 +44,16 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
     - The Queries page shows the saved queries, with History behind a switch on the page.
     - The empty workspace offers buttons.
     - The structure is written into docs/brand.md.
+- **M3.** **Dan:** "The m2 fixes work, lets do M3". Cancel with ⌘ and . together, and Analyze, both work in the app. The Queries page was committed as it stood before M3 began.
+- **M3 check, the keychain.** **Dan:** "Ok im stuck in the key access i cant even access it". **Asked:** what he was stuck on. **Chose:** a Keychain password box.
+  - Cause: the connections list read every saved password just to show "Saved in your Keychain", and every rebuilt dev app is a new app to macOS, so it asked again each time.
+  - **Asked:** how to fix it at the root. **Chose:** ask only to connect. **Not chosen:** also signing dev builds with a self-signed certificate; leaving it.
+  - The list no longer reads the keychain. The password field says an untouched field keeps what is saved.
+- **Why the keychain at all.** **Dan:** "Why did you force me to store shit in the keychan in the first place". It came from the plan, following the secrets rule in `architecture-invariants.md`, and was never asked on its own.
+  - **Asked:** where passwords should live. **Dan:** "Idk it should work like other apps ask to save password or input each time save where key is or something man save on keychan as a toggle option". Then: "Idk how windows works on this too".
+  - **Built:** a Save password switch on each connection, on for new ones and for those saved before. When off, nothing is saved and a sheet asks for the password on each connect. Switching databases reuses the open session's password. On Windows the same switch uses Credential Manager, which never prompts.
+- **Passwords, again.** **Dan:** "Ok it just feelsl ike too much friction yk it should be once for app unlock and i dont like theres two layers of keychain and once its flipped back off its always deleted idk help me out man". Then, on how to stop saving: "Lets follow FileZilla how they store shit or TablePlus or other stuff how do they do it idk man maybe youre right lets figure this shit out".
+  - Looked up: TablePlus has a menu on the password (Store in keychain, Ask every time). FileZilla's Ask for password remembers it for the session. DataGrip offers Forever, Until restart and Never.
+  - **Asked:** build it that way. **Chose:** build it.
+  - **Built:** a menu beside Password, Save in Keychain or Ask each time, which also covers the SSH password. All saved passwords share one keychain entry, read once per launch. Typed passwords are remembered until the app quits. Nothing is removed until the form is saved, and the field says so first. The Save password switch is gone.
+- **M3, after using the app.** **Dan:** "Ok its good though, lets move on commit and get live". M3 committed.

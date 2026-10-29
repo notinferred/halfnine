@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, FileCode, Plus, ScrollText, Search, Table2, X } from "lucide-react";
+import { Activity, FileCode, Plus, ScrollText, Search, Table2, TableProperties, X } from "lucide-react";
 import { commands, type SessionInfo } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
-import { type Tab, useWorkspace } from "../../state.ts";
+import { hasStaged, type Tab, useWorkspace } from "../../state.ts";
 import { Glyph } from "../../ui/glyph.tsx";
 import { Keys } from "../../ui/keys.tsx";
 import { modCap, modKey, useShortcuts } from "../../ui/shortcuts.ts";
@@ -10,6 +10,8 @@ import { Palette } from "../palette/palette.tsx";
 import { QueriesPage } from "../queries/queries-page.tsx";
 import { QueryTab } from "../query/query-tab.tsx";
 import { SessionsTab } from "../sessions/sessions-tab.tsx";
+import { StagedMark } from "../table/changes-bar.tsx";
+import { NewTable } from "../table/new-table.tsx";
 import { TableTab } from "../table/table-tab.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import "./workspace.css";
@@ -17,29 +19,32 @@ import "./workspace.css";
 function title(tab: Tab) {
   if (tab.kind === "table") return tab.table.name;
   if (tab.kind === "query") return tab.title;
+  if (tab.kind === "newTable") return tab.name.trim() || "New table";
   return tab.kind === "queries" ? "Queries" : "Sessions";
 }
 
-const TAB_ICON = { table: Table2, query: FileCode, queries: ScrollText, sessions: Activity };
+const TAB_ICON = { table: Table2, newTable: TableProperties, query: FileCode, queries: ScrollText, sessions: Activity };
 
 export function Workspace({ session }: { session: SessionInfo }) {
   const queries = useQueryClient();
-  const { tabs, active, paletteOpen, setPaletteOpen, activate, closeTab, newQuery, enter, leave } = useWorkspace();
+  const { tabs, active, paletteOpen, setPaletteOpen, activate, closeTab, newQuery, enter, leave, holdStaged } = useWorkspace();
   const schema = useQuery({ queryKey: ["schema", session.sessionId], queryFn: () => commands.schema(session.sessionId) });
 
   // Every query for this session has the session id second in its key, so one predicate refreshes them all.
   const ofSession = { predicate: (q: { queryKey: readonly unknown[] }) => q.queryKey[1] === session.sessionId };
   const refresh = () => void queries.invalidateQueries(ofSession);
 
+  // Leaving the connection would lose staged changes, so a tab holding some is shown instead.
   const disconnect = async () => {
+    if (holdStaged()) return;
     await commands.closeSession(session.sessionId).catch(() => undefined);
     queries.removeQueries(ofSession);
     leave();
   };
 
   const switchDatabase = async (database: string) => {
-    const next = await commands.openSession(session.connection.id, database);
-    await commands.closeSession(session.sessionId).catch(() => undefined);
+    if (holdStaged()) throw new Error("Commit or discard the staged changes before switching databases.");
+    const next = await commands.switchDatabase(session.sessionId, database);
     queries.removeQueries(ofSession);
     enter(next);
   };
@@ -67,6 +72,7 @@ export function Workspace({ session }: { session: SessionInfo }) {
                     <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
                     <span>{title(tab)}</span>
                     {tab.kind === "table" && tab.filter && <span className="tab-filtered">filtered</span>}
+                    {hasStaged(tab) && <StagedMark />}
                   </button>
                   <button type="button" className="tab-close" aria-label={`Close ${title(tab)}`} onClick={() => closeTab(tab.id)}>
                     <X size={12} strokeWidth={1.5} aria-hidden="true" />
@@ -85,6 +91,7 @@ export function Workspace({ session }: { session: SessionInfo }) {
           </button>
         </div>
         {activeTab?.kind === "table" && <TableTab key={activeTab.id} session={session} tab={activeTab} />}
+        {activeTab?.kind === "newTable" && <NewTable key={activeTab.id} session={session} tab={activeTab} />}
         {activeTab?.kind === "query" && <QueryTab key={activeTab.id} session={session} tab={activeTab} />}
         {activeTab?.kind === "queries" && <QueriesPage key={activeTab.id} session={session} />}
         {activeTab?.kind === "sessions" && <SessionsTab key={activeTab.id} session={session} />}

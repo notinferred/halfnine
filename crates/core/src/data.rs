@@ -62,6 +62,7 @@ pub struct EnumType {
 #[derive(Clone, Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Structure {
+    pub kind: RelationKind,
     pub columns: Vec<ColumnInfo>,
     pub primary_key: Vec<String>,
     pub indexes: Vec<Index>,
@@ -82,6 +83,8 @@ pub struct ColumnInfo {
     pub nullable: bool,
     /// The default expression, or how an identity or generated column is filled.
     pub default: Option<String>,
+    /// Postgres always fills it itself, as for a generated column or one generated always as identity, so it can't be written.
+    pub generated: bool,
     pub comment: Option<String>,
 }
 

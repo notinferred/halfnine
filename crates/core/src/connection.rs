@@ -5,7 +5,7 @@ use url::Url;
 
 use crate::error::{Error, ErrorKind};
 
-/// A saved connection, without its secrets: passwords live only in the OS keychain.
+/// A saved connection, without its secrets: a password is saved only in the OS keychain, or not at all.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionSpec {
@@ -20,6 +20,14 @@ pub struct ConnectionSpec {
     /// The server refuses writes: every session starts with `default_transaction_read_only = on`.
     pub read_only: bool,
     pub ssh: Option<SshSpec>,
+    /// Its passwords are saved in the OS keychain. When not, they are typed each time it connects. Connections saved
+    /// before this choice existed had theirs saved.
+    #[serde(default = "saved_before_the_choice")]
+    pub save_password: bool,
+}
+
+fn saved_before_the_choice() -> bool {
+    true
 }
 
 /// The same choices as libpq's `sslmode`, named the same way.

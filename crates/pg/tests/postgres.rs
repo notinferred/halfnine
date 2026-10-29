@@ -2,7 +2,8 @@
 //! without that variable these tests report that they were skipped and pass, so a laptop never needs a database.
 
 use tu_core::{
-    Cell, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, PageRequest, RelationKind, RowSink, Sort, TableRef, TlsMode,
+    ByteSource, Cell, CellChange, Changes, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, NewColumn, PageRequest,
+    RelationKind, RowSink, RowUpdate, Sort, StructureChange, TableRef, TlsMode,
 };
 use tu_pg::{PgDatabase, Secrets};
 
@@ -23,6 +24,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
         label: Label::None,
         read_only,
         ssh: None,
+        save_password: false,
     };
     let secrets = Secrets {
         password: parts.password,
@@ -422,4 +424,241 @@ async fn lists_sessions_and_stops_them_only_when_allowed() {
 
     let Some(read_only) = connect(true).await else { return };
     assert_eq!(read_only.stop(999_999, true).await.unwrap_err().kind, ErrorKind::ReadOnly);
+}
+
+fn value(column: &str, value: Option<&str>) -> ColumnValue {
+    ColumnValue {
+        column: column.into(),
+        value: value.map(str::to_string),
+    }
+}
+
+fn new_column(name: &str, type_name: &str, default: Option<&str>, key: bool) -> NewColumn {
+    NewColumn {
+        name: name.into(),
+        type_name: type_name.into(),
+        nullable: !key,
+        default: default.map(str::to_string),
+        key,
+    }
+}
+
+fn structure(table: &TableRef, changes: Vec<StructureChange>) -> Changes {
+    Changes::Structure {
+        table: table.clone(),
+        changes,
+    }
+}
+
+/// A table of the test's own, so tests that write never touch what other tests read.
+async fn scratch(db: &PgDatabase, name: &str) -> TableRef {
+    let scratch = table(name);
+    let _ = db.commit(&structure(&scratch, vec![StructureChange::Drop])).await;
+    let columns = vec![
+        new_column("id", "bigint", Some("generated always as identity"), true),
+        new_column("body", "text", None, false),
+        new_column("n", "integer", None, false),
+    ];
+    db.commit(&structure(&scratch, vec![StructureChange::CreateTable { columns }]))
+        .await
+        .unwrap();
+    scratch
+}
+
+fn bodies(page: &tu_core::Page) -> Vec<Cell> {
+    page.rows.iter().map(|r| r[column(page, "body")].clone()).collect()
+}
+
+#[tokio::test]
+async fn commits_staged_rows_and_refuses_a_row_that_moved_on() {
+    let Some(db) = connect(false).await else { return };
+    let notes = scratch(&db, "scratch_rows").await;
+    let rows = |deletes: Vec<Vec<ColumnValue>>, updates: Vec<RowUpdate>, inserts: Vec<Vec<ColumnValue>>| Changes::Rows {
+        table: notes.clone(),
+        deletes,
+        updates,
+        inserts,
+    };
+    let page = || async { db.page(&request("scratch_rows", None, None, 0, 10)).await };
+
+    let insert = rows(
+        vec![],
+        vec![],
+        vec![
+            vec![value("body", Some("first"))],
+            vec![value("body", None)],
+            vec![value("body", Some(""))],
+        ],
+    );
+    assert_eq!(db.commit(&insert).await.unwrap().statements, 3);
+    assert_eq!(bodies(&page().await.unwrap()), [Some("first".into()), None, Some(String::new())]);
+
+    let update = |from: &str, to: &str| {
+        let cells = vec![CellChange {
+            column: "body".into(),
+            from: Some(from.into()),
+            to: Some(to.into()),
+        }];
+        rows(
+            vec![],
+            vec![RowUpdate {
+                key: vec![value("id", Some("1"))],
+                cells,
+            }],
+            vec![],
+        )
+    };
+    db.commit(&update("first", "second")).await.unwrap();
+    // Loaded as "first", but it says "second" now, as if another session had changed it.
+    assert_eq!(db.commit(&update("first", "third")).await.unwrap_err().kind, ErrorKind::Conflict);
+    assert_eq!(bodies(&page().await.unwrap())[0].as_deref(), Some("second"));
+
+    let failing = rows(vec![vec![value("id", Some("2"))]], vec![], vec![vec![value("n", Some("many"))]]);
+    let error = db.commit(&failing).await.unwrap_err();
+    assert_eq!(error.code.as_deref(), Some("22P02"));
+    assert!(error.message.starts_with("Adding new row 1 failed, so nothing was written"));
+    assert_eq!(page().await.unwrap().rows.len(), 3, "the delete before it was rolled back");
+
+    let twice = rows(vec![vec![value("id", Some("2"))], vec![value("id", Some("2"))]], vec![], vec![]);
+    assert_eq!(db.commit(&twice).await.unwrap_err().kind, ErrorKind::Conflict);
+    let generated = rows(vec![], vec![], vec![vec![value("id", Some("9"))]]);
+    assert_eq!(db.commit(&generated).await.unwrap_err().kind, ErrorKind::Invalid);
+
+    let Some(read_only) = connect(true).await else { return };
+    assert_eq!(read_only.commit(&update("second", "fifth")).await.unwrap_err().kind, ErrorKind::ReadOnly);
+    db.commit(&structure(&notes, vec![StructureChange::Drop])).await.unwrap();
+}
+
+#[tokio::test]
+async fn changes_structure_in_one_transaction() {
+    let Some(db) = connect(false).await else { return };
+    let t = scratch(&db, "scratch_structure").await;
+    let changes = vec![
+        StructureChange::CreateIndex {
+            columns: vec!["state".into()],
+            unique: false,
+        },
+        StructureChange::RenameColumn {
+            column: "body".into(),
+            to: "state".into(),
+        },
+        StructureChange::SetType {
+            column: "body".into(),
+            to: "varchar(20)".into(),
+        },
+        StructureChange::SetNullable {
+            column: "body".into(),
+            nullable: false,
+        },
+        StructureChange::SetDefault {
+            column: "body".into(),
+            to: Some("'open'".into()),
+        },
+        StructureChange::AddColumn {
+            column: new_column("made", "timestamptz", Some("now()"), false),
+        },
+    ];
+    assert_eq!(db.commit(&structure(&t, changes)).await.unwrap().statements, 6);
+    let s = db.structure(&t).await.unwrap();
+    let state = s.columns.iter().find(|c| c.name == "state").unwrap();
+    assert_eq!((state.type_name.as_str(), state.nullable), ("character varying(20)", false));
+    assert!(state.default.as_deref().is_some_and(|d| d.starts_with("'open'")));
+    assert!(s.columns[0].generated && !state.generated);
+    assert!(s.indexes.iter().any(|i| i.definition.ends_with("(state)")));
+
+    let broken = vec![
+        StructureChange::DropColumn { column: "made".into() },
+        StructureChange::SetType {
+            column: "state".into(),
+            to: "no_such_type".into(),
+        },
+    ];
+    let error = db.commit(&structure(&t, broken)).await.unwrap_err();
+    assert!(error.message.starts_with("Changing the type of state failed"));
+    assert!(
+        db.structure(&t).await.unwrap().columns.iter().any(|c| c.name == "made"),
+        "the drop before it was rolled back"
+    );
+
+    let smuggled = vec![StructureChange::SetDefault {
+        column: "state".into(),
+        to: Some("'x'; DROP TABLE tu_fixture.customers".into()),
+    }];
+    assert!(db.commit(&structure(&t, smuggled)).await.is_err());
+    assert!(db.structure(&table("customers")).await.is_ok());
+
+    db.commit(&structure(&t, vec![StructureChange::Truncate])).await.unwrap();
+    db.commit(&structure(&t, vec![StructureChange::Drop])).await.unwrap();
+    assert_eq!(db.structure(&t).await.unwrap_err().kind, ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn offers_foreign_key_values_by_value_or_label() {
+    let Some(db) = connect(false).await else { return };
+    let all = db.choices(&table("customers"), "id", "").await.unwrap();
+    assert_eq!(all.len(), 50);
+    assert_eq!((all[0].value.as_str(), all[0].label.as_deref()), ("1", Some("Customer 1")));
+    // Customer 4 and Customer 40 to 49.
+    assert_eq!(db.choices(&table("customers"), "id", "customer 4").await.unwrap().len(), 11);
+}
+
+/// A file arriving in pieces, split mid-row, as a real one read in chunks would.
+struct Pieces(Vec<Vec<u8>>);
+
+impl Pieces {
+    fn of(text: &str) -> Self {
+        let (a, b) = text.as_bytes().split_at(text.len() / 2);
+        Self(vec![a.to_vec(), b.to_vec()])
+    }
+}
+
+impl ByteSource for Pieces {
+    fn next(&mut self) -> Result<Option<Vec<u8>>, tu_core::Error> {
+        Ok(if self.0.is_empty() { None } else { Some(self.0.remove(0)) })
+    }
+}
+
+#[tokio::test]
+async fn imports_csv_in_one_transaction_keeping_null_apart_from_empty() {
+    let Some(db) = connect(false).await else { return };
+    let t = scratch(&db, "scratch_import").await;
+    let page = || async { db.page(&request("scratch_import", None, None, 0, 10)).await };
+    let columns = vec![None, Some("n".to_string()), Some("body".to_string())];
+    let file = "skipped,n,body\nx,1,first\nx,2,\nx,3,\"\"\n";
+    assert_eq!(db.import(&t, &columns, b',', &mut Pieces::of(file)).await.unwrap(), 3.0);
+    assert_eq!(bodies(&page().await.unwrap()), [Some("first".into()), None, Some(String::new())]);
+
+    let error = db
+        .import(&t, &[Some("n".into())], b',', &mut Pieces::of("n\n4\nfive\n"))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code.as_deref(), Some("22P02"));
+    assert_eq!(page().await.unwrap().rows.len(), 3, "the row before it was rolled back");
+
+    let Some(read_only) = connect(true).await else { return };
+    let refused = read_only.import(&t, &[Some("n".into())], b',', &mut Pieces::of("n\n4\n")).await;
+    assert_eq!(refused.unwrap_err().kind, ErrorKind::ReadOnly);
+    db.commit(&structure(&t, vec![StructureChange::Drop])).await.unwrap();
+}
+
+#[tokio::test]
+async fn shows_every_keyword_quoted_as_postgres_requires() {
+    let Some(db) = connect(false).await else { return };
+    let listed = db
+        .run(&statements(&["SELECT word FROM pg_get_keywords() WHERE catcode <> 'U' ORDER BY 1"]))
+        .await
+        .unwrap();
+    let words: Vec<String> = listed.results[0].rows.iter().filter_map(|r| r[0].clone()).collect();
+    assert!(words.len() > 100);
+    let renames = words
+        .iter()
+        .map(|w| StructureChange::RenameColumn {
+            column: "a".into(),
+            to: w.clone(),
+        })
+        .collect();
+    let shown = db.review(&structure(&table("customers"), renames)).await.unwrap();
+    for (word, line) in words.iter().zip(&shown) {
+        assert!(line.ends_with(&format!("TO \"{word}\";")), "{word} is shown bare");
+    }
 }

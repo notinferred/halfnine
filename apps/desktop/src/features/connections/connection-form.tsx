@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { type ConnectionDraft, commands, type Label, type SavedConnection, type SecretChange, type TlsMode } from "../../ipc/bindings.ts";
+import { type ConnectionDraft, type ConnectionSpec, commands, type Label, type SecretChange, type TlsMode, type Typed } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { isMac } from "../../ui/shortcuts.ts";
 
@@ -17,6 +17,7 @@ type Form = {
   readOnly: boolean;
   /** `null` until typed into, which keeps the secret already in the keychain. */
   password: string | null;
+  savePassword: boolean;
   ssh: boolean;
   sshHost: string;
   sshPort: string;
@@ -35,10 +36,9 @@ const LABELS: { value: Label; name: string }[] = [
   { value: "red", name: "Red label" },
 ];
 
-const KEYCHAIN = isMac ? "macOS Keychain" : "Windows Credential Manager";
+const SAVE_IN = isMac ? "Save in Keychain" : "Save in Credential Manager";
 
-function initial(saved: SavedConnection | null): Form {
-  const spec = saved?.spec;
+function initial(spec: ConnectionSpec | null): Form {
   return {
     name: spec?.name ?? "",
     url: "",
@@ -50,6 +50,7 @@ function initial(saved: SavedConnection | null): Form {
     label: spec?.label ?? "none",
     readOnly: spec?.readOnly ?? false,
     password: null,
+    savePassword: spec?.savePassword !== false,
     ssh: spec?.ssh != null,
     sshHost: spec?.ssh?.host ?? "",
     sshPort: String(spec?.ssh?.port ?? 22),
@@ -82,18 +83,21 @@ function draftOf(form: Form, id: string | null): ConnectionDraft {
           auth: form.sshMethod === "key" ? { method: "key", path: form.sshKeyPath } : { method: form.sshMethod },
         }
       : null,
+    savePassword: form.savePassword,
     password: secret(form.password),
-    sshSecret: form.ssh && form.sshMethod !== "agent" ? secret(form.sshSecret) : { action: "clear" },
+    // Turning SSH off leaves its saved secret alone, so saving the form needn't touch the keychain.
+    sshSecret: form.ssh && form.sshMethod !== "agent" ? secret(form.sshSecret) : { action: "keep" },
   };
 }
 
 export function ConnectionForm(props: {
-  saved: SavedConnection | null;
+  saved: ConnectionSpec | null;
   openError: string | null;
   opening: boolean;
   onSaved: (id: string) => Promise<void>;
   onDeleted: () => Promise<void>;
-  onOpen: (id: string) => Promise<void>;
+  /** Opens the connection, with passwords typed in the form when it asks for them each time. */
+  onOpen: (connection: ConnectionSpec, typed: Typed | null) => Promise<void>;
 }) {
   const { saved } = props;
   const [form, setForm] = useState(() => initial(saved));
@@ -103,7 +107,7 @@ export function ConnectionForm(props: {
   }, [props.openError]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
-  const id = saved?.spec.id ?? null;
+  const id = saved?.id ?? null;
   const busy = status.kind === "busy" || props.opening;
 
   const pasteUrl = async (url: string) => {
@@ -142,18 +146,20 @@ export function ConnectionForm(props: {
       setStatus({ kind: "ok", text: `Connected in ${Math.round(result.elapsedMs ?? 0)} ms · PostgreSQL ${result.serverVersion}` });
     });
 
-  const save = async () => {
-    const savedNow = await commands.saveConnection(draftOf(form, id));
-    return savedNow.spec.id;
-  };
+  const save = () => commands.saveConnection(draftOf(form, id));
+  const needsSshSecret = form.ssh && form.sshMethod !== "agent";
 
   const connect = (event: FormEvent) => {
     event.preventDefault();
     void run("Connecting…", async () => {
       // Saved and listed first, so a connection that fails to open is still there to fix.
-      const savedId = await save();
-      await props.onSaved(savedId);
-      await props.onOpen(savedId);
+      const spec = await save();
+      await props.onSaved(spec.id);
+      const typed =
+        !form.savePassword && form.password !== null ? { password: form.password, sshSecret: needsSshSecret ? form.sshSecret : null } : null;
+      await props.onOpen(spec, typed);
+      // Still here when the password has to be asked for first.
+      setStatus({ kind: "idle" });
     });
   };
 
@@ -163,17 +169,27 @@ export function ConnectionForm(props: {
       await props.onDeleted();
     });
 
-  const passwordHint = saved?.hasPassword && form.password === null ? `Saved in your ${KEYCHAIN}` : "Optional";
-  const sshSecretHint = saved?.hasSshSecret && form.sshSecret === null ? `Saved in your ${KEYCHAIN}` : "Optional";
+  // The keychain isn't read to fill these in: an untouched field keeps whatever is saved.
+  const wasSaving = saved !== null && saved.savePassword !== false;
+  const hint = (value: string | null) =>
+    !form.savePassword
+      ? wasSaving
+        ? "Removed from the Keychain when you save"
+        : "Asked each time you connect"
+      : wasSaving && value === null
+        ? "Unchanged unless you type a new one"
+        : saved
+          ? "Type it to save it"
+          : "Optional";
 
   return (
     <form className="connection-form" onSubmit={connect}>
       <header className="connection-form-header">
         <div className="connection-form-title">
           <span className="dot" data-label={form.label} aria-hidden="true" />
-          <h1>{form.name || saved?.spec.name || "New connection"}</h1>
+          <h1>{form.name || saved?.name || "New connection"}</h1>
         </div>
-        <p className="muted">{saved ? `PostgreSQL · ${saved.spec.host} · ${saved.spec.database}` : "Paste a URL or fill in the fields."}</p>
+        <p className="muted">{saved ? `PostgreSQL · ${saved.host} · ${saved.database}` : "Paste a URL or fill in the fields."}</p>
       </header>
 
       <div className="field-stack">
@@ -210,14 +226,23 @@ export function ConnectionForm(props: {
         <Row label="User" htmlFor="connection-user">
           <input id="connection-user" placeholder="postgres" spellCheck={false} value={form.user} onChange={(e) => set("user", e.target.value)} />
         </Row>
-        <Row label="Password" htmlFor="connection-password">
+        <Row label="Password" htmlFor="connection-password" className="row-password">
           <input
             id="connection-password"
             type="password"
-            placeholder={passwordHint}
+            placeholder={hint(form.password)}
             value={form.password ?? ""}
             onChange={(e) => set("password", e.target.value)}
           />
+          <select
+            aria-label="Where the passwords are kept"
+            title="Applies to the SSH password too"
+            value={form.savePassword ? "save" : "ask"}
+            onChange={(e) => set("savePassword", e.target.value === "save")}
+          >
+            <option value="save">{SAVE_IN}</option>
+            <option value="ask">Ask each time</option>
+          </select>
         </Row>
         <Row label="Database" htmlFor="connection-database">
           <input
@@ -237,7 +262,6 @@ export function ConnectionForm(props: {
           </select>
         </Row>
       </div>
-      <p className="field-note group-note">The password is kept in your {KEYCHAIN}, never in TableUltra’s files.</p>
 
       <div className="group">
         <div className="row row-switch">
@@ -281,7 +305,7 @@ export function ConnectionForm(props: {
                 <input
                   id="ssh-secret"
                   type="password"
-                  placeholder={sshSecretHint}
+                  placeholder={hint(form.sshSecret)}
                   value={form.sshSecret ?? ""}
                   onChange={(e) => set("sshSecret", e.target.value)}
                 />
@@ -336,7 +360,7 @@ export function ConnectionForm(props: {
                 Keep
               </button>
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void remove()}>
-                Delete {saved.spec.name}
+                Delete {saved.name}
               </button>
             </>
           ) : (
@@ -353,7 +377,7 @@ export function ConnectionForm(props: {
           disabled={busy}
           onClick={() =>
             void run("Saving…", async () => {
-              await props.onSaved(await save());
+              await props.onSaved((await save()).id);
             })
           }
         >
@@ -367,9 +391,9 @@ export function ConnectionForm(props: {
   );
 }
 
-function Row(props: { label: string; htmlFor: string; children: ReactNode }) {
+function Row(props: { label: string; htmlFor: string; className?: string; children: ReactNode }) {
   return (
-    <div className="row">
+    <div className={props.className ? `row ${props.className}` : "row"}>
       <label htmlFor={props.htmlFor} className="row-label">
         {props.label}
       </label>

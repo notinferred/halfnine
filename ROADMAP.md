@@ -2,21 +2,10 @@
 
 ## Where things stand (2026-10-28)
 
-M0 and M1 are done, and M2 is built:
+M0 to M3 are done. M4, the first release, is next.
 
-- All 35 Rust tests passed against Postgres 18.6 loaded with the test fixture, run on Dan's Mac at his request.
-- They found one bug: sqlx's `is_in_transaction()` counts only transactions sqlx opened itself. The editor now asks Postgres.
-- Dan used M2 and found two problems:
-  - The cancel shortcut was misread, because "⌘." looked like "⌘" followed by a full stop.
-  - Analyze failed, because a selection was clipped to a fragment.
-
-  Both are fixed. Dan hasn't yet reported a re-check of either.
-- The way into a new query, and the history of what ran, are now visible in the window, not only in ⌘K:
-  - A footer of pages in the sidebar: Queries and Sessions.
-  - The Queries page: saved queries, with History behind a switch.
-  - Buttons in the empty workspace.
-
-  The structure is in docs/brand.md. Dan hasn't seen it yet.
+- All 50 Rust tests passed against Postgres 18 loaded with the test fixture, run on Dan's Mac at his request. 23 of them run against the database, 10 of those new in M3.
+- Dan used M3 and found the Keychain prompts too much. Passwords now work as in TablePlus: Save in Keychain or Ask each time, with at most one macOS prompt per launch.
 - The repository isn't on GitHub yet, so CI hasn't run.
 
 The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes TableUltra the database tool AI agents use, and adds local Docker databases.
@@ -105,19 +94,24 @@ Dan used the app against the throwaway check database:
 
 ## M3: Edit
 
-- Staged edits, reviewed as SQL before they run.
-- One transaction per commit, with conflicts detected.
-- Insert, delete and filters.
-- **Key-aware editing:** setting a foreign-key cell picks a row from the referenced table, with search.
-- **Editors for big values:** JSON and JSONB, and multi-line text.
-- **CSV import** into a table: map the columns, preview, then import in one transaction.
-- **Structure editing:** create a table, add, change or drop columns, and add indexes. All of it goes through Review SQL.
-- **Truncate and drop** from the sidebar, after typing the table's name to confirm.
+- [x] **Staged edits.** Cells edit in place (Enter, a double-click, or typing). Staged cells take the accent, as in the mockup, and a bar at the foot counts them, with Review SQL, Discard and Commit (⌘S). Tabs and the Data and Structure switch show a dot while something is staged. A tab with staged changes, or a connection left with some, is held open until they are committed or discarded.
+- [x] **NULL kept apart from empty** (RevoGrid's last spike criterion). Delete or Backspace sets the selected cells to NULL. An edit that leaves an empty cell empty changes nothing, so NULL never becomes empty text by accident. The row panel shows NULL in its empty fields and sets it with Set NULL.
+- [x] **One transaction per commit, with conflicts detected.** Each update is keyed by primary key and checks that the edited cells still print as they did when loaded. A row that changed or vanished rolls back everything and is named in the error.
+- [x] **Insert and delete.** + adds a new row above the others, whose empty cells take their defaults. ⌘⌫ deletes the selected rows, shown struck through until the commit. The row panel deletes and keeps rows too.
+- [x] **Key-aware editing:** editing a single-column foreign key opens a picker of the referenced rows, searched by key or by their first text column.
+- [x] **Editors for big values:** JSON, JSONB, XML, multi-line text and values over 200 characters open in the row panel, which edits each value whole. JSON is checked as you type.
+- [x] **CSV import**, from the Copy and export menu: each column of the file goes into a chosen column (matched by name to start with), with its first values shown. Postgres's own CSV reader tells NULL (an empty field) from empty text (`""`). Every row goes in, or none does.
+- [x] **Structure editing:** the Structure view edits columns (name, type, null, default), adds and drops columns and indexes, and commits through Review SQL in one transaction. **New table** comes from the + beside a schema in the sidebar, or from the palette, and starts with an identity key.
+- [x] **Truncate and drop** from a table's ⋯ menu in the sidebar, after typing its name. The statement is shown first.
+- [x] **Commits go into History**, as the statements that ran.
+- [x] **Passwords, after Dan's M3 check:** a menu beside Password, Save in Keychain or Ask each time, as in TablePlus. Saved passwords share one Keychain entry, read at most once per launch. Typed ones are remembered until the app quits. Nothing is removed until the form is saved.
+- [x] **The M3 check (2026-10-28):** all 50 tests passed against the check database, and Dan used it: "Ok its good though".
 
 ## M4: v0.1
 
 - `release.yml` builds an unsigned `.dmg` (Apple silicon) and a per-user `-setup.exe` (x64) into a draft GitHub Release whenever a version tag is pushed.
 - The final icon and the README's install steps.
+- **Keychain prompts after an update.** An unsigned release is a new app to macOS, so after each update macOS asks once before TableUltra reads a saved password. The README says to choose Always Allow. Signing (under Next) ends it.
 - **Measured budgets:** an installer under 15 MB, a window ready in under 1 second, and idle memory recorded on both systems.
 
 ## M5: The database tool for AI agents, and local Docker databases

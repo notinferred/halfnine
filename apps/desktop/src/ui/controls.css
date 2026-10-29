@@ -241,3 +241,95 @@
   background: transparent;
   color: inherit;
 }
+
+/* Marks something holding staged changes: a tab, a view, the changes bar. */
+.changes-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+.btn-danger-strong {
+  border-color: var(--line-strong);
+  background: var(--field);
+  font-weight: 500;
+}
+
+/* A dialog over the window: a typed confirmation, or an import. */
+.sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: var(--scrim);
+}
+
+.sheet {
+  position: absolute;
+  top: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100% - 128px);
+  overflow: auto;
+  padding: var(--space-4) 20px;
+  border-radius: 12px;
+  background: var(--field);
+  box-shadow: var(--shadow-overlay);
+  font-size: var(--text-sm);
+}
+
+.sheet-wide {
+  width: min(680px, calc(100% - 32px));
+}
+
+.sheet h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.sheet p {
+  margin: 0;
+}
+
+.sheet-label {
+  margin-bottom: calc(var(--space-2) * -1);
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* A choice that is on or off, shown as a small rounded label. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  background: var(--field);
+  font-size: var(--text-sm);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--selection);
+}

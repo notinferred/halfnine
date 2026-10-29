@@ -39,6 +39,8 @@ The whole window follows one layout, so a new feature finds its place rather tha
 - **What you open becomes a tab:** a table, a query or a page. ⌘K reaches any of them by name.
 - **An empty area offers its next step as a button,** never as instructions to read.
 - **Shortcuts are shown as keycaps,** one per key, so ⌘ and . can't read as ⌘ followed by a full stop.
+- **A change is staged before it is written.** Staged cells and columns take the accent colour on a faint accent ground. A bar at the foot of the view counts them and offers Review SQL, Discard and Commit.
+- **What can't be undone asks for the name.** Truncate and drop show the statement and wait for the table's name to be typed.
 
 ## Icon
 

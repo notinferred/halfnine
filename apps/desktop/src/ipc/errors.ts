@@ -10,6 +10,11 @@ export function describe(error: unknown): string {
   return String(error);
 }
 
+/** The connection asks for its password each time, and it hasn't been typed yet this launch. */
+export function needsPassword(error: unknown): boolean {
+  return isAppError(error) && error.kind === "passwordNeeded";
+}
+
 /** Network trouble and timeouts may pass; everything else needs someone to change something first. */
 export function isTransient(error: unknown): boolean {
   return isAppError(error) && (error.kind === "network" || error.kind === "timeout");

@@ -6,12 +6,22 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	listConnections: () => __TAURI_INVOKE<SavedConnection[]>("list_connections"),
-	saveConnection: (draft: ConnectionDraft) => __TAURI_INVOKE<SavedConnection>("save_connection", { draft }),
+	/**
+	 *  The saved connections. Their secrets stay in the keychain, which is read only to connect: macOS asks before an app
+	 *  that didn't save a secret reads it, and to macOS every new build is a different app.
+	 */
+	listConnections: () => __TAURI_INVOKE<ConnectionSpec[]>("list_connections"),
+	saveConnection: (draft: ConnectionDraft) => __TAURI_INVOKE<ConnectionSpec>("save_connection", { draft }),
 	deleteConnection: (id: string) => __TAURI_INVOKE<null>("delete_connection", { id }),
 	testConnection: (draft: ConnectionDraft) => __TAURI_INVOKE<TestResult>("test_connection", { draft }),
 	parseConnectionUrl: (url: string) => __TAURI_INVOKE<UrlParts>("parse_connection_url", { url }),
-	openSession: (connectionId: string, database: string | null) => __TAURI_INVOKE<SessionInfo>("open_session", { connectionId, database }),
+	/**  Opens a connection with what was just typed, or else with what is saved for it, or typed earlier this launch. */
+	openSession: (connectionId: string, database: string | null, typed: {
+	password: string | null,
+	sshSecret: string | null,
+} | null) => __TAURI_INVOKE<SessionInfo>("open_session", { connectionId, database, typed }),
+	/**  Opens the same connection on another database, with the secrets it already holds, then closes the old session. */
+	switchDatabase: (sessionId: string, database: string) => __TAURI_INVOKE<SessionInfo>("switch_database", { sessionId, database }),
 	closeSession: (sessionId: string) => __TAURI_INVOKE<null>("close_session", { sessionId }),
 	schema: (sessionId: string) => __TAURI_INVOKE<SchemaNode[]>("schema", { sessionId }),
 	structure: (sessionId: string, table: TableRef) => __TAURI_INVOKE<Structure>("structure", { sessionId, table }),
@@ -32,6 +42,25 @@ export const commands = {
 } | null>("export", { sessionId, source, format, name }),
 	activity: (sessionId: string) => __TAURI_INVOKE<Activity[]>("activity", { sessionId }),
 	stopSession: (sessionId: string, pid: number, terminate: boolean) => __TAURI_INVOKE<boolean>("stop_session", { sessionId, pid, terminate }),
+	/**  The SQL that staged changes would run, to read before committing them. */
+	reviewChanges: (sessionId: string, changes: Changes) => __TAURI_INVOKE<string[]>("review_changes", { sessionId, changes }),
+	/**  Commits staged changes in one transaction, and adds what ran to the history. */
+	commitChanges: (sessionId: string, changes: Changes) => __TAURI_INVOKE<Committed>("commit_changes", { sessionId, changes }),
+	/**  Values to pick for a foreign key that points at `column` of `table`. */
+	choices: (sessionId: string, table: TableRef, column: string, search: string) => __TAURI_INVOKE<Choice[]>("choices", { sessionId, table, column, search }),
+	/**  Asks which CSV file to import and previews its first rows. `None` when the dialog was dismissed. */
+	chooseImport: () => __TAURI_INVOKE<{
+	token: string,
+	file: string,
+	/**  The names on the file's first line. */
+	columns: string[],
+	rows: string[][],
+} | null>("choose_import"),
+	/**
+	 *  Adds every row of the chosen file to `table` in one transaction. `columns` holds, for each of the file's columns,
+	 *  the table column it goes into, or `None` to skip it.
+	 */
+	importCsv: (sessionId: string, table: TableRef, token: string, columns: (string | null)[]) => __TAURI_INVOKE<number | null>("import_csv", { sessionId, table, token, columns }),
 	listHistory: () => __TAURI_INVOKE<HistoryEntry[]>("list_history"),
 	listSavedQueries: () => __TAURI_INVOKE<SavedQuery[]>("list_saved_queries"),
 	saveQuery: (id: string | null, name: string, sql: string) => __TAURI_INVOKE<SavedQuery>("save_query", { id, name, sql }),
@@ -53,6 +82,28 @@ export type Activity = {
 	query: string,
 };
 
+export type CellChange = {
+	column: string,
+	/**  The value as it was loaded. If the row holds something else by the time of the commit, nothing is written. */
+	from: string | null,
+	to: string | null,
+};
+
+/**  Changes someone staged in the app. They are shown as SQL first, then committed together in one transaction. */
+export type Changes = 
+/**  Rows to delete, change and add, in that order. Rows are named by their primary key. */
+{ kind: "rows"; table: TableRef; deletes: ColumnValue[][]; updates: RowUpdate[]; 
+/**  Each new row's values. A column left out takes its default. */
+inserts: ColumnValue[][] } | 
+/**  Changes to a table's structure, or a new table. */
+{ kind: "structure"; table: TableRef; changes: StructureChange[] };
+
+/**  A value to pick for a foreign key: the key itself, and a column of the same row to recognise it by. */
+export type Choice = {
+	value: string,
+	label: string | null,
+};
+
 export type ColumnInfo = {
 	name: string,
 	/**  The type as Postgres writes it, such as `numeric(12,2)` or `timestamp with time zone`. */
@@ -60,12 +111,19 @@ export type ColumnInfo = {
 	nullable: boolean,
 	/**  The default expression, or how an identity or generated column is filled. */
 	default: string | null,
+	/**  Postgres always fills it itself, as for a generated column or one generated always as identity, so it can't be written. */
+	generated: boolean,
 	comment: string | null,
 };
 
 export type ColumnValue = {
 	column: string,
 	value: string | null,
+};
+
+export type Committed = {
+	statements: number,
+	elapsedMs: number,
 };
 
 /**  A connection as the form holds it: without an id until it is first saved, and with what to do about each secret. */
@@ -80,11 +138,12 @@ export type ConnectionDraft = {
 	label: Label,
 	readOnly: boolean,
 	ssh: SshSpec | null,
+	savePassword: boolean,
 	password: SecretChange,
 	sshSecret: SecretChange,
 };
 
-/**  A saved connection, without its secrets: passwords live only in the OS keychain. */
+/**  A saved connection, without its secrets: a password is saved only in the OS keychain, or not at all. */
 export type ConnectionSpec = {
 	id: string,
 	name: string,
@@ -97,6 +156,11 @@ export type ConnectionSpec = {
 	/**  The server refuses writes: every session starts with `default_transaction_read_only = on`. */
 	readOnly: boolean,
 	ssh: SshSpec | null,
+	/**
+	 *  Its passwords are saved in the OS keychain. When not, they are typed each time it connects. Connections saved
+	 *  before this choice existed had theirs saved.
+	 */
+	savePassword?: boolean,
 };
 
 export type Constraint = {
@@ -122,7 +186,11 @@ export type Error = {
 };
 
 /**  Transient kinds (`Network`, `Timeout`) are worth retrying; the rest need someone to change something first. */
-export type ErrorKind = "network" | "timeout" | "auth" | "tls" | "ssh" | "query" | "readOnly" | "notFound" | "invalid" | "storage" | "keychain";
+export type ErrorKind = "network" | "timeout" | "auth" | 
+/**  The connection asks for its password each time, and none has been typed this launch. */
+"passwordNeeded" | "tls" | "ssh" | "query" | "readOnly" | 
+/**  A row changed after it was loaded, so a commit wrote nothing. */
+"conflict" | "notFound" | "invalid" | "storage" | "keychain";
 
 export type ExportDone = {
 	rows: number | null,
@@ -159,6 +227,14 @@ export type HistoryEntry = {
 	ok: boolean,
 };
 
+export type ImportPreview = {
+	token: string,
+	file: string,
+	/**  The names on the file's first line. */
+	columns: string[],
+	rows: string[][],
+};
+
 /**  A foreign key elsewhere: `source_columns` in `source` point at `columns` here. */
 export type IncomingKey = {
 	name: string,
@@ -176,6 +252,16 @@ export type Index = {
 
 /**  The colour that marks an environment, so production always looks different. */
 export type Label = "none" | "green" | "amber" | "red";
+
+export type NewColumn = {
+	name: string,
+	typeName: string,
+	nullable: boolean,
+	/**  A default expression, or how Postgres fills the column, such as `generated always as identity`. */
+	default: string | null,
+	/**  Part of the new table's primary key. */
+	key: boolean,
+};
 
 export type Page = {
 	columns: PageColumn[],
@@ -210,6 +296,12 @@ export type Relation = {
 
 export type RelationKind = "table" | "partitionedTable" | "view" | "materializedView" | "foreignTable";
 
+export type RowUpdate = {
+	/**  The row's primary key, as it was loaded. */
+	key: ColumnValue[],
+	cells: CellChange[],
+};
+
 export type RunFailure = {
 	/**  Which statement of the run failed, counting from 0. */
 	statement: number,
@@ -223,13 +315,6 @@ export type RunOutcome = {
 	/**  The editor's connection is left inside a transaction that someone has yet to commit or roll back. */
 	inTransaction: boolean,
 	elapsedMs: number,
-};
-
-/**  A saved connection, and whether the keychain holds its secrets. The secrets themselves never leave Rust. */
-export type SavedConnection = {
-	spec: ConnectionSpec,
-	hasPassword: boolean,
-	hasSshSecret: boolean,
 };
 
 export type SavedQuery = {
@@ -291,6 +376,7 @@ export type StatementResult = {
 };
 
 export type Structure = {
+	kind: RelationKind,
 	columns: ColumnInfo[],
 	primaryKey: string[],
 	indexes: Index[],
@@ -301,6 +387,9 @@ export type Structure = {
 	referencedBy: IncomingKey[],
 	estimatedRows: number | null,
 };
+
+/**  One change to a table's structure. Types and defaults are SQL someone typed, as Postgres would read them. */
+export type StructureChange = { kind: "createTable"; columns: NewColumn[] } | { kind: "addColumn"; column: NewColumn } | { kind: "renameColumn"; column: string; to: string } | { kind: "setType"; column: string; to: string } | { kind: "setNullable"; column: string; nullable: boolean } | { kind: "setDefault"; column: string; to: string | null } | { kind: "dropColumn"; column: string } | { kind: "createIndex"; columns: string[]; unique: boolean } | { kind: "dropIndex"; name: string } | { kind: "truncate" } | { kind: "drop" };
 
 export type TableRef = {
 	schema: string,
@@ -314,6 +403,12 @@ export type TestResult = {
 
 /**  The same choices as libpq's `sslmode`, named the same way. */
 export type TlsMode = "disable" | "prefer" | "require" | "verify-full";
+
+/**  Secrets typed to connect once, for a connection that doesn't save its own. */
+export type Typed = {
+	password: string | null,
+	sshSecret: string | null,
+};
 
 /**  What a pasted `postgres://` URL says, ready to fill in a connection form. */
 export type UrlParts = {

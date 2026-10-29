@@ -5,6 +5,7 @@ mod bindings;
 mod commands;
 mod export;
 mod files;
+mod import;
 mod queries;
 mod secrets;
 mod sessions;
@@ -16,6 +17,8 @@ pub struct AppState {
     pub store: store::Store,
     pub queries: queries::Queries,
     pub sessions: sessions::Sessions,
+    pub imports: import::Imports,
+    pub passwords: secrets::Passwords,
 }
 
 fn main() {
@@ -42,6 +45,8 @@ fn main() {
                 store: store::Store::open(dir.clone())?,
                 queries: queries::Queries::open(dir)?,
                 sessions: sessions::Sessions::default(),
+                imports: import::Imports::default(),
+                passwords: secrets::Passwords::default(),
             });
             Ok(())
         })

@@ -16,12 +16,14 @@ pub(crate) fn table(t: &TableRef) -> String {
     format!("{}.{}", ident(&t.schema), ident(&t.name))
 }
 
-/// A column as the catalog describes it: its name, its type as Postgres writes it, and its place in the primary key.
+/// A column as the catalog describes it: its name, its type as Postgres writes it, its place in the primary key, and
+/// whether Postgres always fills it itself.
 #[derive(Clone, Debug)]
 pub(crate) struct ColumnMeta {
     pub name: String,
     pub type_name: String,
     pub key_position: Option<i32>,
+    pub generated: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -136,11 +138,101 @@ fn order(sort: Option<&Sort>, columns: &[ColumnMeta]) -> Result<String, Error> {
     })
 }
 
-fn find<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta, Error> {
+pub(crate) fn find<'a>(columns: &'a [ColumnMeta], name: &str) -> Result<&'a ColumnMeta, Error> {
     columns
         .iter()
         .find(|c| c.name == name)
         .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("There is no column named {name}.")))
+}
+
+/// The most values the foreign-key picker shows at once; typing narrows them.
+pub(crate) const CHOICES: u32 = 50;
+
+/// Values of `column` to pick from, each beside the row's first text column, matching `search` in either.
+pub(crate) fn choices(table_ref: &TableRef, column: &str, search: &str, columns: &[ColumnMeta]) -> Result<Built, Error> {
+    let key = ident(&find(columns, column)?.name);
+    let label = columns
+        .iter()
+        .find(|c| c.name != column && ["text", "character", "citext", "name"].iter().any(|t| c.type_name.starts_with(t)))
+        .map(|c| ident(&c.name));
+    let mut sql = format!(
+        "SELECT {key}::text, {} FROM {} WHERE {key} IS NOT NULL",
+        label.as_ref().map_or("NULL::text".to_string(), |l| format!("left({l}::text, 200)")),
+        table(table_ref)
+    );
+    let mut params = Vec::new();
+    let search = search.trim();
+    if !search.is_empty() {
+        let escaped = search.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        params.push(Some(format!("%{escaped}%")));
+        sql.push_str(&format!(" AND ({key}::text ILIKE $1"));
+        if let Some(label) = &label {
+            sql.push_str(&format!(" OR {label}::text ILIKE $1"));
+        }
+        sql.push(')');
+    }
+    sql.push_str(&format!(" ORDER BY {key} LIMIT {CHOICES}"));
+    Ok(Built { sql, params })
+}
+
+/// An import's three statements: a temporary table with one text column per file column, the `COPY` that fills it
+/// from the file, and the `INSERT` that moves the chosen columns into the table, each read with its column's type.
+pub(crate) struct Import {
+    pub create: String,
+    pub copy: String,
+    pub insert: String,
+}
+
+pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter: u8, columns: &[ColumnMeta]) -> Result<Import, Error> {
+    let delimiter = match delimiter {
+        b',' => "','",
+        b';' => "';'",
+        b'\t' => "E'\\t'",
+        b'|' => "'|'",
+        _ => {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                "TableUltra reads files whose values are separated by commas, semicolons, tabs or bars.",
+            ));
+        }
+    };
+    let mut into = Vec::new();
+    let mut from = Vec::new();
+    for (i, target) in targets.iter().enumerate() {
+        let Some(name) = target else { continue };
+        let column = find(columns, name)?;
+        if column.generated {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!("Postgres fills {name} itself, so nothing can be imported into it."),
+            ));
+        }
+        if into.contains(&ident(name)) {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!("Two columns of the file go into {name}. Choose one."),
+            ));
+        }
+        into.push(ident(name));
+        from.push(format!("{}::{}", ident(&format!("c{}", i + 1)), column.type_name));
+    }
+    if into.is_empty() {
+        return Err(Error::new(ErrorKind::Invalid, "Choose at least one column to import."));
+    }
+    let staging = (1..=targets.len())
+        .map(|i| format!("{} text", ident(&format!("c{i}"))))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(Import {
+        create: format!("CREATE TEMPORARY TABLE tu_import ({staging}) ON COMMIT DROP"),
+        copy: format!("COPY tu_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER {delimiter})"),
+        insert: format!(
+            "INSERT INTO {} ({}) SELECT {} FROM tu_import",
+            table(table_ref),
+            into.join(", "),
+            from.join(", ")
+        ),
+    })
 }
 
 #[cfg(test)]
@@ -154,11 +246,13 @@ mod tests {
                 name: "id".into(),
                 type_name: "bigint".into(),
                 key_position: Some(1),
+                generated: false,
             },
             ColumnMeta {
                 name: "say \"hi\"".into(),
                 type_name: "text".into(),
                 key_position: None,
+                generated: false,
             },
         ]
     }
@@ -275,5 +369,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(built.sql, "SELECT count(*)::float8 FROM \"s\".\"t\" WHERE (id > 3)");
+    }
+
+    #[test]
+    fn picks_keys_by_their_value_or_their_label() {
+        let built = choices(
+            &TableRef {
+                schema: "s".into(),
+                name: "t".into(),
+            },
+            "id",
+            " 50%_off ",
+            &columns(),
+        )
+        .unwrap();
+        assert_eq!(
+            built.sql,
+            "SELECT \"id\"::text, left(\"say \"\"hi\"\"\"::text, 200) FROM \"s\".\"t\" WHERE \"id\" IS NOT NULL \
+             AND (\"id\"::text ILIKE $1 OR \"say \"\"hi\"\"\"::text ILIKE $1) ORDER BY \"id\" LIMIT 50"
+        );
+        assert_eq!(built.params, vec![Some("%50\\%\\_off%".to_string())]);
+    }
+
+    #[test]
+    fn imports_through_a_staging_table_skipping_columns() {
+        let targets = vec![None, Some("say \"hi\"".to_string()), Some("id".to_string())];
+        let import = import(
+            &TableRef {
+                schema: "s".into(),
+                name: "t".into(),
+            },
+            &targets,
+            b';',
+            &columns(),
+        )
+        .unwrap();
+        assert_eq!(
+            import.create,
+            "CREATE TEMPORARY TABLE tu_import (\"c1\" text, \"c2\" text, \"c3\" text) ON COMMIT DROP"
+        );
+        assert_eq!(import.copy, "COPY tu_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER ';')");
+        assert_eq!(
+            import.insert,
+            "INSERT INTO \"s\".\"t\" (\"say \"\"hi\"\"\", \"id\") SELECT \"c2\"::text, \"c3\"::bigint FROM tu_import"
+        );
+        let twice = vec![Some("id".to_string()), Some("id".to_string())];
+        assert_eq!(
+            super::import(
+                &TableRef {
+                    schema: "s".into(),
+                    name: "t".into()
+                },
+                &twice,
+                b',',
+                &columns()
+            )
+            .err()
+            .unwrap()
+            .kind,
+            ErrorKind::Invalid
+        );
     }
 }

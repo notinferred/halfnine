@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, Plus, Search } from "lucide-react";
 import { useState } from "react";
-import { commands, type SavedConnection } from "../../ipc/bindings.ts";
-import { describe } from "../../ipc/errors.ts";
+import { type ConnectionSpec, commands, type Typed } from "../../ipc/bindings.ts";
+import { describe, needsPassword } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { ConnectionForm } from "./connection-form.tsx";
+import { PasswordSheet } from "./password-sheet.tsx";
 import "./connections.css";
 
 export function ConnectionsScreen() {
@@ -15,25 +16,32 @@ export function ConnectionsScreen() {
   const [search, setSearch] = useState("");
   const [opening, setOpening] = useState<string | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<ConnectionSpec | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
 
   const connections = list.data ?? [];
-  const selectedId = chosen ?? connections[0]?.spec.id ?? "new";
-  const selected = connections.find((c) => c.spec.id === selectedId) ?? null;
-  const visible = connections.filter((c) => `${c.spec.name} ${c.spec.host} ${c.spec.database}`.toLowerCase().includes(search.toLowerCase()));
+  const selectedId = chosen ?? connections[0]?.id ?? "new";
+  const selected = connections.find((c) => c.id === selectedId) ?? null;
+  const visible = connections.filter((c) => `${c.name} ${c.host} ${c.database}`.toLowerCase().includes(search.toLowerCase()));
 
-  const open = async (id: string) => {
-    setOpening(id);
+  // A connection that asks for its password each time, with none typed yet this launch, asks before it opens.
+  const open = async (connection: ConnectionSpec, typed: Typed | null) => {
+    setOpening(connection.id);
     setOpenError(null);
     try {
-      enter(await commands.openSession(id, null));
+      enter(await commands.openSession(connection.id, null, typed));
+    } catch (error) {
+      if (!needsPassword(error)) throw error;
+      setAskError(null);
+      setAsking(connection);
     } finally {
       setOpening(null);
     }
   };
 
-  const openFromList = (id: string) => {
-    open(id).catch((error) => {
-      setChosen(id);
+  const openFromList = (connection: ConnectionSpec) => {
+    open(connection, null).catch((error) => {
+      setChosen(connection.id);
       setOpenError(describe(error));
     });
   };
@@ -65,12 +73,12 @@ export function ConnectionsScreen() {
         <div className="connections-items">
           {visible.map((c) => (
             <ConnectionRow
-              key={c.spec.id}
+              key={c.id}
               connection={c}
-              current={c.spec.id === selectedId}
-              busy={opening === c.spec.id}
-              onSelect={() => setChosen(c.spec.id)}
-              onOpen={() => openFromList(c.spec.id)}
+              current={c.id === selectedId}
+              busy={opening === c.id}
+              onSelect={() => setChosen(c.id)}
+              onOpen={() => openFromList(c)}
             />
           ))}
           {list.isSuccess && connections.length === 0 && <p className="connections-empty muted">No connections yet.</p>}
@@ -86,7 +94,7 @@ export function ConnectionsScreen() {
       <main className="connections-detail">
         <div className="traffic-lights-space" data-tauri-drag-region />
         <ConnectionForm
-          key={selected?.spec.id ?? "new"}
+          key={selected?.id ?? "new"}
           saved={selected}
           openError={selected && openError ? openError : null}
           opening={opening !== null}
@@ -95,12 +103,24 @@ export function ConnectionsScreen() {
           onOpen={open}
         />
       </main>
+      {asking && (
+        <PasswordSheet
+          connection={asking}
+          busy={opening !== null}
+          error={askError}
+          onConnect={(typed) => {
+            setAskError(null);
+            open(asking, typed).catch((error) => setAskError(describe(error)));
+          }}
+          onClose={() => setAsking(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ConnectionRow(props: { connection: SavedConnection; current: boolean; busy: boolean; onSelect: () => void; onOpen: () => void }) {
-  const { spec } = props.connection;
+function ConnectionRow(props: { connection: ConnectionSpec; current: boolean; busy: boolean; onSelect: () => void; onOpen: () => void }) {
+  const spec = props.connection;
   return (
     <button
       type="button"

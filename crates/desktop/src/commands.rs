@@ -7,25 +7,17 @@ use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tu_core::{
-    Activity, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome, SchemaNode, ServerInfo,
-    SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
+    Activity, Changes, Choice, Committed, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome,
+    SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
 use tu_pg::{PgDatabase, Secrets};
 
+use crate::AppState;
 use crate::export::{ExportDone, ExportFormat, Sink};
 use crate::files::storage;
+use crate::import::{FileSource, ImportPreview};
 use crate::queries::{HistoryEntry, SavedQuery};
 use crate::sessions::Session;
-use crate::{AppState, secrets};
-
-/// A saved connection, and whether the keychain holds its secrets. The secrets themselves never leave Rust.
-#[derive(Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SavedConnection {
-    pub spec: ConnectionSpec,
-    pub has_password: bool,
-    pub has_ssh_secret: bool,
-}
 
 /// A connection as the form holds it: without an id until it is first saved, and with what to do about each secret.
 #[derive(Deserialize, Type)]
@@ -41,11 +33,20 @@ pub struct ConnectionDraft {
     pub label: Label,
     pub read_only: bool,
     pub ssh: Option<SshSpec>,
+    pub save_password: bool,
     pub password: SecretChange,
     pub ssh_secret: SecretChange,
 }
 
+/// Secrets typed to connect once, for a connection that doesn't save its own.
 #[derive(Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Typed {
+    pub password: Option<String>,
+    pub ssh_secret: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Type)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum SecretChange {
     Keep,
@@ -70,35 +71,50 @@ pub struct SessionInfo {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<SavedConnection>, Error> {
-    state.store.list().into_iter().map(saved).collect()
+/// The saved connections. Their secrets stay in the keychain, which is read only to connect: macOS asks before an app
+/// that didn't save a secret reads it, and to macOS every new build is a different app.
+pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<ConnectionSpec>, Error> {
+    Ok(state.store.list())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn save_connection(state: State<'_, AppState>, draft: ConnectionDraft) -> Result<SavedConnection, Error> {
+pub async fn save_connection(state: State<'_, AppState>, draft: ConnectionDraft) -> Result<ConnectionSpec, Error> {
     let spec = spec_from(&draft)?;
-    apply(&secrets::password_account(&spec.id), &draft.password)?;
-    apply(&secrets::ssh_account(&spec.id), &draft.ssh_secret)?;
+    let was_saving = state.store.get(&spec.id).is_ok_and(|before| before.save_password);
+    if spec.save_password {
+        state.passwords.save(&spec.id, &draft.password, &draft.ssh_secret)?;
+    } else if was_saving {
+        // Switching to Ask each time removes what was saved, but only now, when the form is saved.
+        state.passwords.forget(&spec.id)?;
+    }
     state.store.save(spec.clone())?;
-    saved(spec)
+    Ok(spec)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_connection(state: State<'_, AppState>, id: String) -> Result<(), Error> {
+    let was_saving = state.store.get(&id).is_ok_and(|c| c.save_password);
     state.store.remove(&id)?;
-    secrets::delete(&secrets::password_account(&id))?;
-    secrets::delete(&secrets::ssh_account(&id))
+    state.passwords.forget_typed(&id);
+    if was_saving { state.passwords.forget(&id) } else { Ok(()) }
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn test_connection(draft: ConnectionDraft) -> Result<TestResult, Error> {
+pub async fn test_connection(state: State<'_, AppState>, draft: ConnectionDraft) -> Result<TestResult, Error> {
     let spec = spec_from(&draft)?;
+    // What the form leaves untouched comes from what is already known, and the keychain is read only if it must be.
+    let untouched = matches!(draft.password, SecretChange::Keep) || matches!(draft.ssh_secret, SecretChange::Keep);
+    let known = match draft.id {
+        Some(_) if untouched && spec.save_password => state.passwords.saved(&spec.id)?,
+        Some(_) if untouched => state.passwords.remembered(&spec.id).unwrap_or_default(),
+        _ => Secrets::default(),
+    };
     let secrets = Secrets {
-        password: resolve(&secrets::password_account(&spec.id), &draft.password)?,
-        ssh: resolve(&secrets::ssh_account(&spec.id), &draft.ssh_secret)?,
+        password: resolve(&draft.password, known.password),
+        ssh: resolve(&draft.ssh_secret, known.ssh),
     };
     let started = Instant::now();
     let db = PgDatabase::connect(&spec, None, &secrets).await?;
@@ -116,15 +132,57 @@ pub fn parse_connection_url(url: String) -> Result<UrlParts, Error> {
     tu_core::parse_url(&url)
 }
 
+/// Opens a connection with what was just typed, or else with what is saved for it, or typed earlier this launch.
 #[tauri::command]
 #[specta::specta]
-pub async fn open_session(state: State<'_, AppState>, connection_id: String, database: Option<String>) -> Result<SessionInfo, Error> {
+pub async fn open_session(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: Option<String>,
+    typed: Option<Typed>,
+) -> Result<SessionInfo, Error> {
     let connection = state.store.get(&connection_id)?;
-    let secrets = Secrets {
-        password: secrets::get(&secrets::password_account(&connection.id))?,
-        ssh: secrets::get(&secrets::ssh_account(&connection.id))?,
+    let id = connection.id.clone();
+    let asks = !connection.save_password;
+    let secrets = match typed {
+        Some(typed) => {
+            let secrets = Secrets {
+                password: typed.password.filter(|p| !p.is_empty()),
+                ssh: typed.ssh_secret.filter(|p| !p.is_empty()),
+            };
+            if asks {
+                state.passwords.remember(&id, &secrets);
+            }
+            secrets
+        }
+        None if asks => state.passwords.remembered(&id).ok_or_else(|| {
+            Error::new(
+                ErrorKind::PasswordNeeded,
+                format!("Type the password for {} to connect.", connection.name),
+            )
+        })?,
+        None => state.passwords.saved(&id)?,
     };
-    let db = PgDatabase::connect(&connection, database.as_deref(), &secrets).await?;
+    let opened = open(&state, connection, database.as_deref(), secrets).await;
+    // A password typed this launch that the server refused is asked for again next time.
+    if asks && opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
+        state.passwords.forget_typed(&id);
+    }
+    opened
+}
+
+/// Opens the same connection on another database, with the secrets it already holds, then closes the old session.
+#[tauri::command]
+#[specta::specta]
+pub async fn switch_database(state: State<'_, AppState>, session_id: String, database: String) -> Result<SessionInfo, Error> {
+    let current = state.sessions.get(&session_id).await?;
+    let next = open(&state, current.connection.clone(), Some(&database), current.secrets.clone()).await?;
+    state.sessions.close(&session_id).await;
+    Ok(next)
+}
+
+async fn open(state: &AppState, connection: ConnectionSpec, database: Option<&str>, secrets: Secrets) -> Result<SessionInfo, Error> {
+    let db = PgDatabase::connect(&connection, database, &secrets).await?;
     let server = db.server().await?;
     let session_id = state
         .sessions
@@ -132,6 +190,7 @@ pub async fn open_session(state: State<'_, AppState>, connection_id: String, dat
             connection: connection.clone(),
             database: server.database.clone(),
             db,
+            secrets,
         })
         .await;
     Ok(SessionInfo {
@@ -192,10 +251,7 @@ pub async fn run_statements(state: State<'_, AppState>, session_id: String, stat
         sql: statements.join(";\n"),
         connection_id: session.connection.id.clone(),
         database: session.database.clone(),
-        ran_at_ms: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or_default(),
+        ran_at_ms: now_ms(),
         elapsed_ms: outcome.elapsed_ms,
         ok: outcome.failed.is_none(),
     })?;
@@ -267,6 +323,78 @@ pub async fn stop_session(state: State<'_, AppState>, session_id: String, pid: i
     state.sessions.get(&session_id).await?.db.stop(pid, terminate).await
 }
 
+/// The SQL that staged changes would run, to read before committing them.
+#[tauri::command]
+#[specta::specta]
+pub async fn review_changes(state: State<'_, AppState>, session_id: String, changes: Changes) -> Result<Vec<String>, Error> {
+    state.sessions.get(&session_id).await?.db.review(&changes).await
+}
+
+/// Commits staged changes in one transaction, and adds what ran to the history.
+#[tauri::command]
+#[specta::specta]
+pub async fn commit_changes(state: State<'_, AppState>, session_id: String, changes: Changes) -> Result<Committed, Error> {
+    let session = state.sessions.get(&session_id).await?;
+    let shown = session.db.review(&changes).await?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let committed = session.db.commit(&changes).await;
+    log::info!(
+        "commit {id}: {} statements{}",
+        shown.len(),
+        if committed.is_err() { ", then an error" } else { "" }
+    );
+    state.queries.record(HistoryEntry {
+        id,
+        sql: shown.join("\n"),
+        connection_id: session.connection.id.clone(),
+        database: session.database.clone(),
+        ran_at_ms: now_ms(),
+        elapsed_ms: committed.as_ref().map_or(0, |c| c.elapsed_ms),
+        ok: committed.is_ok(),
+    })?;
+    committed
+}
+
+/// Values to pick for a foreign key that points at `column` of `table`.
+#[tauri::command]
+#[specta::specta]
+pub async fn choices(state: State<'_, AppState>, session_id: String, table: TableRef, column: String, search: String) -> Result<Vec<Choice>, Error> {
+    state.sessions.get(&session_id).await?.db.choices(&table, &column, &search).await
+}
+
+/// Asks which CSV file to import and previews its first rows. `None` when the dialog was dismissed.
+#[tauri::command]
+#[specta::specta]
+pub async fn choose_import(app: AppHandle, state: State<'_, AppState>) -> Result<Option<ImportPreview>, Error> {
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().add_filter("CSV", &["csv", "tsv", "txt"]).blocking_pick_file())
+        .await
+        .map_err(|e| storage("The open dialog failed", e))?;
+    let Some(path) = picked.as_ref().and_then(|p| p.as_path()).map(|p| p.to_path_buf()) else {
+        return Ok(None);
+    };
+    state.imports.preview(path).map(Some)
+}
+
+/// Adds every row of the chosen file to `table` in one transaction. `columns` holds, for each of the file's columns,
+/// the table column it goes into, or `None` to skip it.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_csv(
+    state: State<'_, AppState>,
+    session_id: String,
+    table: TableRef,
+    token: String,
+    columns: Vec<Option<String>>,
+) -> Result<f64, Error> {
+    let session = state.sessions.get(&session_id).await?;
+    let chosen = state.imports.get(&token)?;
+    let mut source = FileSource::open(&chosen.path)?;
+    let rows = session.db.import(&table, &columns, chosen.delimiter, &mut source).await?;
+    log::info!("import: {rows} rows");
+    state.imports.forget(&token);
+    Ok(rows)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn list_history(state: State<'_, AppState>) -> Result<Vec<HistoryEntry>, Error> {
@@ -301,12 +429,12 @@ pub async fn delete_saved_query(state: State<'_, AppState>, id: String) -> Resul
     state.queries.forget(&id)
 }
 
-fn saved(spec: ConnectionSpec) -> Result<SavedConnection, Error> {
-    Ok(SavedConnection {
-        has_password: secrets::get(&secrets::password_account(&spec.id))?.is_some(),
-        has_ssh_secret: secrets::get(&secrets::ssh_account(&spec.id))?.is_some(),
-        spec,
-    })
+/// Now, in milliseconds since 1970 (UTC), as the history records it.
+fn now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or_default()
 }
 
 /// Checks a draft once, here, so everything past this point can trust it.
@@ -352,21 +480,14 @@ fn spec_from(draft: &ConnectionDraft) -> Result<ConnectionSpec, Error> {
         label: draft.label,
         read_only: draft.read_only,
         ssh,
+        save_password: draft.save_password,
     })
 }
 
-fn apply(account: &str, change: &SecretChange) -> Result<(), Error> {
+fn resolve(change: &SecretChange, known: Option<String>) -> Option<String> {
     match change {
-        SecretChange::Keep => Ok(()),
-        SecretChange::Clear => secrets::delete(account),
-        SecretChange::Set { value } => secrets::set(account, value),
-    }
-}
-
-fn resolve(account: &str, change: &SecretChange) -> Result<Option<String>, Error> {
-    match change {
-        SecretChange::Keep => secrets::get(account),
-        SecretChange::Clear => Ok(None),
-        SecretChange::Set { value } => Ok(Some(value.clone())),
+        SecretChange::Keep => known,
+        SecretChange::Clear => None,
+        SecretChange::Set { value } => Some(value.clone()).filter(|v| !v.is_empty()),
     }
 }

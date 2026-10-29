@@ -371,3 +371,271 @@
 .statusbar-end {
   margin-left: auto;
 }
+
+/* Staged changes, as the approved mockup shows them: accent text on a faint accent ground. */
+.grid .cell-staged {
+  background: var(--staged);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.grid .row-deleted .rgCell {
+  color: var(--text-2);
+  text-decoration: line-through;
+}
+
+.grid .row-new .rgCell {
+  background: var(--staged);
+}
+
+.changes {
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3) var(--space-4) 0;
+  font-size: var(--text-sm);
+}
+
+.review-sql {
+  max-height: 40vh;
+  margin: 0;
+  overflow: auto;
+  padding: 10px var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.changes-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-4) 0;
+  font-size: var(--text-sm);
+}
+
+.changes-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.changes-bar .changes-dot {
+  margin-left: 0;
+}
+
+.changes-summary {
+  flex: 1;
+  font-weight: 500;
+}
+
+.changes-bar .btn {
+  height: 26px;
+}
+
+.changes-review {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.row-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.row-field[data-staged] dt label {
+  color: var(--accent);
+}
+
+.field-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.field-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.field {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: var(--space-1) 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  font: inherit;
+  font-size: var(--text-sm);
+  resize: vertical;
+  outline: none;
+  user-select: text;
+}
+
+.field.mono {
+  font-family: var(--font-mono);
+}
+
+.field:focus {
+  border-color: var(--accent);
+}
+
+.row-field[data-staged] .field {
+  background: var(--staged);
+}
+
+.field::placeholder {
+  font-style: italic;
+  color: var(--text-2);
+}
+
+.field-note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+}
+
+/* The structure, edited in place: the cells stay quiet until hovered or focused. */
+.structure-edit td {
+  padding: 2px var(--space-2);
+  vertical-align: middle;
+}
+
+.cell-input {
+  width: 100%;
+  height: 24px;
+  padding: 0 var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  outline: none;
+}
+
+.cell-input.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.cell-input:hover:not(:disabled),
+.cell-input:focus {
+  border-color: var(--line-strong);
+  background: var(--field);
+}
+
+.cell-input:focus {
+  border-color: var(--accent);
+}
+
+.cell-input[data-staged],
+.structure-edit tr[data-new] .cell-input,
+.structure-item[data-new] {
+  background: var(--staged);
+  color: var(--accent);
+}
+
+.structure-edit tr[data-dropped] .cell-input,
+.structure-item[data-dropped] > span {
+  color: var(--text-2);
+  text-decoration: line-through;
+}
+
+.structure-row-action {
+  width: 1%;
+  text-align: right;
+}
+
+.structure-row-action .btn,
+.structure-item .btn {
+  height: 22px;
+  padding: 0 var(--space-2);
+}
+
+.structure-drop {
+  color: var(--text-2);
+  opacity: 0;
+}
+
+tr:hover .structure-drop,
+.structure-item:hover .structure-drop,
+.structure-drop:focus-visible {
+  opacity: 1;
+}
+
+.structure-item:has(> button) {
+  grid-template-columns: 260px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.structure-add {
+  margin-top: var(--space-2);
+  color: var(--text-2);
+}
+
+.index-columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chip-order {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.index-unique {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-2);
+}
+
+.new-table-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.new-table-label {
+  font-size: var(--text-sm);
+}
+
+.new-table-name {
+  width: min(360px, 100%);
+  height: 32px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.import-map {
+  overflow: auto;
+}
+
+.import-map select {
+  height: 24px;
+}
+
+.import-sample {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
