@@ -2,10 +2,10 @@
 
 ## Where things stand (2026-10-29)
 
-M0 to M3 are done. M4, the first release, waits for Dan to publish v0.1.0 and measure the installed app. The first step of M5, the agent core, is built on the branch `m5-agents` and waits for Dan's check:
+M0 to M3 are done, and M4 closes with v0.1.0 published and the installed app measured. The first step of M5, the agent core, is built and approved, and is on main:
 
 - Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself.
-- CI passed on the branch: lint, types, the build, and every Rust test, the agent tests against Postgres 18 included.
+- CI passed: lint, types, the build, and all 86 Rust tests, the agent tests against Postgres 18 included.
 - v0.1.0 is a draft release with a 3.3 MB macOS installer and a 3.0 MB Windows one. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
 
 ## M0: Foundation
@@ -122,7 +122,7 @@ An agent that needs a table, a query answered, or a fresh database asks Halfnine
 
 **When M5 ships:** drop "(coming soon)" from the repository's description, add the topics mcp, mcp-server, ai-agents and claude-code, and list Halfnine where people look for MCP servers: the official MCP Registry, Smithery, mcp.so and awesome-mcp-servers.
 
-### The agent core (built 2026-10-29, waiting for Dan's check)
+### The agent core (done 2026-10-29)
 
 - [x] **`halfnine mcp`:** the same binary, started by any MCP client, relaying to the running app over a socket only this account can open, and opening the app in the background if it is closed.
 - [x] **Seven tools:** `list_connections` (names, labels and levels only, Off ones included), `describe`, `query` (always read-only, with time and row limits), `change_rows`, `change_structure`, `run_sql` and `wait_for_approval`. Every result starts with a status word.
@@ -130,7 +130,7 @@ An agent that needs a table, a query answered, or a fresh database asks Halfnine
 - [x] **Approvals in the table:** an agent's change opens in its own tab as staged rows, cells or columns, or as its SQL, and the bar asks 1. Yes, 2. Yes, don't ask again here, 3. No, and tell it why. The window comes forward to ask. A row that changed meanwhile rolls the change back.
 - [x] **Passwords:** a connection that asks each time asks Dan when an agent needs it, and the agent waits.
 - [x] **The Agents page:** connected agents, every call with its SQL and outcome, the pause switch, and Connect for Claude Code, Codex, Cursor, VS Code and Claude Desktop.
-- [ ] **Dan's check:** connect Claude Code, then query, approve, decline with a reason, "don't ask again", a drop that still asks, a password, pausing, and the app opening when it was closed.
+- [x] **Dan's check** (2026-10-29): "its all good and approved". Claude Code itself wasn't connected during it, so the first real session is still to come.
 - [ ] **Windows check,** from a release build: stdio through the app binary, the app opening apart from the agent, and coming forward.
 
 ### Next in M5
