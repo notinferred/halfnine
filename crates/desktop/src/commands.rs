@@ -17,7 +17,7 @@ use crate::export::{ExportDone, ExportFormat, Sink};
 use crate::files::storage;
 use crate::import::{FileSource, ImportPreview};
 use crate::queries::{HistoryEntry, SavedQuery};
-use crate::sessions::Session;
+use crate::sessions::{Session, Sessions};
 
 /// A connection as the form holds it: without an id until it is first saved, and with what to do about each secret.
 #[derive(Deserialize, Type)]
@@ -62,7 +62,7 @@ pub struct TestResult {
     pub server_version: String,
 }
 
-#[derive(Serialize, Type)]
+#[derive(Clone, Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
     pub session_id: String,
@@ -90,6 +90,8 @@ pub async fn save_connection(state: State<'_, AppState>, draft: ConnectionDraft)
         state.passwords.forget(&spec.id)?;
     }
     state.store.save(spec.clone())?;
+    // What agents opened or proposed under the old settings ends, so a lowered access level applies at once.
+    state.agents.forget_connection(&spec.id).await;
     Ok(spec)
 }
 
@@ -98,6 +100,7 @@ pub async fn save_connection(state: State<'_, AppState>, draft: ConnectionDraft)
 pub async fn delete_connection(state: State<'_, AppState>, id: String) -> Result<(), Error> {
     let was_saving = state.store.get(&id).is_ok_and(|c| c.save_password);
     state.store.remove(&id)?;
+    state.agents.forget_connection(&id).await;
     state.passwords.forget_typed(&id);
     if was_saving { state.passwords.forget(&id) } else { Ok(()) }
 }
@@ -164,7 +167,7 @@ pub async fn open_session(
         })?,
         None => state.passwords.saved(&id)?,
     };
-    let opened = open(&state, connection, database.as_deref(), secrets).await;
+    let opened = open_with(&state.sessions, connection, database.as_deref(), secrets).await;
     // A password typed this launch that the server refused is asked for again next time.
     if asks && opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
         state.passwords.forget_typed(&id);
@@ -177,16 +180,15 @@ pub async fn open_session(
 #[specta::specta]
 pub async fn switch_database(state: State<'_, AppState>, session_id: String, database: String) -> Result<SessionInfo, Error> {
     let current = state.sessions.get(&session_id).await?;
-    let next = open(&state, current.connection.clone(), Some(&database), current.secrets.clone()).await?;
+    let next = open_with(&state.sessions, current.connection.clone(), Some(&database), current.secrets.clone()).await?;
     state.sessions.close(&session_id).await;
     Ok(next)
 }
 
-async fn open(state: &AppState, connection: ConnectionSpec, database: Option<&str>, secrets: Secrets) -> Result<SessionInfo, Error> {
+pub async fn open_with(sessions: &Sessions, connection: ConnectionSpec, database: Option<&str>, secrets: Secrets) -> Result<SessionInfo, Error> {
     let db = PgDatabase::connect(&connection, database, &secrets).await?;
     let server = db.server().await?;
-    let session_id = state
-        .sessions
+    let session_id = sessions
         .insert(Session {
             connection: connection.clone(),
             database: server.database.clone(),
@@ -430,8 +432,8 @@ pub async fn delete_saved_query(state: State<'_, AppState>, id: String) -> Resul
     state.queries.forget(&id)
 }
 
-/// Now, in milliseconds since 1970 (UTC), as the history records it.
-fn now_ms() -> f64 {
+/// Now, in milliseconds since 1970 (UTC), as the history and the agent activity log record it.
+pub fn now_ms() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as f64)

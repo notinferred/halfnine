@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -37,7 +38,7 @@ pub struct CellChange {
 }
 
 /// One change to a table's structure. Types and defaults are SQL someone typed, as Postgres would read them.
-#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum StructureChange {
     CreateTable { columns: Vec<NewColumn> },
@@ -53,7 +54,7 @@ pub enum StructureChange {
     Drop,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Type, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NewColumn {
     pub name: String,

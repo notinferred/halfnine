@@ -34,13 +34,36 @@ pub fn load<T: DeserializeOwned + Default>(path: &Path, version: u32, what: &str
 
 /// Writes beside the file and renames over it, so a crash leaves either the old contents or the new, never half of them.
 pub fn save<T: Serialize>(path: &Path, version: u32, body: &T, what: &str) -> Result<(), Error> {
+    write(path, version, body, what, false)
+}
+
+/// As [`save`], for a file only the person's own account may read. On Windows the config folder is already private.
+pub fn save_private<T: Serialize>(path: &Path, version: u32, body: &T, what: &str) -> Result<(), Error> {
+    write(path, version, body, what, true)
+}
+
+fn write<T: Serialize>(path: &Path, version: u32, body: &T, what: &str, private: bool) -> Result<(), Error> {
+    let failed = |e: std::io::Error| storage(&format!("Couldn't save {what}"), e);
     let bytes = serde_json::to_vec_pretty(&Versioned { version, body }).map_err(|e| storage(&format!("Couldn't save {what}"), e))?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| storage("Couldn't create the settings folder", e))?;
     }
     let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, bytes).map_err(|e| storage(&format!("Couldn't save {what}"), e))?;
-    fs::rename(&temporary, path).map_err(|e| storage(&format!("Couldn't save {what}"), e))
+    // A mode applies only to a file being created, so whatever an earlier attempt left is removed first.
+    let _ = fs::remove_file(&temporary);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    let mut file = options.open(&temporary).map_err(failed)?;
+    std::io::Write::write_all(&mut file, &bytes).map_err(failed)?;
+    drop(file);
+    fs::rename(&temporary, path).map_err(failed)
 }
 
 pub fn storage(what: &str, e: impl std::fmt::Display) -> Error {

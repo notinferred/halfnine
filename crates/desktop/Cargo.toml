@@ -31,6 +31,12 @@ tokio.workspace = true
 uuid.workspace = true
 log.workspace = true
 keyring-core.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+rmcp = { workspace = true, features = ["client"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true

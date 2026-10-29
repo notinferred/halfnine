@@ -12,6 +12,7 @@ specta.workspace = true
 thiserror.workspace = true
 url.workspace = true
 percent-encoding.workspace = true
+schemars.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

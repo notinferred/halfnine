@@ -1,8 +1,9 @@
 //! The typed bridge to the UI: which commands exist, and the TypeScript that calls them.
 
-use tauri_specta::{Builder, ErrorHandlingMode, collect_commands};
+use tauri_specta::{Builder, ErrorHandlingMode, collect_commands, collect_events};
 
-use crate::commands;
+use crate::agents::desk::{AgentActivityAdded, AgentsChanged};
+use crate::{agents, commands};
 
 #[cfg(any(debug_assertions, test))]
 const OUTPUT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/desktop/src/ipc/bindings.ts");
@@ -38,7 +39,16 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::list_saved_queries,
             commands::save_query,
             commands::delete_saved_query,
+            agents::commands::agent_state,
+            agents::commands::approve_proposal,
+            agents::commands::decline_proposal,
+            agents::commands::dismiss_proposal,
+            agents::commands::answer_password_request,
+            agents::commands::cancel_password_request,
+            agents::commands::set_agents_paused,
+            agents::commands::agent_activity,
         ])
+        .events(collect_events![AgentsChanged, AgentActivityAdded])
 }
 
 /// Writes `apps/desktop/src/ipc/bindings.ts`. A debug build does it on start and the tests do it in CI, where a

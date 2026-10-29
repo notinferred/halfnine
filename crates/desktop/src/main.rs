@@ -1,27 +1,38 @@
 // A release build on Windows opens no console window next to the app.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agents;
 mod bindings;
 mod commands;
 mod export;
 mod files;
 mod import;
+mod mcp;
 mod queries;
 mod secrets;
 mod sessions;
 mod store;
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
 pub struct AppState {
-    pub store: store::Store,
+    pub store: Arc<store::Store>,
     pub queries: queries::Queries,
-    pub sessions: sessions::Sessions,
+    pub sessions: Arc<sessions::Sessions>,
     pub imports: import::Imports,
-    pub passwords: secrets::Passwords,
+    pub passwords: Arc<secrets::Passwords>,
+    pub agents: Arc<agents::Agents>,
 }
 
 fn main() {
+    // An agent starts `halfnine mcp`, which only relays to the app, so it never starts Tauri. The single-instance
+    // plugin would otherwise take it for a second launch.
+    if std::env::args_os().nth(1).is_some_and(|arg| arg == "mcp") {
+        std::process::exit(mcp::bridge::run());
+    }
+
     let commands = bindings::builder();
     #[cfg(debug_assertions)]
     bindings::export(&commands);
@@ -38,18 +49,33 @@ fn main() {
         .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(commands.invoke_handler())
-        .setup(|app| {
+        .setup(move |app| {
             secrets::init()?;
+            commands.mount_events(app);
             let dir = app.path().app_config_dir()?;
+            let store = Arc::new(store::Store::open(dir.clone())?);
+            let sessions = Arc::new(sessions::Sessions::default());
+            let passwords = Arc::new(secrets::Passwords::default());
+            let desk = Arc::new(agents::desk::WindowDesk(app.handle().clone()));
+            let agents = Arc::new(agents::Agents::new(&dir, store.clone(), passwords.clone(), sessions.clone(), desk));
+            tauri::async_runtime::spawn(agents::listen::listen(agents.clone(), dir.clone()));
             app.manage(AppState {
-                store: store::Store::open(dir.clone())?,
+                store,
                 queries: queries::Queries::open(dir)?,
-                sessions: sessions::Sessions::default(),
+                sessions,
                 imports: import::Imports::default(),
-                passwords: secrets::Passwords::default(),
+                passwords,
+                agents,
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Halfnine could not start");
+        .build(tauri::generate_context!())
+        .expect("Halfnine could not start")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event
+                && let Ok(dir) = app.path().app_config_dir()
+            {
+                mcp::endpoint::remove(&dir);
+            }
+        });
 }

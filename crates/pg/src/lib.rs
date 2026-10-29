@@ -32,7 +32,7 @@ pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const AGENT_READS: [&str; 6] = ["SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN"];
 /// Statements an agent's change may not hold: it runs as one transaction that Halfnine begins and ends, and COPY needs a
 /// protocol of its own.
-const NOT_IN_A_CHANGE: [&str; 10] = [
+pub const NOT_IN_A_CHANGE: [&str; 10] = [
     "BEGIN",
     "START",
     "COMMIT",
