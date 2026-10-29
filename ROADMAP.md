@@ -6,7 +6,7 @@ M0 to M3 are done, and M4, the first release, is under way:
 
 - The app is now **Halfnine**, Dan's choice, with the app ID `com.notinferred.halfnine`. The repository is `github.com/notinferred/halfnine` (public).
 - CI passed on GitHub for M3: lint, types, the build, and all 50 Rust tests, 23 of them against Postgres 18.
-- `release.yml` is written. Pushing the tag `v0.1.0` builds the macOS and Windows installers into a draft release for Dan to check and publish.
+- v0.1.0 is built: a draft release with a 3.3 MB macOS installer and a 3.0 MB Windows one, waiting for Dan to publish it. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
 
 The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes Halfnine the database tool AI agents use, and adds local Docker databases.
 
@@ -113,8 +113,8 @@ Dan used the app against the throwaway check database:
 - [x] **`release.yml`:** a version tag builds an unsigned `.dmg` (Apple silicon) and a per-user `-setup.exe` (x64) into a draft GitHub Release. tauri-action is pinned to v1.0.0's commit.
 - [x] **The README's install steps**, which the release notes repeat.
 - [x] **License:** PolyForm Shield 1.0.0, copyright notInferred, in every commit since the first. The repository's description leads with AI agents, marked as coming, and its topics are ones people browse.
-- [ ] **The first draft release** from the tag `v0.1.0`, checked and published by Dan.
-- [ ] **Measured budgets:** an installer under 15 MB, a window ready in under 1 second, and idle memory recorded on both systems.
+- [x] **The first draft release** from the tag `v0.1.0` (2026-10-28): `Halfnine_0.1.0_aarch64.dmg` and `Halfnine_0.1.0_x64-setup.exe`. It waits for Dan to publish it.
+- [ ] **Measured budgets:** an installer under 15 MB holds: 3.3 MB for macOS and 3.0 MB for Windows. A window ready in under 1 second, and idle memory on both systems, are still to be measured from the installed app.
 - **Keychain prompts after an update.** An unsigned release is a new app to macOS, so after each update macOS asks once before Halfnine reads a saved password. The README says to choose Always Allow. Signing (under Next) ends it.
 - The icon stays as drawn in M0; it never depended on the name.
 
