@@ -66,3 +66,20 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
   - **Since the first commit?** **Chose:** rewrite history, so LICENSE.md is in every commit from the first. **Not chosen:** add it in a new commit.
   - **Copyright?** **Chose:** notInferred.
   - **Topics.** **Dan:** "I dont like those topics try some people actually look at", then: "Think of it its a tableplus alternatives FOR database management for AI features too", "Thats the selling point AI But the tags for AI suck idk man Help me out". **Offered:** a description that leads with AI agents, marked as coming until M5 ships, and twelve topics people browse now, with mcp, mcp-server, ai-agents and claude-code added when M5 ships. **Dan:** "Go".
+
+## 2026-10-29: M5, the agent core
+
+- **What to build.** **Dan:** "Lets do M5, lets make sure to have a claude code-like and compatible design frictionless and compatible with table manager"
+- **What "Claude Code-like" means.** **Chose:** "Works inside Claude Code": Halfnine is a tool that Claude Code, Cursor and Codex call over MCP, and asks before writes in Claude Code's style: 1. Yes, 2. Yes, don't ask again here, 3. No, and tell it why. Halfnine comes forward to ask. **Not chosen:** an agent inside Halfnine; both, MCP first.
+- **How an agent's work shows in the table manager.** **Chose:** "In the table, like my edits": staged cells and rows in that table's tab, marked with the agent's name, with the same Review SQL. **Not chosen:** on an Agents page; both.
+- **How much of M5 now.** **Chose:** "Agent core first": MCP, one-step setup, access per connection, approvals, the activity log and the pause switch. Undo, copies, migrations, hidden columns and Docker follow. **Not chosen:** all agent features, then Docker; all of M5 at once.
+- **What "Yes, don't ask again here" covers.** **Chose:** "This agent, this connection, until quit". Nothing is saved. **Not chosen:** switch the connection to Full; this agent, this table, until quit.
+- **Setup.** **Chose:** "One click per client": Halfnine shows what it will change, then adds itself; for Claude Code it also allows Halfnine's tools, so only Halfnine asks. **Not chosen:** copy and paste.
+- **An agent needs a password typed each time, not typed yet.** **Chose:** "Halfnine asks you": the window comes forward with the usual password box and the agent waits. **Not chosen:** tell the agent to ask.
+- **A change on a connection other than the open one.** **Chose:** "Its own tab, beside yours"; on the connections screen, Halfnine opens that connection. **Not chosen:** switch to that connection.
+- **A change to a table already open on the same connection.** **Chose:** "Its own tab, always". **Not chosen:** in your tab if nothing is staged.
+- **What still asks after "don't ask again".** **Chose:** "Dropping or emptying a table", including inside the agent's SQL. **Not chosen:** nothing.
+- **Values in the activity log.** **Chose:** "SQL as written". **Not chosen:** SQL without values.
+- **Connections set to Off.** **Chose:** "Listed as Off", so the agent can tell Dan. **Not chosen:** hidden.
+- **The plan** for the agent core, including the Agents entry on the connections screen and the changes to CLAUDE.md's guarantees. **Accepted.**
+- **Checking the code on this Mac.** **Chose:** "Compile checks as I go": cargo check, clippy and the bindings test while building; the Postgres tests run in CI, and the app waits for the final check. **Not chosen:** CI only; compile and test as I go.

@@ -33,13 +33,14 @@ Colours are defined in `apps/desktop/src/ui/tokens.css`. Nothing else defines th
 
 The whole window follows one layout, so a new feature finds its place rather than adding a panel.
 
-- **The sidebar is the map.** It shows the connection at the top and the tables in the middle. The app's pages sit at the foot: Queries and Sessions today, with Agents and Docker to come in M5. They are always in view, and nothing collapses them.
+- **The sidebar is the map.** It shows the connection at the top and the tables in the middle. The app's pages sit at the foot: Queries, Sessions and Agents, with Docker to come. They are always in view, and nothing collapses them. Agents is also at the foot of the connections screen, so pausing and setup work before any connection is open.
 - **A new kind of place becomes a page in that footer,** not another panel, menu or setting.
 - **A page shows one thing at a time.** Queries lists the saved queries, and a switch on the page shows History instead.
 - **What you open becomes a tab:** a table, a query or a page. ⌘K reaches any of them by name.
 - **An empty area offers its next step as a button,** never as instructions to read.
 - **Shortcuts are shown as keycaps,** one per key, so ⌘ and . can't read as ⌘ followed by a full stop.
 - **A change is staged before it is written.** Staged cells and columns take the accent colour on a faint accent ground. A bar at the foot of the view counts them and offers Review SQL, Discard and Commit.
+- **An agent's change is staged like yours.** It opens in its own tab, marked with the agent's name, as staged cells, rows or columns that only answering can change. The bar asks the way Claude Code asks: 1. Yes, 2. Yes, don't ask again here, 3. No, and tell it why. Nothing is chosen by default, and the choices work only after the window has had focus for a second.
 - **What can't be undone asks for the name.** Truncate and drop show the statement and wait for the table's name to be typed.
 
 ## Icon
@@ -51,4 +52,5 @@ The icon is a 3 × 3 table. The top row is its header, and the centre cell is se
 - Short, plain sentences: say what happened and what to do next.
 - Errors name the cause in words and keep Postgres's error code beside them, for example "Password rejected for user app (28P01)".
 - No exclamation marks, no jokes in errors, and no "Oops".
-- Buttons are verbs: Connect, Run, Commit, Discard.
+- Buttons are verbs: Connect, Run, Commit, Discard. The one exception is an agent's question, which keeps Claude Code's own words, and its bare 1, 2 and 3 keys, the only shortcuts without a modifier.
+- What agents read starts with one status word (OK, WAITING, APPROVED, DECLINED, CONFLICT, REFUSED, PAUSED, BUSY or ERROR), then says what happened and what to do next.

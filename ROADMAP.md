@@ -1,14 +1,12 @@
 # Roadmap
 
-## Where things stand (2026-10-28)
+## Where things stand (2026-10-29)
 
-M0 to M3 are done, and M4, the first release, is under way:
+M0 to M3 are done. M4, the first release, waits for Dan to publish v0.1.0 and measure the installed app. The first step of M5, the agent core, is built on the branch `m5-agents` and waits for Dan's check:
 
-- The app is now **Halfnine**, Dan's choice, with the app ID `com.notinferred.halfnine`. The repository is `github.com/notinferred/halfnine` (public).
-- CI passed on GitHub for M3: lint, types, the build, and all 50 Rust tests, 23 of them against Postgres 18.
-- v0.1.0 is built: a draft release with a 3.3 MB macOS installer and a 3.0 MB Windows one, waiting for Dan to publish it. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
-
-The scope grew on 2026-10-28. M1–M3 now include the everyday features of a database client, foreign-key navigation among them. M5 makes Halfnine the database tool AI agents use, and adds local Docker databases.
+- Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself.
+- CI passed on the branch: lint, types, the build, and every Rust test, the agent tests against Postgres 18 included.
+- v0.1.0 is a draft release with a 3.3 MB macOS installer and a 3.0 MB Windows one. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
 
 ## M0: Foundation
 
@@ -124,38 +122,29 @@ An agent that needs a table, a query answered, or a fresh database asks Halfnine
 
 **When M5 ships:** drop "(coming soon)" from the repository's description, add the topics mcp, mcp-server, ai-agents and claude-code, and list Halfnine where people look for MCP servers: the official MCP Registry, Smithery, mcp.so and awesome-mcp-servers.
 
-### Agents
+### The agent core (built 2026-10-29, waiting for Dan's check)
 
-- **The connection: MCP.** `halfnine mcp` is the same app binary, started by the agent and talking to it over stdio. It works with any MCP client: Claude Code, Claude Desktop, Cursor, Codex, VS Code.
-  - It talks to the running app over a local socket, and opens the app if it is closed, so approvals and the activity log always live in the app.
-  - A "Connect an agent" screen sets up each client.
-  - The keypaste MCP bridge is the precedent.
-- **What an agent can do:**
-  - List connections, by name and label only.
-  - Describe a schema: tables, columns, keys, the foreign-key graph and row estimates.
-  - Read sample rows, and run queries.
-  - Propose changes.
-  - Create, copy and delete local databases.
-- **Access per connection:** each connection is set to Off, Read, Read with approved writes, or Full.
-  - Defaults: databases Halfnine created in Docker are Full. Red-labelled connections are Off. Every other connection is Read.
-  - A read-only connection stays read-only whatever its level.
-- **Approvals:**
-  - A write that needs approval appears in the app as staged SQL, in the same Review SQL view, named with the agent that sent it. Dan approves or rejects it there, and a notification appears if the app is in the background.
-  - Approval happens only in the app, never through the MCP channel. An agent can't change its own access.
-- **Activity log and undo:**
-  - Every agent call is logged: the agent, the connection, the SQL, the rows touched and the time it took.
-  - Before an agent's write runs, the rows it changes are saved, so the write can be reverted from the log.
-  - Undo covers row changes. Schema changes go through migrations or copies.
+- [x] **`halfnine mcp`:** the same binary, started by any MCP client, relaying to the running app over a socket only this account can open, and opening the app in the background if it is closed.
+- [x] **Seven tools:** `list_connections` (names, labels and levels only, Off ones included), `describe`, `query` (always read-only, with time and row limits), `change_rows`, `change_structure`, `run_sql` and `wait_for_approval`. Every result starts with a status word.
+- [x] **Access per connection:** Off, Read, Read with approved writes, or Full, set in the connection's form. Red-labelled connections start at Off and every other at Read. A read-only connection stays read-only.
+- [x] **Approvals in the table:** an agent's change opens in its own tab as staged rows, cells or columns, or as its SQL, and the bar asks 1. Yes, 2. Yes, don't ask again here, 3. No, and tell it why. The window comes forward to ask. A row that changed meanwhile rolls the change back.
+- [x] **Passwords:** a connection that asks each time asks Dan when an agent needs it, and the agent waits.
+- [x] **The Agents page:** connected agents, every call with its SQL and outcome, the pause switch, and Connect for Claude Code, Codex, Cursor, VS Code and Claude Desktop.
+- [ ] **Dan's check:** connect Claude Code, then query, approve, decline with a reason, "don't ask again", a drop that still asks, a password, pausing, and the app opening when it was closed.
+- [ ] **Windows check,** from a release build: stdio through the app binary, the app opening apart from the agent, and coming forward.
+
+### Next in M5
+
+- **Undo:** before an agent's write runs, the rows it changes are saved, so the write can be reverted from the activity log. Schema changes go through migrations or copies.
 - **Migrations, not direct DDL:** when the agent's project has migrations (Drizzle, Prisma, sqlx and others, found through the project folder the agent shares by MCP roots), a schema change becomes a migration file in that project rather than a direct change to the database. Direct DDL is only for databases nothing owns, such as a scratch Docker database.
 - **Work on a copy:** clone a database before risky work. On a local server this is `CREATE DATABASE … TEMPLATE`; for Docker, a cloned container. The agent works on the copy, and Dan keeps it or discards it.
 - **Sensitive columns hidden:**
-  - Columns marked sensitive are masked in everything an agent sees.
+  - Columns marked sensitive are masked in everything an agent sees, in `agents::results::shown`.
   - Halfnine suggests columns to mark from their names: email, phone, token, password, secret.
   - Whatever an agent reads is sent to its AI provider, which is why this matters.
-- **Credentials:**
-  - An agent may receive the URL of a Docker database Halfnine created, because those credentials are local and throwaway, and the project it's building may need them.
-  - Every other connection's credentials never leave the app.
-- **One switch pauses all agent access.**
+- **Credentials:** an agent may receive the URL of a Docker database Halfnine created, because those credentials are local and throwaway. Every other connection's credentials never leave the app.
+- **Agents create, copy and delete local databases,** with Docker below. Databases Halfnine created in Docker start at Full.
+- **A Claude Code plugin and a Claude Desktop extension,** for the listings when M5 ships.
 
 ### Docker
 
@@ -167,9 +156,9 @@ An agent that needs a table, a query answered, or a fresh database asks Halfnine
   - Each database gets its own volume, and Halfnine labels its containers so it knows which are its own.
 - **Agents create their own:** an agent can ask for a fresh database and get one without asking Dan. It shows in the sidebar marked with the agent's name.
 
-### Candidates, checked when M5 starts
+### Candidates
 
-The official MCP Rust SDK (`rmcp`) and the Docker Engine API client `bollard`. Each passes the same adoption test as every other dependency, with the same two-week age rule.
+The Docker Engine API client `bollard`, which passes the same adoption test as every other dependency, with the same two-week age rule. The MCP SDK, `rmcp`, is in use.
 
 ## Next, in the order Dan chooses
 
@@ -183,6 +172,6 @@ The official MCP Rust SDK (`rmcp`) and the Docker Engine API client `bollard`. E
 
 ## Not planned
 
-- A tray icon or a global hotkey: Dan chose a normal app. An agent opens the app when it needs an approval.
+- A tray icon or a global hotkey: Dan chose a normal app. An agent opens the app when it is closed, and the window comes forward when it needs an answer.
 - Cloudflare: GitHub only for now.
 - Forking an existing client: Dan chose a fresh build.

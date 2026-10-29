@@ -11,7 +11,7 @@ crates/pg         hn-pg: the Postgres adapter. Implements core's Database trait;
 crates/core       hn-core: pure types and the Database trait. No I/O.
 ```
 
-From M5, AI agents reach the app through `halfnine mcp`, the same binary started by the agent over stdio. That process holds no logic. It forwards each call over a local socket to the running app, which owns the access check, approvals, the activity log and the database connections.
+AI agents reach the app through `halfnine mcp`, the same binary, started by the agent with the agent's stdio as its own. It never starts Tauri and holds no logic: it finds the running app, opening it in the background if it is closed, and copies bytes both ways. The app listens on a socket only this account can open (`mcp.sock` in its config folder on macOS; a named pipe with a random name on Windows), and a bridge must first send the token the app wrote to `mcp.json` for this launch. The MCP server itself (rmcp) runs in the app, in `crates/desktop/src/agents/`, which owns the access check, proposals and approvals, the activity log, and the agents' own database sessions, apart from the window's.
 
 Dependencies point inward: desktop, then the adapters, then core. Each crate's `Cargo.toml` enforces this, because core can't import a library it doesn't depend on. Adding MySQL later means adding a new adapter crate that implements `Database`. Nothing else changes.
 
@@ -35,7 +35,9 @@ Values cross the boundary as Postgres's own text. A page selects every column as
 | russh | It runs SSH tunnels in-process, trusting only host keys already in `~/.ssh/known_hosts`. It uses `ring` rather than its default `aws-lc-rs`, which needs a C toolchain |
 | keyring-core, with the Apple and Windows stores | It stores passwords in the macOS Keychain and the Windows Credential Manager |
 | Tauri plugins: single-instance, window-state, log | A second launch focuses the open window, the window reopens where it was, and logs go to the app's log folder |
-| rmcp (M5, candidate) | It is the official Rust SDK for MCP, the protocol AI agents use to call tools |
+| rmcp 3.5.1, schemars | The official Rust SDK for MCP, the protocol AI agents use to call tools. Each tool's input schema is derived from its Rust type |
+| tokio's own sockets and pipes, dirs | The local socket or named pipe between `halfnine mcp` and the app needs no IPC crate, and `dirs` finds the config folder by Tauri's own rules without starting Tauri |
+| open, base64 | `open` opens Cursor's and VS Code's own install screens, as Tauri's opener plugin does inside. `base64` writes Cursor's install link |
 | bollard (M5, candidate) | It is a Rust client for the Docker Engine API. It finds, starts, stops and creates local Postgres containers through any Docker socket |
 
 ## The engineering invariants
@@ -53,16 +55,16 @@ This table checks the app against Dan's `architecture-invariants.md` and `ENGINE
 | Write identity, optimistic concurrency | An edit is keyed by primary key and also checks that each edited cell still prints as it did when loaded (`column::text = $n`, which works for every type). An update or delete that changes no row is a conflict: the whole commit rolls back and names the row. Tables without a key are read-only, and the status bar says why | holds: tested against Postgres 18 on 2026-10-28 |
 | Caching | Every query key holds its session, so ⌘R refreshes everything that session loaded. Nothing refetches on focus or a timer. After an editor run that did more than read, everything for the session is refreshed | holds |
 | Single-owner schema evolution | `connections.json` has a `version`. The app refuses one from a newer version, writes it to a temporary file and renames it over the old one, and the single-instance plugin keeps a second copy from writing at the same time | holds |
-| Observability | The log plugin writes to the app's log folder. Each editor run has an id, which is logged with its statement count, time and outcome, and kept in history. Nothing logged holds a secret, a row or SQL text. There is no telemetry | holds |
+| Observability | The log plugin writes to the app's log folder. Each editor run has an id, which is logged with its statement count, time and outcome, and kept in history. Nothing in the app's log holds a secret, a row or SQL text. The agent activity log keeps each agent call's SQL as written, by Dan's choice, but never rows, error messages or secrets. There is no telemetry | holds |
 | Test fidelity | `hn-core` and the SQL builder have unit tests. `hn-pg` is tested against Postgres 18 loaded with `crates/pg/tests/fixture.sql`, which has hostile names, every common type and a 70 KB value. Nothing mocks the database | holds: all 50 Rust tests passed on 2026-10-28, 23 of them against Postgres 18; CI runs them on every push once the repository is on GitHub |
 | Least privilege in the window | The capability file denies by default, and the CSP loads nothing from outside the app | holds |
 | Pinned dependencies | Versions are exact, published at least two weeks before they were added, with lockfiles. GitHub Actions are pinned to commit SHAs | partly: pnpm enforces the age for every JavaScript package, but Cargo can't for the crates beneath ours |
 | One artifact, promoted | A tag builds the installers once, into a draft release that Dan publishes | planned, M4 |
-| The eight fallacies | The database connection, or its SSH tunnel, is the only network boundary. Every command is async, so the window never waits on the network. A dropped connection is replaced, and a long statement can be cancelled | partly: no keepalive |
-| A trust boundary for AI agents | Agents are untrusted clients. Each MCP call is parsed at the edge, and the core checks it against that connection's access level, not the MCP process. Results are marked as data, so text in a row can't pass as an instruction. Approvals happen only in the app, and an agent can't raise its own access | planned, M5 |
-| Audit trail | Every agent call is appended to a log that is never rewritten. A write keeps the rows it changed, so it can be reverted | planned, M5 |
-| Runtime off-switch | One switch pauses all agent access, with no release needed | planned, M5 |
-| Idempotent writes | Each change an agent proposes has an id, so approving it twice or retrying it applies it once | planned, M5 |
-| Admission control for agents | Each agent query has a time limit and a row cap, and a sensitive column is masked before any result leaves the app | planned, M5 |
+| The eight fallacies | The database connection, or its SSH tunnel, is the only network boundary; the agents' socket is local. Every command is async, so the window never waits on the network. A dropped connection is replaced, and a long statement can be cancelled | partly: no keepalive |
+| A trust boundary for AI agents | Agents are untrusted clients. Each MCP call is parsed at the edge into the app's own types, and the app checks it against that connection's access level in one function (`agents::verdict`). An agent's queries always run in a `READ ONLY` transaction that has taken its snapshot. Results are marked as data, so text in a row can't pass as an instruction. Approvals happen only through the window's commands, and nothing over MCP changes access, allowances or the pause switch. An agent with a shell of its own runs as the same account and can still edit Halfnine's files | holds, for MCP |
+| Audit trail | Every agent call but `wait_for_approval` is appended to `agent-activity.jsonl` before it touches a database, and a call that can't be logged is refused. The file is never rewritten. Keeping the rows a write changed, so it can be reverted, comes with undo | partly: no undo yet |
+| Runtime off-switch | One switch on the Agents page pauses all agent access, withdraws what agents wait on and closes their sessions, with no release needed | holds |
+| Idempotent writes | Each proposal has an id. Approving it twice commits once, and the same change proposed again while it waits gets the same id | holds |
+| Admission control for agents | An agent query runs through a cursor that stops one row past its limit (at most 1,000), with 15 s statement and 5 s lock limits. Values are cut at 2,000 characters and results at about 10,000 tokens. Masking sensitive columns comes with that step | partly: no masking yet |
 | Single-owner schema evolution, in projects | In a project that has migrations, an agent's schema change becomes a migration file, so the project stays the only owner of its schema | planned, M5 |
 | Brokers, locks, multiple regions, a public API | The app has none of these. MCP is local, between processes on one machine | dormant |
