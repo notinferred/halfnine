@@ -333,3 +333,36 @@
   border-color: transparent;
   background: var(--selection);
 }
+
+/* The app's pages, at the foot of the sidebar and of the connections list. */
+.pages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+
+.page-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+}
+
+.page-icon {
+  color: var(--text-2);
+}
+
+.page-link:hover {
+  background: var(--hover);
+}
+
+.page-link[aria-current="true"] {
+  background: var(--selection);
+}

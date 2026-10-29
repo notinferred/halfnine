@@ -273,38 +273,6 @@ button.leaf:hover {
   text-align: center;
 }
 
-.pages {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2);
-  border-top: 1px solid var(--line);
-}
-
-.page-link {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 28px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  text-align: left;
-}
-
-.page-icon {
-  color: var(--text-2);
-}
-
-.page-link:hover {
-  background: var(--hover);
-}
-
-.page-link[aria-current="true"] {
-  background: var(--selection);
-}
-
 .workspace-start {
   display: flex;
   flex-direction: column;

@@ -90,6 +90,8 @@ export function ConnectionsScreen() {
             <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
             New Connection
           </button>
+        </div>
+        <div className="pages">
           <button type="button" className="page-link" aria-current={chosen === "agents" || undefined} onClick={() => setChosen("agents")}>
             <Bot className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
             Agents
