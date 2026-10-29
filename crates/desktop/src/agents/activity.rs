@@ -34,7 +34,7 @@ pub enum Outcome {
     Error,
 }
 
-/// What an agent asked for, written before any work.
+/// What an agent asked for, written before any work, and again with the exact SQL once it is known.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Call {
@@ -147,6 +147,11 @@ impl ActivityLog {
         for line in text.lines() {
             match serde_json::from_str::<Versioned>(line).map(|v| v.line) {
                 Ok(Line::Call(call)) => {
+                    if let Some(entry) = entries.get_mut(&call.call) {
+                        entry.sql = call.sql;
+                        entry.database = call.database;
+                        continue;
+                    }
                     order.push(call.call.clone());
                     entries.insert(
                         call.call.clone(),
@@ -213,6 +218,11 @@ mod tests {
             reason: None,
         };
         log.call(call("a")).unwrap();
+        log.call(Call {
+            sql: vec!["DELETE FROM users WHERE id = 1".into()],
+            ..call("a")
+        })
+        .unwrap();
         log.done(done("a", Outcome::Waiting)).unwrap();
         log.call(call("b")).unwrap();
         log.done(done("a", Outcome::Approved)).unwrap();
@@ -220,6 +230,11 @@ mod tests {
         assert_eq!(
             recent.iter().map(|e| (e.call.as_str(), e.outcome)).collect::<Vec<_>>(),
             [("b", None), ("a", Some(Outcome::Approved))]
+        );
+        assert_eq!(
+            recent[1].sql,
+            ["DELETE FROM users WHERE id = 1"],
+            "a later line for the same call replaces its SQL"
         );
         assert_eq!(log.recent(1).len(), 1);
         let _ = fs::remove_dir_all(dir);

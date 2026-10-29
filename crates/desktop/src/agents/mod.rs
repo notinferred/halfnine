@@ -368,9 +368,23 @@ impl Agents {
     /// Writes a call's first line. A call that can't be logged is refused, so nothing an agent does goes unrecorded.
     fn begin(&self, agent: &Agent, tool: &str, spec: Option<&ConnectionSpec>, database: Option<&str>, sql: Vec<String>) -> Result<String, Reply> {
         let call = new_id("c");
+        self.record(&call, agent, tool, spec, database, sql)?;
+        Ok(call)
+    }
+
+    /// Writes a call's line; written again for the same call, it replaces what the first said, such as its SQL.
+    fn record(
+        &self,
+        call: &str,
+        agent: &Agent,
+        tool: &str,
+        spec: Option<&ConnectionSpec>,
+        database: Option<&str>,
+        sql: Vec<String>,
+    ) -> Result<(), Reply> {
         self.log
             .call(Call {
-                call: call.clone(),
+                call: call.to_string(),
                 at_ms: now_ms(),
                 agent: agent.key.clone(),
                 agent_title: agent.title.clone(),
@@ -388,7 +402,7 @@ impl Agents {
                 )
             })?;
         self.desk.activity();
-        Ok(call)
+        Ok(())
     }
 
     fn end(&self, call: &str, outcome: Outcome, rows: Option<f64>, elapsed_ms: Option<u32>, error: Option<&Error>, reason: Option<String>) {
@@ -783,45 +797,48 @@ impl Agents {
     /// The write path every changing tool shares: the access rule, then either running it now or staging it for the
     /// person and waiting for their answer.
     async fn write(&self, agent: &Agent, mcp_session: &str, tool: &str, request: staging::Request) -> Reply {
-        let (spec, ask_reply) = match self.connection(&request.connection) {
-            Ok(spec) => (Some(spec), None),
-            Err(reply) => (None, Some(reply)),
+        let spec = self.connection(&request.connection).ok();
+        // Logged before anything touches a database, with the SQL known so far: an agent's statements as written.
+        let written = match &request.work {
+            staging::Asked::Statements(statements) => statements.clone(),
+            _ => Vec::new(),
         };
-        let quick = ask_reply.or_else(|| {
-            if self.paused() {
-                return Some(paused());
-            }
-            let spec = spec.as_ref()?;
-            match verdict(spec, Ask::Write { drops: request.drops() }, self.allowed(agent, spec)) {
-                Verdict::Refuse(why) => Some(Reply::new(Status::Refused, why)),
-                _ => None,
-            }
-        });
-        if let Some(reply) = quick {
-            if let Ok(call) = self.begin(agent, tool, spec.as_ref(), request.database.as_deref(), Vec::new()) {
-                self.ended(&call, &reply);
-            }
-            return reply;
-        }
-        let spec = spec.expect("a connection was found");
-        let (session, info) = match self.database(agent, &spec, request.database.as_deref()).await {
-            Ok(opened) => opened,
-            Err(reply) => return reply,
-        };
-        let staged = match staging::stage(&session.db, request.work).await {
-            Ok(Some(staged)) => staged,
-            Ok(None) => return Reply::new(Status::Ok, "Nothing to change: the rows already hold those values."),
-            Err(reply) => {
-                if let Ok(call) = self.begin(agent, tool, Some(&spec), Some(&info.server.database), Vec::new()) {
-                    self.ended(&call, &reply);
-                }
-                return reply;
-            }
-        };
-        let call = match self.begin(agent, tool, Some(&spec), Some(&info.server.database), staged.shown.clone()) {
+        let call = match self.begin(agent, tool, spec.as_ref(), request.database.as_deref(), written) {
             Ok(call) => call,
             Err(reply) => return reply,
         };
+        let refused = match &spec {
+            None => self.connection(&request.connection).err(),
+            Some(_) if self.paused() => Some(paused()),
+            Some(spec) => match verdict(spec, Ask::Write { drops: request.drops() }, self.allowed(agent, spec)) {
+                Verdict::Refuse(why) => Some(Reply::new(Status::Refused, why)),
+                _ => None,
+            },
+        };
+        let Some(spec) = spec.filter(|_| refused.is_none()) else {
+            let reply = refused.unwrap_or_else(|| Reply::new(Status::Error, "Halfnine lost the connection."));
+            self.ended(&call, &reply);
+            return reply;
+        };
+        let staged = match self.database(agent, &spec, request.database.as_deref()).await {
+            Ok((session, info)) => match staging::stage(&session.db, request.work).await {
+                Ok(Some(staged)) => Ok((session, info, staged)),
+                Ok(None) => Err(Reply::new(Status::Ok, "Nothing to change: the rows already hold those values.")),
+                Err(reply) => Err(reply),
+            },
+            Err(reply) => Err(reply),
+        };
+        let (session, info, staged) = match staged {
+            Ok(staged) => staged,
+            Err(reply) => {
+                self.ended(&call, &reply);
+                return reply;
+            }
+        };
+        // The exact statements, now that they are known and before any of them runs.
+        if let Err(reply) = self.record(&call, agent, tool, Some(&spec), Some(&info.server.database), staged.shown.clone()) {
+            return reply;
+        }
         if verdict(&spec, Ask::Write { drops: staged.drops }, self.allowed(agent, &spec)) == Verdict::Run {
             let started = Instant::now();
             return match run(&session.db, &staged.work, staged.rows).await {
