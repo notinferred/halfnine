@@ -2,11 +2,11 @@
 
 ## Where things stand (2026-10-29)
 
-M0 to M3 are done, and M4 closes with v0.1.0 published and the installed app measured. The first step of M5, the agent core, is built and approved, and is on main:
+M0 to M3 are done. M4 is done on macOS: v0.1.0 is published, and the installed app opens in under half a second and idles at about 86 MB. Windows is still to be measured. The first step of M5, the agent core, is built and approved, and is on main:
 
 - Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself.
 - CI passed: lint, types, the build, and all 86 Rust tests, the agent tests against Postgres 18 included.
-- v0.1.0 is a draft release with a 3.3 MB macOS installer and a 3.0 MB Windows one. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
+- v0.1.0 is published, with a 3.3 MB macOS installer and a 3.0 MB Windows one. It predates the agent core, which comes in the next release. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
 
 ## M0: Foundation
 
@@ -112,7 +112,12 @@ Dan used the app against the throwaway check database:
 - [x] **The README's install steps**, which the release notes repeat.
 - [x] **License:** PolyForm Shield 1.0.0, copyright notInferred, in every commit since the first. The repository's description leads with AI agents, marked as coming, and its topics are ones people browse.
 - [x] **The first draft release** from the tag `v0.1.0` (2026-10-28): `Halfnine_0.1.0_aarch64.dmg` and `Halfnine_0.1.0_x64-setup.exe`. It waits for Dan to publish it.
-- [ ] **Measured budgets:** an installer under 15 MB holds: 3.3 MB for macOS and 3.0 MB for Windows. A window ready in under 1 second, and idle memory on both systems, are still to be measured from the installed app.
+- [x] **Published** v0.1.0 (2026-10-29).
+- [x] **Measured budgets on macOS** (2026-10-29), v0.1.0 installed from the release on an Apple silicon Mac:
+  - The installer is under 15 MB: 3.3 MB for macOS and 3.0 MB for Windows. Installed, the app is 6.8 MB.
+  - The window is on screen 390 ms after the first launch, and about 200 ms after later ones. This is measured to the window appearing; its page draws just after.
+  - Idle memory is about 86 MB in all, by macOS's physical footprint, 20 seconds after launch on the connections screen: the app 26 MB, and its WebKit processes 43, 13 and 4 MB.
+- [ ] **Measured budgets on Windows:** the same two numbers, from a Windows machine.
 - **Keychain prompts after an update.** An unsigned release is a new app to macOS, so after each update macOS asks once before Halfnine reads a saved password. The README says to choose Always Allow. Signing (under Next) ends it.
 - The icon stays as drawn in M0; it never depended on the name.
 
