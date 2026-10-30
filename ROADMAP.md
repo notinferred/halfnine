@@ -2,7 +2,7 @@
 
 ## Where things stand (2026-10-29)
 
-M0 to M3 are done. M4 is done on macOS: v0.1.0 is published, and the installed app opens in under half a second and idles at about 86 MB. Windows is still to be measured. The first step of M5, the agent core, is built and approved, and is on main:
+M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry:
 
 - Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself.
 - CI passed: lint, types, the build, and all 86 Rust tests, the agent tests against Postgres 18 included.
@@ -144,12 +144,15 @@ Dan chose to release sooner: this step, then v0.2.0 with agents, then the rest o
 
 - [x] **Hidden columns:** an eye on each column in the Structure view hides it from agents, and suggests it for names like email, phone, token, password and secret. Its values show as `[hidden]` wherever an agent's query returns them; a query that filters on it or computes with it, and a write that reads it, is refused, using Postgres's own plan. It stops accidental exposure, not an agent deliberately working around it through a view or a kept-apart subquery.
 - [x] **Undo for `change_rows`:** the reverse of each committed row change is kept, deleted rows' values included, and Undo on the Agents page stages it in the table like your own edits. `run_sql` and structure changes can't be undone there.
-- [ ] **Dan's check.**
+- [x] **Released without a separate check,** by Dan's choice ("Release now").
 
-### Release
+### Release (2026-10-30)
 
-- [ ] **v0.2.0** with the agent core and the safety step, built by `release.yml` from a tag.
-- [ ] **Listed:** the repository's description without "(coming soon)", the topics mcp, mcp-server, ai-agents and claude-code, and Halfnine in the official MCP Registry, Smithery, mcp.so and awesome-mcp-servers.
+- [x] **v0.2.0 published,** with the agent core and the safety step: a 4.1 MB macOS installer, a 3.7 MB Windows one, and the Claude Desktop extension. Installed here, its `halfnine mcp` opened the closed app and answered in 0.6 seconds, and Claude Code connects to it.
+- [x] **The official MCP Registry** lists `io.github.notinferred/halfnine` 0.2.0, published by `registry.yml` when the release was.
+- [x] **GitHub:** the description no longer says "coming soon", and the topics add mcp, mcp-server, ai-agents and claude-code.
+- [x] **awesome-mcp-servers:** pull request punkpeye/awesome-mcp-servers#18051, waiting for its maintainers.
+- [ ] **mcp.so and Smithery:** submitted by Dan through their sites, with the text Claude wrote.
 - [x] **A Claude Desktop extension** (`.mcpb`), built with each release; the MCP Registry lists it.
 
 ### Next in M5
