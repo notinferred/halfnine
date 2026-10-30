@@ -72,7 +72,7 @@ fn main() {
                 let _ = tauri_specta::Event::emit(&docker::commands::DockerChanged, &handle);
             }));
             docker.watch();
-            let backups = Arc::new(backups::Backups::open(&dir)?);
+            let backups = Arc::new(backups::Backups::open(&dir, passwords.clone())?);
             let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone(), docker.clone()));
             let agents = Arc::new(agents::Agents::new(
                 &dir,

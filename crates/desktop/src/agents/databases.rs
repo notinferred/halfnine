@@ -127,6 +127,7 @@ impl Agents {
             user: None,
             database: None,
             port: None,
+            password: None,
         };
         let docker = self.directory.docker.clone();
         let job = docker.clone();
@@ -162,6 +163,7 @@ impl Agents {
             user: None,
             database: None,
             port: None,
+            password: None,
         };
         let docker = self.directory.docker.clone();
         let job = docker.clone();

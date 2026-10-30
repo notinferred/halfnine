@@ -36,6 +36,9 @@ struct Pair {
 struct Saved {
     version: u32,
     connections: HashMap<String, Pair>,
+    /// The password of each deleted Docker database's container, by its backup, so putting it back gives it the same.
+    #[serde(default)]
+    backups: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -91,6 +94,27 @@ impl Passwords {
         })
     }
 
+    /// Keeps a deleted Docker database's password with its backup.
+    pub fn keep_for_backup(&self, backup: &str, password: &str) -> Result<(), Error> {
+        self.with_saved(|saved| {
+            saved.backups.insert(backup.to_string(), password.to_string());
+            write(saved)
+        })
+    }
+
+    /// The password a backed-up Docker database had, if it was kept.
+    pub fn for_backup(&self, backup: &str) -> Result<Option<String>, Error> {
+        self.with_saved(|saved| Ok(saved.backups.get(backup).cloned()))
+    }
+
+    /// Removes a backup's password, as when the backup is deleted.
+    pub fn forget_backup(&self, backup: &str) -> Result<(), Error> {
+        self.with_saved(|saved| match saved.backups.remove(backup) {
+            Some(_) => write(saved),
+            None => Ok(()),
+        })
+    }
+
     pub fn remember(&self, id: &str, secrets: &Secrets) {
         if let Ok(mut typed) = self.typed.lock() {
             typed.insert(
@@ -140,7 +164,7 @@ fn read() -> Result<Saved, Error> {
         }
         Err(keyring_core::Error::NoEntry) => Ok(Saved {
             version: VERSION,
-            connections: HashMap::new(),
+            ..Saved::default()
         }),
         Err(e) => Err(keychain(e)),
     }
@@ -149,7 +173,7 @@ fn read() -> Result<Saved, Error> {
 fn write(saved: &mut Saved) -> Result<(), Error> {
     saved.version = VERSION;
     let entry = Entry::new(SERVICE, ACCOUNT).map_err(keychain)?;
-    if saved.connections.is_empty() {
+    if saved.connections.is_empty() && saved.backups.is_empty() {
         return match entry.delete_credential() {
             Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
             Err(e) => Err(keychain(e)),
@@ -183,4 +207,31 @@ fn keychain(e: keyring_core::Error) -> Error {
 
 fn keychain_text(e: &serde_json::Error) -> Error {
     Error::new(ErrorKind::Keychain, format!("Halfnine's keychain entry couldn't be read: {e}."))
+}
+
+/// Tests keep secrets in keyring-core's in-memory store, shared by every test in the process.
+#[cfg(test)]
+pub fn use_test_store() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| keyring_core::set_default_store(keyring_core::mock::Store::new().expect("the mock store")));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_a_backups_password_beside_saved_ones_until_the_backup_goes() {
+        use_test_store();
+        let passwords = Passwords::default();
+        passwords.keep_for_backup("b1", "s3cret").unwrap();
+        assert_eq!(passwords.for_backup("b1").unwrap().as_deref(), Some("s3cret"));
+        assert_eq!(
+            Passwords::default().for_backup("b1").unwrap().as_deref(),
+            Some("s3cret"),
+            "it's in the keychain"
+        );
+        passwords.forget_backup("b1").unwrap();
+        assert_eq!(Passwords::default().for_backup("b1").unwrap(), None);
+    }
 }

@@ -275,7 +275,10 @@ export type Choices = {
 	setupSeen?: boolean,
 	docker?: boolean,
 	backups?: boolean,
-	/**  The biggest table backed up before it is dropped or emptied, in bytes. `None` is no limit. */
+	/**
+	 *  The biggest table or Docker database backed up before it is dropped, emptied or deleted, in bytes. `None` is no
+	 *  limit.
+	 */
 	backupLimitBytes?: number | null,
 	agentsPaused?: boolean,
 };

@@ -1,13 +1,13 @@
 //! Backups made before something is dropped, emptied or deleted, kept until someone deletes them. Each is a folder
 //! in `backups/` that only this account can read, listed in `backups/backups.json`. A table's folder holds its
-//! definition and its rows as CSV; a Docker database's holds its roles and a dump of each database. A backup is
-//! listed once its files are on disk and before the drop or delete happens, so a crash can leave an extra backup but
-//! never lose one.
+//! definition and its rows as CSV; a Docker database's holds its roles, with their password hashes, and a dump of
+//! each database, while its container's password is kept in the keychain entry. A backup is listed once its files
+//! are on disk and before the drop or delete happens, so a crash can leave an extra backup but never lose one.
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use hn_core::{
     AgentMark, Cell, Changes, Committed, Database, Error, ErrorKind, PageColumn, RestoreInto, RowSink, StructureChange, TableDefinition, TableRef,
@@ -21,6 +21,7 @@ use crate::docker::Docker;
 use crate::docker::make::KeptContainer;
 use crate::files::{self, private_dir, storage};
 use crate::import::FileSource;
+use crate::secrets::Passwords;
 use crate::sessions::Session;
 use crate::settings::Choices;
 
@@ -98,6 +99,8 @@ pub struct CommitDone {
 pub struct Backups {
     dir: PathBuf,
     index: Mutex<Vec<Backup>>,
+    /// Where a deleted Docker database's password is kept, beside the saved connections'.
+    passwords: Arc<Passwords>,
 }
 
 /// What `changes` would lose, as the restore that puts it back: the table they drop, empty or take columns from.
@@ -124,12 +127,13 @@ pub fn loses(changes: &Changes) -> Option<(TableRef, RestoreInto)> {
 }
 
 impl Backups {
-    pub fn open(config: &Path) -> Result<Self, Error> {
+    pub fn open(config: &Path, passwords: Arc<Passwords>) -> Result<Self, Error> {
         let dir = config.join("backups");
         let index = files::load::<Index>(&dir.join(INDEX), VERSION, "the list of backups")?;
         Ok(Self {
             dir,
             index: Mutex::new(index.backups),
+            passwords,
         })
     }
 
@@ -217,7 +221,18 @@ impl Backups {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let folder = self.dir.join(&id);
         let kept = match docker.back_up(name, &folder, choices.backup_limit_bytes).await {
-            Ok(kept) => kept,
+            Ok((kept, Some(password))) => match self.passwords.keep_for_backup(&id, &password) {
+                Ok(()) => kept,
+                Err(error) => {
+                    let _ = fs::remove_dir_all(&folder);
+                    return Err(Error {
+                        kind: ErrorKind::NoBackup,
+                        message: format!("Halfnine couldn't keep {name}'s password, so nothing was deleted: {}", error.message),
+                        ..error
+                    });
+                }
+            },
+            Ok((kept, None)) => kept,
             Err(error) => {
                 let _ = fs::remove_dir_all(&folder);
                 return Err(match error.kind {
@@ -237,10 +252,7 @@ impl Backups {
             agent,
             call: None,
             bytes: folder_bytes(&folder),
-            not_kept: vec![
-                "role passwords".into(),
-                "container settings beyond its image, port, user and database".into(),
-            ],
+            not_kept: vec!["container settings beyond its image, port, user, password and database".into()],
             restored_at_ms: None,
         };
         let listed = backup.clone();
@@ -264,9 +276,12 @@ impl Backups {
         };
         let name = docker.free_name(&container.name).await?;
         let folder = self.dir.join(id);
+        let password = self.passwords.for_backup(id)?;
         let job = std::sync::Arc::clone(docker);
         let target = name.clone();
-        let mut done = docker.job(&name, "Putting it back…", async move { job.put_back(&container, &target, &folder).await });
+        let mut done = docker.job(&name, "Putting it back…", async move {
+            job.put_back(&container, &target, &folder, password).await
+        });
         let outcome = done
             .wait_for(Option::is_some)
             .await
@@ -355,6 +370,9 @@ impl Backups {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), Error> {
+        if self.get(id).is_ok_and(|b| matches!(b.holds, Holds::Database { .. })) {
+            self.passwords.forget_backup(id)?;
+        }
         self.change(|backups| backups.retain(|b| b.id != id))?;
         match fs::remove_dir_all(self.dir.join(id)) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(storage("Couldn't delete the backup's files", e)),
@@ -550,7 +568,7 @@ mod database_tests {
     async fn backs_a_table_up_privately_before_dropping_it_and_puts_it_back() {
         let Some(session) = session().await else { return };
         let dir = std::env::temp_dir().join(format!("hn-backups-{}", uuid::Uuid::new_v4().simple()));
-        let backups = Backups::open(&dir).unwrap();
+        let backups = Backups::open(&dir, Default::default()).unwrap();
         let table = TableRef {
             schema: "public".into(),
             name: "hn_backups_notes".into(),
@@ -597,7 +615,7 @@ mod database_tests {
             assert_eq!(mode(&folder.join(DEFINITION)), 0o600);
             assert_eq!(mode(&dir.join("backups").join(INDEX)), 0o600);
         }
-        assert_eq!(Backups::open(&dir).unwrap().list().len(), 1, "the index is on disk");
+        assert_eq!(Backups::open(&dir, Default::default()).unwrap().list().len(), 1, "the index is on disk");
 
         assert!(backups.review_restore(&session, &backup.id).await.unwrap()[0].starts_with("CREATE TABLE"));
         assert_eq!(backups.restore(&session, &backup.id).await.unwrap(), 3.0);

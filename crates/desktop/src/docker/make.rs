@@ -78,6 +78,8 @@ pub struct NewDatabase {
     pub database: Option<String>,
     /// The port to publish it on if that one is free, as when it is put back.
     pub port: Option<u16>,
+    /// The password its container is made with, as when it is put back; a new random one unless given.
+    pub password: Option<String>,
 }
 
 /// What a backup keeps of a container besides its dumps, to make it again as it was.
@@ -210,7 +212,7 @@ impl Docker {
                 .await?;
         }
         self.progress(&new.name, "Starting…".into());
-        let password = uuid::Uuid::new_v4().simple().to_string();
+        let password = new.password.clone().unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
         let id = uuid::Uuid::new_v4().simple().to_string();
         let mut labels = HashMap::from([
             (label::MANAGED.to_string(), "true".to_string()),
@@ -286,10 +288,11 @@ impl Docker {
         Ok(PortHold(port, self))
     }
 
-    /// Dumps a container's databases and roles into `folder`, starting it for that if it's stopped, and says what a
-    /// backup keeps of it to make it again. Refuses with [`ErrorKind::NoBackup`] when its databases together are
-    /// bigger than `limit`. A container started for this is stopped again if it isn't dumped.
-    pub async fn back_up(&self, name: &str, folder: &std::path::Path, limit: Option<f64>) -> Result<KeptContainer, Error> {
+    /// Dumps a container's databases and roles, with their password hashes, into `folder`, starting it for that if
+    /// it's stopped. Gives what a backup keeps of it to make it again, and its container's password. Refuses with
+    /// [`ErrorKind::NoBackup`] when its databases together are bigger than `limit`. A container started for this is
+    /// stopped again if it isn't dumped.
+    pub async fn back_up(&self, name: &str, folder: &std::path::Path, limit: Option<f64>) -> Result<(KeptContainer, Option<String>), Error> {
         let engine = self.engine().await?;
         let container = engine.container(name).await?;
         if !container.running {
@@ -308,7 +311,7 @@ impl Docker {
                     ),
                 ));
             }
-            dumps::dump(&engine, name, user, folder).await
+            dumps::dump(&engine, name, user, folder, true).await
         };
         let dumped = match dumped.await {
             Ok(dumped) => dumped,
@@ -319,7 +322,8 @@ impl Docker {
                 return Err(error);
             }
         };
-        Ok(KeptContainer {
+        let password = self.secrets(name).await?.password;
+        let kept = KeptContainer {
             name: name.to_string(),
             image: container.image.clone(),
             major: container.major,
@@ -329,7 +333,8 @@ impl Docker {
             databases: dumped.databases,
             made: made(&container),
             overrides: self.overrides(name),
-        })
+        };
+        Ok((kept, password))
     }
 
     /// The name a database put back takes: its own if it's free, else the first free of `<name>-restored`,
@@ -345,9 +350,15 @@ impl Docker {
             .unwrap_or_default())
     }
 
-    /// Makes a backed-up database again as `name`: the same image, user and databases, on its old port if that's
-    /// free, made the way the original was and set as it was.
-    pub async fn put_back(&self, kept: &KeptContainer, name: &str, folder: &std::path::Path) -> Result<ConnectionSpec, Error> {
+    /// Makes a backed-up database again as `name`: the same image, user, password and databases, on its old port if
+    /// that's free, made the way the original was and set as it was.
+    pub async fn put_back(
+        &self,
+        kept: &KeptContainer,
+        name: &str,
+        folder: &std::path::Path,
+        password: Option<String>,
+    ) -> Result<ConnectionSpec, Error> {
         let origin = match kept.made.as_ref().map(|m| m.how) {
             Some(MadeHow::New) => Origin::New,
             Some(MadeHow::Copy) => Origin::Copy,
@@ -364,6 +375,7 @@ impl Docker {
             user: Some(kept.user.clone()),
             database: Some(kept.database.clone()),
             port: kept.port,
+            password,
         })
         .await?;
         self.progress(name, format!("Restoring {}…", kept.name));
@@ -389,7 +401,7 @@ impl Docker {
         let dir = std::env::temp_dir().join(format!("halfnine-copy-{}", uuid::Uuid::new_v4().simple()));
         let copied = async {
             let user = &from.credentials.user;
-            let dumped = super::dumps::dump(&engine, source, user, &dir).await?;
+            let dumped = super::dumps::dump(&engine, source, user, &dir, false).await?;
             let spec = self
                 .make(NewDatabase {
                     image: Some(from.image_id.clone()),
@@ -400,6 +412,7 @@ impl Docker {
                     database: Some(from.credentials.database.clone()),
                     load: None,
                     port: None,
+                    password: None,
                     ..new.clone()
                 })
                 .await?;

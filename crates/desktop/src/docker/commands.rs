@@ -116,6 +116,7 @@ pub async fn create_docker_database(state: State<'_, AppState>, name: String, ve
         user: None,
         database: None,
         port: None,
+        password: None,
     };
     let docker = state.docker.clone();
     let _ = state.docker.job(&name, "Starting…", async move { docker.make(new).await });
@@ -163,6 +164,7 @@ pub async fn copy_docker_database(state: State<'_, AppState>, source: String, na
         user: None,
         database: None,
         port: None,
+        password: None,
     };
     let docker = state.docker.clone();
     let _ = state

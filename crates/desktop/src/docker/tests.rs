@@ -36,6 +36,7 @@ fn new_database(name: &str) -> NewDatabase {
         user: None,
         database: None,
         port: None,
+        password: None,
     }
 }
 
@@ -169,7 +170,10 @@ async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
                     o.read_only = true;
                 })
                 .unwrap();
-            let backups = crate::backups::Backups::open(&dir).unwrap();
+            crate::secrets::use_test_store();
+            let passwords = Arc::new(crate::secrets::Passwords::default());
+            let backups = crate::backups::Backups::open(&dir, passwords.clone()).unwrap();
+            let password = docker.secrets(&name).await.unwrap().password;
             let delete = async || docker.delete(&name).await;
             let off = crate::settings::Choices {
                 backups: false,
@@ -205,7 +209,17 @@ async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
             assert!(kept.databases.contains(&made.database), "{:?}", kept.databases);
 
             let folder = dir.join("backups").join(&backup.id);
-            let back = docker.put_back(kept, &docker.free_name(&name).await.unwrap(), &folder).await.unwrap();
+            let kept_password = passwords.for_backup(&backup.id).unwrap();
+            assert_eq!(kept_password, password, "its password is kept with the backup");
+            let back = docker
+                .put_back(kept, &docker.free_name(&name).await.unwrap(), &folder, kept_password)
+                .await
+                .unwrap();
+            assert_eq!(
+                docker.secrets(&name).await.unwrap().password,
+                password,
+                "it comes back with the same password"
+            );
             assert_eq!((back.name.as_str(), back.label, back.read_only), (name.as_str(), Label::Amber, true));
             let Source::Docker { made: Some(how), .. } = &back.source else {
                 panic!("Halfnine made it")

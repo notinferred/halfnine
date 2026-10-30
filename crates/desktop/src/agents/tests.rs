@@ -88,8 +88,9 @@ fn world(url: Option<&str>) -> World {
     // Off here, so tests can drop their own tables with run_sql; the tests of backups turn them on.
     settings.change(|c| c.backups = false).unwrap();
     let docker = Arc::new(crate::docker::Docker::new(&dir, settings.clone(), || {}));
-    let directory = Arc::new(crate::connections::Directory::new(store, passwords, docker));
-    let backups = Arc::new(crate::backups::Backups::open(&dir).unwrap());
+    let directory = Arc::new(crate::connections::Directory::new(store, passwords.clone(), docker));
+    crate::secrets::use_test_store();
+    let backups = Arc::new(crate::backups::Backups::open(&dir, passwords.clone()).unwrap());
     let agents =
         Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), backups, desk.clone()).waiting_at_most(Duration::from_millis(300));
     World {

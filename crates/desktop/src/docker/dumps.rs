@@ -1,6 +1,6 @@
 //! Whole Docker databases saved to a folder and made again from it, with the tools inside the container: the roles
-//! (`pg_dumpall --globals-only`, without their password hashes) and each database (`pg_dump -Fc`). A copy is made
-//! this way, and a backup before a delete.
+//! (`pg_dumpall --globals-only`) and each database (`pg_dump -Fc`). A copy is made this way, and a backup before a
+//! delete.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -74,8 +74,9 @@ async fn accepting(engine: &Engine, container: &str, user: &str) -> Result<(), E
     }
 }
 
-/// Saves every database of a running container, and the roles, to `dir`, streamed to disk.
-pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path) -> Result<Dumped, Error> {
+/// Saves every database of a running container, and the roles, to `dir`, streamed to disk. The roles' password
+/// hashes are kept only with `passwords`, as a backup does; a copy's roles start without them.
+pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path, passwords: bool) -> Result<Dumped, Error> {
     private_dir(dir)?;
     accepting(engine, container, user).await?;
     let list = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname";
@@ -89,13 +90,11 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path) -> R
         .filter(|d| !d.is_empty())
         .collect();
     let mut globals = create(&dir.join(GLOBALS)).await?;
-    let ran = engine
-        .run_to(
-            container,
-            &["pg_dumpall", "-U", user, "--globals-only", "--no-role-passwords"],
-            &mut globals,
-        )
-        .await?;
+    let mut roles = vec!["pg_dumpall", "-U", user, "--globals-only"];
+    if !passwords {
+        roles.push("--no-role-passwords");
+    }
+    let ran = engine.run_to(container, &roles, &mut globals).await?;
     if !ran.succeeded() {
         return Err(failed("Halfnine couldn't save the roles", &ran.stderr));
     }
