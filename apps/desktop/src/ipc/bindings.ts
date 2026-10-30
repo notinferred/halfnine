@@ -142,6 +142,12 @@ export type AgentAccess = "off" |
 
 export type AgentActivityAdded = null;
 
+/**  An agent as its MCP client names itself: `key` as sent, `title` for people. */
+export type AgentMark = {
+	key: string,
+	title: string,
+};
+
 export type AgentState = {
 	paused: boolean,
 	clients: ClientView[],
@@ -261,6 +267,8 @@ export type ConnectionSpec = {
 	agentAccess?: AgentAccess | null,
 	/**  Columns whose values agents never see, wherever a query would return them. */
 	hiddenColumns?: HiddenColumn[],
+	/**  Saved by someone, or a Postgres container on this computer. */
+	source?: Source,
 };
 
 export type Constraint = {
@@ -290,7 +298,9 @@ export type ErrorKind = "network" | "timeout" | "auth" |
 /**  The connection asks for its password each time, and none has been typed this launch. */
 "passwordNeeded" | "tls" | "ssh" | "query" | "readOnly" | 
 /**  A row changed after it was loaded, so a commit wrote nothing. */
-"conflict" | "notFound" | "invalid" | "storage" | "keychain";
+"conflict" | "notFound" | "invalid" | "storage" | "keychain" | 
+/**  The Docker engine on this computer couldn't be reached, or refused. */
+"docker";
 
 export type ExportDone = {
 	rows: number | null,
@@ -362,6 +372,17 @@ export type Index = {
 
 /**  The colour that marks an environment, so production always looks different. */
 export type Label = "none" | "green" | "amber" | "red";
+
+/**  How Halfnine made a container, when it did. */
+export type Made = {
+	how: MadeHow,
+	/**  The agent that asked for it, if one did. */
+	agent: AgentMark | null,
+};
+
+export type MadeHow = "new" | "copy" | 
+/**  Made to restore a backup of a database Halfnine didn't make, which keeps that origin: it is treated as anyone's. */
+"restored";
 
 export type NewColumn = {
 	name: string,
@@ -501,6 +522,11 @@ export type Sort = {
 	column: string,
 	descending: boolean,
 };
+
+/**  Where a connection comes from. */
+export type Source = { kind: "saved" } | 
+/**  A Postgres container on this computer, found while Docker databases are on. It is never saved as a connection. */
+{ kind: "docker"; container: string; made: Made | null };
 
 /**  How the tunnel authenticates. A key's passphrase or the password is kept in the keychain, never here. */
 export type SshAuth = { method: "agent" } | { method: "key"; path: string } | { method: "password" };

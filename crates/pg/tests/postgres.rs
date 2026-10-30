@@ -27,6 +27,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
         save_password: false,
         agent_access: None,
         hidden_columns: Vec::new(),
+        source: hn_core::Source::Saved,
     };
     let secrets = Secrets {
         password: parts.password,

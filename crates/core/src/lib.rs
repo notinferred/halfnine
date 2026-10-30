@@ -8,7 +8,9 @@ mod database;
 mod error;
 
 pub use changes::{CellChange, Changes, Choice, Committed, NewColumn, RowUpdate, StructureChange};
-pub use connection::{AgentAccess, ConnectionSpec, HiddenColumn, Label, SshAuth, SshSpec, TlsMode, UrlParts, parse_url};
+pub use connection::{
+    AgentAccess, AgentMark, ConnectionSpec, HiddenColumn, Label, Made, MadeHow, Source, SshAuth, SshSpec, TlsMode, UrlParts, parse_url,
+};
 pub use data::{
     Activity, Cell, ColumnInfo, ColumnRef, ColumnValue, Constraint, CutCell, EnumType, ExportSource, Filter, ForeignKey, IncomingKey, Index, Page,
     PageColumn, PageRequest, Reference, Relation, RelationKind, RunFailure, RunOutcome, SchemaNode, ServerInfo, Sort, StatementResult, Structure,

@@ -54,6 +54,7 @@ fn spec(name: &str, access: Option<AgentAccess>, label: Label, read_only: bool, 
         save_password: false,
         agent_access: access,
         hidden_columns: Vec::new(),
+        source: hn_core::Source::Saved,
     }
 }
 

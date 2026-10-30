@@ -488,6 +488,7 @@ fn spec_from(draft: &ConnectionDraft) -> Result<ConnectionSpec, Error> {
         save_password: draft.save_password,
         agent_access: draft.agent_access,
         hidden_columns: Vec::new(),
+        source: hn_core::Source::Saved,
     })
 }
 

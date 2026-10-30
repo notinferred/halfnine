@@ -93,6 +93,7 @@ mod tests {
             save_password: true,
             agent_access: None,
             hidden_columns: Vec::new(),
+            source: hn_core::Source::Saved,
         }
     }
 

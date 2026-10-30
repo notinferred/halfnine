@@ -30,6 +30,8 @@ pub enum ErrorKind {
     Invalid,
     Storage,
     Keychain,
+    /// The Docker engine on this computer couldn't be reached, or refused.
+    Docker,
 }
 
 impl Error {

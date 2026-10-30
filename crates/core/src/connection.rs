@@ -32,6 +32,45 @@ pub struct ConnectionSpec {
     /// Columns whose values agents never see, wherever a query would return them.
     #[serde(default)]
     pub hidden_columns: Vec<HiddenColumn>,
+    /// Saved by someone, or a Postgres container on this computer.
+    #[serde(default)]
+    pub source: Source,
+}
+
+/// Where a connection comes from.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Source {
+    #[default]
+    Saved,
+    /// A Postgres container on this computer, found while Docker databases are on. It is never saved as a connection.
+    Docker { container: String, made: Option<Made> },
+}
+
+/// How Halfnine made a container, when it did.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Made {
+    pub how: MadeHow,
+    /// The agent that asked for it, if one did.
+    pub agent: Option<AgentMark>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MadeHow {
+    New,
+    Copy,
+    /// Made to restore a backup of a database Halfnine didn't make, which keeps that origin: it is treated as anyone's.
+    Restored,
+}
+
+/// An agent as its MCP client names itself: `key` as sent, `title` for people.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMark {
+    pub key: String,
+    pub title: String,
 }
 
 /// A column hidden from agents, in one database of a connection.
@@ -62,12 +101,19 @@ impl ConnectionSpec {
             .collect()
     }
 
-    /// The level agents get: the one picked, or else Off for a red label and Read for any other.
+    /// The level agents get: the one picked, or else Off for a red label, Full for a database Halfnine made, and Read
+    /// for any other.
     pub fn agent_access(&self) -> AgentAccess {
         self.agent_access.unwrap_or(match self.label {
             Label::Red => AgentAccess::Off,
+            _ if self.made_by_halfnine() => AgentAccess::Full,
             _ => AgentAccess::Read,
         })
+    }
+
+    /// A Docker database Halfnine made itself, new or as a copy. A restore of someone else's database isn't one.
+    pub fn made_by_halfnine(&self) -> bool {
+        matches!(&self.source, Source::Docker { made: Some(made), .. } if made.how != MadeHow::Restored)
     }
 }
 
@@ -213,6 +259,30 @@ mod tests {
         assert_eq!(spec.agent_access(), AgentAccess::Read);
         spec.agent_access = Some(AgentAccess::Full);
         assert_eq!(spec.agent_access(), AgentAccess::Full);
+        assert_eq!(spec.source, Source::Saved, "a saved file has no source and is a saved connection");
+    }
+
+    #[test]
+    fn agents_get_full_access_to_a_database_halfnine_made() {
+        let saved =
+            r#"{"id":"a","name":"a","host":"h","port":5432,"user":"u","database":"d","tls":"prefer","label":"none","readOnly":false,"ssh":null}"#;
+        let mut spec: ConnectionSpec = serde_json::from_str(saved).unwrap();
+        let made = |how| Source::Docker {
+            container: "scratch".into(),
+            made: Some(Made { how, agent: None }),
+        };
+        spec.source = made(MadeHow::New);
+        assert_eq!(spec.agent_access(), AgentAccess::Full);
+        spec.source = made(MadeHow::Restored);
+        assert_eq!(spec.agent_access(), AgentAccess::Read);
+        spec.source = Source::Docker {
+            container: "compose-db".into(),
+            made: None,
+        };
+        assert_eq!(spec.agent_access(), AgentAccess::Read);
+        spec.source = made(MadeHow::Copy);
+        spec.label = Label::Red;
+        assert_eq!(spec.agent_access(), AgentAccess::Off);
     }
 
     #[test]
