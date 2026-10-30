@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use hn_core::{Cell, Error, PageColumn, RowSink};
+use hn_core::{Cell, Error, PageColumn, RowSink, csv_line};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -34,8 +34,8 @@ pub struct ExportDone {
 }
 
 pub enum Sink {
-    /// NULL becomes an empty field, as CSV has no other way to write it.
-    Csv(Box<csv::Writer<BufWriter<File>>>),
+    /// NULL becomes an empty field and empty text `""`, as Postgres's CSV reader tells them apart.
+    Csv(BufWriter<File>),
     /// An array of objects keyed by column name, with each value as Postgres printed it, or null.
     Json { out: BufWriter<File>, names: Vec<String>, rows: u64 },
 }
@@ -44,7 +44,7 @@ impl Sink {
     pub fn create(path: &Path, format: ExportFormat) -> Result<Self, Error> {
         let file = File::create(path).map_err(|e| storage("Couldn't create the file", e))?;
         Ok(match format {
-            ExportFormat::Csv => Self::Csv(Box::new(csv::Writer::from_writer(BufWriter::new(file)))),
+            ExportFormat::Csv => Self::Csv(BufWriter::new(file)),
             ExportFormat::Json => Self::Json {
                 out: BufWriter::new(file),
                 names: Vec::new(),
@@ -55,7 +55,7 @@ impl Sink {
 
     pub fn finish(self) -> Result<(), Error> {
         match self {
-            Self::Csv(mut writer) => writer.flush().map_err(|e| storage("Couldn't finish the file", e)),
+            Self::Csv(mut out) => out.flush().map_err(|e| storage("Couldn't finish the file", e)),
             Self::Json { mut out, rows, .. } => {
                 let end = if rows == 0 { "]\n" } else { "\n]\n" };
                 out.write_all(end.as_bytes())
@@ -69,8 +69,8 @@ impl Sink {
 impl RowSink for Sink {
     fn columns(&mut self, columns: &[PageColumn]) -> Result<(), Error> {
         match self {
-            Self::Csv(writer) => writer
-                .write_record(columns.iter().map(|c| &c.name))
+            Self::Csv(out) => out
+                .write_all(csv_line(columns.iter().map(|c| Some(c.name.as_str()))).as_bytes())
                 .map_err(|e| storage("Couldn't write the file", e)),
             Self::Json { out, names, .. } => {
                 *names = columns.iter().map(|c| c.name.clone()).collect();
@@ -81,8 +81,8 @@ impl RowSink for Sink {
 
     fn row(&mut self, row: &[Cell]) -> Result<(), Error> {
         match self {
-            Self::Csv(writer) => writer
-                .write_record(row.iter().map(|v| v.as_deref().unwrap_or("")))
+            Self::Csv(out) => out
+                .write_all(csv_line(row.iter().map(Option::as_deref)).as_bytes())
                 .map_err(|e| storage("Couldn't write the file", e)),
             Self::Json { out, names, rows } => {
                 let object: serde_json::Map<String, serde_json::Value> = names
@@ -120,6 +120,7 @@ mod tests {
         sink.columns(&columns).unwrap();
         sink.row(&[Some("1".into()), Some("say \"hi\"".into())]).unwrap();
         sink.row(&[Some("2".into()), None]).unwrap();
+        sink.row(&[Some("3".into()), Some(String::new())]).unwrap();
         sink.finish().unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         std::fs::remove_file(path).unwrap();
@@ -128,7 +129,7 @@ mod tests {
 
     #[test]
     fn writes_csv_with_quoting() {
-        assert_eq!(write(ExportFormat::Csv), "id,\"note, with comma\"\n1,\"say \"\"hi\"\"\"\n2,\n");
+        assert_eq!(write(ExportFormat::Csv), "id,\"note, with comma\"\n1,\"say \"\"hi\"\"\"\n2,\n3,\"\"\n");
     }
 
     #[test]
@@ -136,7 +137,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&write(ExportFormat::Json)).unwrap();
         assert_eq!(
             parsed,
-            serde_json::json!([{ "id": "1", "note, with comma": "say \"hi\"" }, { "id": "2", "note, with comma": null }])
+            serde_json::json!([{ "id": "1", "note, with comma": "say \"hi\"" }, { "id": "2", "note, with comma": null }, { "id": "3", "note, with comma": "" }])
         );
     }
 }

@@ -28,7 +28,7 @@ Values cross the boundary as Postgres's own text. A page selects every column as
 | RevoGrid | It is a maintained, virtualized grid with editing, range selection and copying built in, themed through its CSS variables. Dan kept it after using M1 |
 | CodeMirror 6 + lang-sql | It has a Postgres dialect, including dollar-quoted bodies, and schema autocomplete, and is about a tenth the size of Monaco. Its parser splits the editor into statements, and Postgres checks each piece again |
 | sql-formatter | It formats SQL so we don't have to write a formatter |
-| tauri-plugin-dialog, csv | The save dialog for exports, opened from Rust so a file path never comes from the UI. The `csv` crate quotes CSV correctly |
+| tauri-plugin-dialog, csv | The save dialog for exports, opened from Rust so a file path never comes from the UI. The `csv` crate reads files for imports. Exports and backups write CSV with `hn_core::csv_line`, because the crate's writer can't write empty text apart from NULL |
 | TanStack Query, Zustand | TanStack Query caches and invalidates calls to the core. Zustand holds the session, tabs and palette |
 | tauri-specta 2.0.0-rc.25 | It generates TypeScript bindings from the Rust commands. A test regenerates them, and CI fails if the committed file differs |
 | sqlx 0.9, Postgres driver | It has a pool and rustls TLS verified against the system's certificates. Browsing casts every value to text in the SQL it builds. The editor uses `prepare` to describe a statement, then `raw_sql` to run it as text. That passed the M2 spike, so `tokio-postgres` isn't needed |

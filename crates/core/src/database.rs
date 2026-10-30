@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use crate::backup::{RestoreInto, TableDefinition, TableSink};
 use crate::changes::{Changes, Choice, Committed};
 use crate::data::{
     Activity, Cell, ColumnRef, ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RunOutcome, SchemaNode, ServerInfo, StatementResult,
@@ -56,6 +57,23 @@ pub trait Database: Send + Sync {
     fn execute(&self, statements: &[String], hidden: &[ColumnRef]) -> impl Future<Output = Result<Vec<StatementResult>, Error>> + Send;
     /// Every foreign key between the database's own tables.
     fn references(&self) -> impl Future<Output = Result<Vec<Reference>, Error>> + Send;
+
+    /// How big a table is, in bytes, so a backup that would take long can be skipped. Refuses a table a backup can't
+    /// make again, such as a partitioned one, saying why.
+    fn backup_size(&self, table: &TableRef) -> impl Future<Output = Result<f64, Error>> + Send;
+    /// Commits `changes` after backing `table` up into `sink` in the same transaction, so the rows backed up are the
+    /// rows changed, and a backup that fails stops the commit.
+    fn commit_with_backup(
+        &self,
+        changes: &Changes,
+        table: &TableRef,
+        sink: &mut dyn TableSink,
+    ) -> impl Future<Output = Result<Committed, Error>> + Send;
+    /// The statements a restore runs, for someone to read first.
+    fn review_restore(&self, definition: &TableDefinition, into: &RestoreInto) -> impl Future<Output = Result<Vec<String>, Error>> + Send;
+    /// Puts a backup back in one transaction, its rows streamed from `rows` as the backup wrote them.
+    fn restore(&self, definition: &TableDefinition, into: &RestoreInto, rows: &mut dyn ByteSource)
+    -> impl Future<Output = Result<f64, Error>> + Send;
 }
 
 /// Where an import's bytes come from, a piece at a time, so a file of any size streams without being held in memory.

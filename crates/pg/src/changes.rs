@@ -20,26 +20,26 @@ pub(crate) struct Step {
 }
 
 #[derive(Default)]
-struct Writer {
+pub(crate) struct Writer {
     sql: String,
     shown: String,
     params: Vec<Cell>,
 }
 
 impl Writer {
-    fn text(&mut self, text: &str) -> &mut Self {
+    pub(crate) fn text(&mut self, text: &str) -> &mut Self {
         self.sql.push_str(text);
         self.shown.push_str(text);
         self
     }
 
-    fn name(&mut self, name: &str) -> &mut Self {
+    pub(crate) fn name(&mut self, name: &str) -> &mut Self {
         self.sql.push_str(&ident(name));
         self.shown.push_str(&shown_ident(name));
         self
     }
 
-    fn table(&mut self, table: &TableRef) -> &mut Self {
+    pub(crate) fn table(&mut self, table: &TableRef) -> &mut Self {
         self.name(&table.schema).text(".").name(&table.name)
     }
 
@@ -96,8 +96,22 @@ impl Writer {
         Ok(words.join(" and "))
     }
 
-    /// SQL someone typed for their own table, such as a type or a default. Postgres reads it as part of one statement.
-    fn typed(&mut self, sql: &str) -> &mut Self {
+    /// A value bound as a parameter of the given type, written in for the reader.
+    pub(crate) fn param(&mut self, value: &str, type_name: &str) -> &mut Self {
+        self.params.push(Some(value.to_string()));
+        self.sql.push_str(&format!("${}::{type_name}", self.params.len()));
+        self.shown.push_str(&literal(value, type_name));
+        self
+    }
+
+    /// Text in a place Postgres takes no parameter, such as a comment, as a quoted literal both to run and to show.
+    pub(crate) fn literal(&mut self, text: &str) -> &mut Self {
+        self.text(&quote(text))
+    }
+
+    /// SQL someone typed for their own table, such as a type or a default, or that Postgres printed for a backup.
+    /// Postgres reads it as part of one statement.
+    pub(crate) fn typed(&mut self, sql: &str) -> &mut Self {
         self.text(sql.trim())
     }
 
@@ -124,7 +138,7 @@ impl Writer {
         self.text("ALTER TABLE ").table(table).text(" ")
     }
 
-    fn step(self, what: String, conflict: Option<String>) -> Step {
+    pub(crate) fn step(self, what: String, conflict: Option<String>) -> Step {
         Step {
             run: Built {
                 sql: self.sql,

@@ -1,5 +1,6 @@
 //! Halfnine's Postgres adapter: it implements [`hn_core::Database`] over a small sqlx pool, optionally through an SSH tunnel.
 
+pub mod backup;
 mod catalog;
 mod changes;
 mod editor;
@@ -13,8 +14,8 @@ use std::time::{Duration, Instant};
 use futures_util::TryStreamExt;
 use hn_core::{
     Activity, ByteSource, Changes, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource,
-    Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RowSink, RunOutcome, SchemaNode, ServerInfo, StatementResult, Structure,
-    StructureChange, TableRef, TlsMode,
+    Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, RunOutcome, SchemaNode, ServerInfo, StatementResult,
+    Structure, StructureChange, TableDefinition, TableRef, TableSink, TlsMode,
 };
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
@@ -207,6 +208,109 @@ impl PgDatabase {
                 changes::structure(table, kind, changes)
             }
         }
+    }
+
+    /// Runs a commit's statements in order, returning the keys of the rows it added. The first that fails, or that
+    /// changes other than the one row it must, stops the rest.
+    async fn run_steps(&self, tx: &mut PgConnection, steps: Vec<Step>) -> Result<Vec<Vec<ColumnValue>>, Error> {
+        let mut inserted = Vec::new();
+        for step in steps {
+            // Each statement is written once, so it isn't kept as a prepared statement.
+            let done = if step.returns_key {
+                match self.query(step.run).persistent(false).fetch_one(&mut *tx).await {
+                    Ok(row) => {
+                        inserted.push(returned_key(&row)?);
+                        Ok(1)
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                self.query(step.run)
+                    .persistent(false)
+                    .execute(&mut *tx)
+                    .await
+                    .map(|done| done.rows_affected())
+            };
+            match done {
+                Ok(affected) => match step.conflict {
+                    Some(conflict) if affected != 1 => return Err(Error::new(ErrorKind::Conflict, conflict)),
+                    _ => {}
+                },
+                Err(error) => return Err(failed(&step.what, from_sqlx(error))),
+            }
+        }
+        Ok(inserted)
+    }
+
+    /// Writes the table and its rows to `sink` under a lock that lets reads go on and makes writes wait, so the backup
+    /// holds exactly the rows the change that follows drops or empties.
+    async fn back_up(&self, tx: &mut PgConnection, table: &TableRef, sink: &mut dyn TableSink) -> Result<(), Error> {
+        sqlx::raw_sql("SET LOCAL lock_timeout = '10s'")
+            .execute(&mut *tx)
+            .await
+            .map_err(from_sqlx)?;
+        let lock = Built {
+            sql: format!("LOCK TABLE {} IN SHARE MODE", sql::table(table)),
+            params: Vec::new(),
+        };
+        self.query(lock).persistent(false).execute(&mut *tx).await.map_err(from_sqlx)?;
+        let definition = backup::definition(tx, table).await?;
+        sink.definition(&definition)?;
+        let source = ExportSource::Table {
+            table: table.clone(),
+            sort: None,
+            filter: None,
+        };
+        export_rows(tx, &source, Some(backup::columns(&definition)), sink, self).await?;
+        sink.finish()
+    }
+
+    /// The statements that put a backup back, after checking the table can take it: a dropped table isn't there again,
+    /// an emptied one is still empty, and a dropped column hasn't come back.
+    async fn restore_plan(&self, conn: &mut PgConnection, definition: &TableDefinition, into: &RestoreInto) -> Result<backup::Plan, Error> {
+        let table = &definition.table;
+        let found = sqlx::query(catalog::RELATION)
+            .bind(&table.schema)
+            .bind(&table.name)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(from_sqlx)?;
+        let present = match (into, found) {
+            (RestoreInto::Recreate, None) => backup::Present::default(),
+            (RestoreInto::Recreate, Some(_)) => {
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    format!("There's a {} again. Rename or drop it, then restore.", table.name),
+                ));
+            }
+            (_, None) => return Err(not_found(table)),
+            (_, Some(row)) => backup::present(conn, row.try_get(0).map_err(from_sqlx)?, definition, into, self).await?,
+        };
+        backup::plan(definition, into, &present)
+    }
+
+    async fn put_back(
+        &self,
+        tx: &mut PgConnection,
+        definition: &TableDefinition,
+        into: &RestoreInto,
+        rows: &mut dyn ByteSource,
+    ) -> Result<u64, Error> {
+        let plan = self.restore_plan(tx, definition, into).await?;
+        self.run_steps(tx, plan.before).await?;
+        let restored = match plan.rows {
+            Some(step) => {
+                let import = sql::Import {
+                    create: plan.stage,
+                    copy: plan.copy,
+                    insert: step.run.sql,
+                };
+                import_rows(tx, &import, rows, self).await.map_err(|error| failed(&step.what, error))?
+            }
+            None => 0,
+        };
+        self.run_steps(tx, plan.after).await?;
+        Ok(restored)
     }
 
     fn query(&self, built: Built) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
@@ -418,48 +522,53 @@ impl Database for PgDatabase {
         let (mut tx, pid) = self.long_transaction(self.read_only).await?;
         let _running = self.running.enter(pid);
         let started = Instant::now();
-        let mut inserted = Vec::new();
-        for step in steps {
-            // Each statement is written once, so it isn't kept as a prepared statement.
-            let done = if step.returns_key {
-                match self.query(step.run).persistent(false).fetch_one(&mut *tx).await {
-                    Ok(row) => {
-                        inserted.push(returned_key(&row)?);
-                        Ok(1)
-                    }
-                    Err(error) => Err(error),
-                }
-            } else {
-                self.query(step.run)
-                    .persistent(false)
-                    .execute(&mut *tx)
-                    .await
-                    .map(|done| done.rows_affected())
-            };
-            let failure = match done {
-                Ok(affected) => match step.conflict {
-                    Some(conflict) if affected != 1 => Some(Error::new(ErrorKind::Conflict, conflict)),
-                    _ => None,
-                },
-                Err(error) => {
-                    let error = from_sqlx(error);
-                    Some(Error {
-                        message: format!("{} failed, so nothing was written: {}", step.what, error.message),
-                        ..error
-                    })
-                }
-            };
-            if let Some(error) = failure {
+        let done = self.run_steps(&mut tx, steps).await;
+        settle(tx, done, statements, started).await
+    }
+
+    async fn backup_size(&self, table: &TableRef) -> Result<f64, Error> {
+        let mut tx = self.reading().await?;
+        let facts = backup::facts(&mut tx, table).await;
+        let _ = tx.rollback().await;
+        Ok(facts?.size)
+    }
+
+    async fn commit_with_backup(&self, changes: &Changes, table: &TableRef, sink: &mut dyn TableSink) -> Result<Committed, Error> {
+        let steps = self.steps(changes).await?;
+        let statements = steps.len() as u32;
+        let (mut tx, pid) = self.long_transaction(self.read_only).await?;
+        let _running = self.running.enter(pid);
+        let started = Instant::now();
+        let done = match self.back_up(&mut tx, table, sink).await {
+            Ok(()) => self.run_steps(&mut tx, steps).await,
+            Err(error) => Err(Error {
+                message: format!("The backup failed, so nothing changed: {}", error.message),
+                ..error
+            }),
+        };
+        settle(tx, done, statements, started).await
+    }
+
+    async fn review_restore(&self, definition: &TableDefinition, into: &RestoreInto) -> Result<Vec<String>, Error> {
+        let mut tx = self.reading().await?;
+        let plan = self.restore_plan(&mut tx, definition, into).await;
+        let _ = tx.rollback().await;
+        Ok(plan?.shown())
+    }
+
+    async fn restore(&self, definition: &TableDefinition, into: &RestoreInto, rows: &mut dyn ByteSource) -> Result<f64, Error> {
+        let (mut tx, pid) = self.long_transaction(self.read_only).await?;
+        let _running = self.running.enter(pid);
+        match self.put_back(&mut tx, definition, into, rows).await {
+            Ok(restored) => {
+                tx.commit().await.map_err(from_sqlx)?;
+                Ok(restored as f64)
+            }
+            Err(error) => {
                 let _ = tx.rollback().await;
-                return Err(error);
+                Err(error)
             }
         }
-        tx.commit().await.map_err(from_sqlx)?;
-        Ok(Committed {
-            statements,
-            elapsed_ms: hn_core::millis(started.elapsed()),
-            inserted,
-        })
     }
 
     async fn choices(&self, table: &TableRef, column: &str, search: &str) -> Result<Vec<Choice>, Error> {
@@ -782,6 +891,36 @@ fn returned_key(row: &sqlx::postgres::PgRow) -> Result<Vec<ColumnValue>, Error> 
             })
         })
         .collect()
+}
+
+/// Ends a commit: commits it if every statement ran, and rolls it back otherwise.
+async fn settle(
+    tx: Transaction<'static, Postgres>,
+    done: Result<Vec<Vec<ColumnValue>>, Error>,
+    statements: u32,
+    started: Instant,
+) -> Result<Committed, Error> {
+    match done {
+        Ok(inserted) => {
+            tx.commit().await.map_err(from_sqlx)?;
+            Ok(Committed {
+                statements,
+                elapsed_ms: hn_core::millis(started.elapsed()),
+                inserted,
+            })
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+fn failed(what: &str, error: Error) -> Error {
+    Error {
+        message: format!("{what} failed, so nothing was written: {}", error.message),
+        ..error
+    }
 }
 
 fn not_found(table: &TableRef) -> Error {

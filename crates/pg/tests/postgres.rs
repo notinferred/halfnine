@@ -885,3 +885,200 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
     let page = db.page(&request(&scratch.name, None, None, 0, 10)).await.unwrap();
     assert_eq!(bodies(&page), [Some("first".to_string()), Some("second".to_string())]);
 }
+
+/// A backup kept in memory: its definition, and its rows as the CSV a restore reads back.
+#[derive(Default)]
+struct Kept {
+    definition: Option<hn_core::TableDefinition>,
+    csv: String,
+    finished: bool,
+    full_disk: bool,
+}
+
+impl RowSink for Kept {
+    fn columns(&mut self, columns: &[hn_core::PageColumn]) -> Result<(), hn_core::Error> {
+        self.csv.push_str(&hn_core::csv_line(columns.iter().map(|c| Some(c.name.as_str()))));
+        Ok(())
+    }
+
+    fn row(&mut self, row: &[Cell]) -> Result<(), hn_core::Error> {
+        if self.full_disk {
+            return Err(hn_core::Error::new(ErrorKind::Storage, "The disk is full."));
+        }
+        self.csv.push_str(&hn_core::csv_line(row.iter().map(Option::as_deref)));
+        Ok(())
+    }
+}
+
+impl hn_core::TableSink for Kept {
+    fn definition(&mut self, definition: &hn_core::TableDefinition) -> Result<(), hn_core::Error> {
+        self.definition = Some(definition.clone());
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), hn_core::Error> {
+        self.finished = true;
+        Ok(())
+    }
+}
+
+/// A table with most of what a backup must keep: identity, serial, a collation, a default, stored and virtual generated
+/// columns, a foreign key, check and unique constraints, an expression index with a WHERE, comments and a trigger.
+/// Its rows hold NULL apart from empty text, quotes, a newline, `\.` and a 70 KB value.
+async fn keepsake(db: &PgDatabase, name: &str) -> TableRef {
+    let t = format!("hn_fixture.{name}");
+    let outcome = db
+        .run(&[
+            format!("DROP TABLE IF EXISTS {t}"),
+            format!("DROP TABLE IF EXISTS {t}_codes"),
+            format!("CREATE TABLE {t}_codes (code text PRIMARY KEY)"),
+            format!("INSERT INTO {t}_codes VALUES ('a'), ('b')"),
+            format!(
+                "CREATE TABLE {t} (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, serial_no serial UNIQUE, \
+                 body text COLLATE \"C\" NOT NULL DEFAULT '', note text, size integer GENERATED ALWAYS AS (length(body)) STORED, \
+                 doubled integer GENERATED ALWAYS AS (length(body) * 2) VIRTUAL, code text REFERENCES {t}_codes (code), \
+                 CONSTRAINT {name}_note_short CHECK (length(note) < 100000))"
+            ),
+            format!("CREATE INDEX {name}_lower ON {t} (lower(note)) WHERE note IS NOT NULL"),
+            format!("COMMENT ON TABLE {t} IS 'Kept'"),
+            format!("COMMENT ON COLUMN {t}.note IS 'it''s a note'"),
+            format!(
+                "INSERT INTO {t} (body, note, code) VALUES ('first', NULL, 'a'), ('', '', 'b'), ('say \"hi\", twice', E'line\\nbreak', NULL), \
+                 (repeat('x', 70000), '\\.', 'a')"
+            ),
+            format!(
+                "CREATE OR REPLACE FUNCTION {t}_stamp() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.note := coalesce(NEW.note, 'stamped'); \
+                 RETURN NEW; END $$"
+            ),
+            format!("CREATE TRIGGER {name}_stamp BEFORE INSERT ON {t} FOR EACH ROW EXECUTE FUNCTION {t}_stamp()"),
+        ])
+        .await
+        .unwrap();
+    assert!(outcome.failed.is_none(), "{:?}", outcome.failed);
+    table(name)
+}
+
+async fn every_row(db: &PgDatabase, t: &TableRef) -> Vec<Vec<Cell>> {
+    let mut rows = Collected::default();
+    let sort = Sort {
+        column: "id".into(),
+        descending: false,
+    };
+    let source = ExportSource::Table {
+        table: t.clone(),
+        sort: Some(sort),
+        filter: None,
+    };
+    db.export(&source, &mut rows).await.unwrap();
+    rows.rows
+}
+
+fn shape(s: &hn_core::Structure) -> String {
+    format!("{:?}", (&s.columns, &s.primary_key, &s.indexes, &s.constraints, &s.foreign_keys))
+}
+
+#[tokio::test]
+async fn puts_a_dropped_table_back_as_it_was() {
+    let Some(db) = connect(false).await else { return };
+    let t = keepsake(&db, "scratch_backup_drop").await;
+    let (rows, before) = (every_row(&db, &t).await, db.structure(&t).await.unwrap());
+    assert!(db.backup_size(&t).await.unwrap() > 0.0);
+
+    let mut kept = Kept::default();
+    db.commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept)
+        .await
+        .unwrap();
+    assert!(kept.finished);
+    assert_eq!(db.structure(&t).await.unwrap_err().kind, ErrorKind::NotFound);
+    let definition = kept.definition.unwrap();
+    assert!(definition.not_kept.is_empty());
+
+    let review = db.review_restore(&definition, &hn_core::RestoreInto::Recreate).await.unwrap();
+    assert!(review[0].starts_with("CREATE SEQUENCE hn_fixture.scratch_backup_drop_serial_no_seq AS integer"));
+    let restored = db
+        .restore(&definition, &hn_core::RestoreInto::Recreate, &mut Pieces::of(&kept.csv))
+        .await
+        .unwrap();
+    assert_eq!(restored, 4.0);
+    assert_eq!(every_row(&db, &t).await, rows);
+    assert_eq!(shape(&db.structure(&t).await.unwrap()), shape(&before));
+
+    let next = db
+        .run(&statements(&[
+            "INSERT INTO hn_fixture.scratch_backup_drop (body) VALUES ('next') RETURNING id, serial_no, note",
+        ]))
+        .await
+        .unwrap();
+    let next = &next.results[0].rows[0];
+    assert_eq!(
+        next,
+        &[Some("5".to_string()), Some("5".to_string()), Some("stamped".to_string())],
+        "{next:?}"
+    );
+
+    let again = db.restore(&definition, &hn_core::RestoreInto::Recreate, &mut Pieces::of(&kept.csv)).await;
+    assert_eq!(again.unwrap_err().kind, ErrorKind::Invalid);
+}
+
+#[tokio::test]
+async fn refills_an_emptied_table_without_firing_its_triggers() {
+    let Some(db) = connect(false).await else { return };
+    let t = keepsake(&db, "scratch_backup_truncate").await;
+    let rows = every_row(&db, &t).await;
+
+    let mut kept = Kept::default();
+    db.commit_with_backup(&structure(&t, vec![StructureChange::Truncate]), &t, &mut kept)
+        .await
+        .unwrap();
+    assert!(every_row(&db, &t).await.is_empty());
+    let definition = kept.definition.unwrap();
+    let refill = hn_core::RestoreInto::Refill;
+    assert_eq!(db.restore(&definition, &refill, &mut Pieces::of(&kept.csv)).await.unwrap(), 4.0);
+    assert_eq!(every_row(&db, &t).await, rows, "the NULL note wasn't stamped");
+
+    let full = db.restore(&definition, &refill, &mut Pieces::of(&kept.csv)).await;
+    assert_eq!(full.unwrap_err().kind, ErrorKind::Invalid);
+}
+
+#[tokio::test]
+async fn puts_a_dropped_column_back_with_its_index_and_check() {
+    let Some(db) = connect(false).await else { return };
+    let t = keepsake(&db, "scratch_backup_column").await;
+    let (rows, before) = (every_row(&db, &t).await, db.structure(&t).await.unwrap());
+
+    let mut kept = Kept::default();
+    let drop = StructureChange::DropColumn { column: "note".into() };
+    db.commit_with_backup(&structure(&t, vec![drop]), &t, &mut kept).await.unwrap();
+    let definition = kept.definition.unwrap();
+    let into = hn_core::RestoreInto::Column { name: "note".into() };
+    assert_eq!(db.restore(&definition, &into, &mut Pieces::of(&kept.csv)).await.unwrap(), 4.0);
+
+    let after = db.structure(&t).await.unwrap();
+    let note = |s: &hn_core::Structure| format!("{:?}", s.columns.iter().find(|c| c.name == "note"));
+    assert_eq!(note(&after), note(&before));
+    assert_eq!(format!("{:?}", after.indexes), format!("{:?}", before.indexes));
+    assert_eq!(format!("{:?}", after.constraints), format!("{:?}", before.constraints));
+    let at = |s: &hn_core::Structure| s.columns.iter().position(|c| c.name == "note").unwrap();
+    let notes = |rows: &[Vec<Cell>], at: usize| rows.iter().map(|r| r[at].clone()).collect::<Vec<_>>();
+    assert_eq!(notes(&every_row(&db, &t).await, at(&after)), notes(&rows, at(&before)));
+}
+
+#[tokio::test]
+async fn a_backup_that_fails_leaves_the_table_untouched() {
+    let Some(db) = connect(false).await else { return };
+    let t = keepsake(&db, "scratch_backup_full").await;
+    let mut kept = Kept {
+        full_disk: true,
+        ..Kept::default()
+    };
+    let error = db
+        .commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept)
+        .await
+        .unwrap_err();
+    assert!(error.message.starts_with("The backup failed, so nothing changed"), "{}", error.message);
+    assert_eq!(every_row(&db, &t).await.len(), 4);
+
+    let partitioned = db.backup_size(&table("events")).await.unwrap_err();
+    assert_eq!(partitioned.kind, ErrorKind::Invalid);
+    assert!(partitioned.message.contains("partitioned"), "{}", partitioned.message);
+}
