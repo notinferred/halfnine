@@ -10,11 +10,13 @@ publish.workspace = true
 hn-core.workspace = true
 bollard.workspace = true
 tar.workspace = true
+bytes.workspace = true
 tokio.workspace = true
 futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
+dirs.workspace = true
 
 [dev-dependencies]
 uuid.workspace = true

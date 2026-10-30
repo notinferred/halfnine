@@ -46,6 +46,21 @@ pub struct Surroundings<'a> {
     pub list: &'a dyn Fn(&Path) -> Vec<PathBuf>,
 }
 
+/// The endpoints worth trying on this computer, from its real environment and files.
+pub fn here() -> Vec<Found> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let list = |dir: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(dir).map_or_else(|_| Vec::new(), |entries| entries.filter_map(|e| e.ok().map(|e| e.path())).collect())
+    };
+    candidates(&Surroundings {
+        var: &|name| std::env::var(name).ok().filter(|v| !v.is_empty()),
+        home: &home,
+        read: &|path| std::fs::read_to_string(path).ok(),
+        exists: &|path| path.exists(),
+        list: &list,
+    })
+}
+
 /// Every engine endpoint worth trying, most likely first, without repeats.
 pub fn candidates(around: &Surroundings) -> Vec<Found> {
     let mut found = Vec::new();

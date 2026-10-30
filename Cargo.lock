@@ -2228,6 +2228,8 @@ name = "hn-docker"
 version = "0.2.0"
 dependencies = [
  "bollard",
+ "bytes",
+ "dirs",
  "futures-util",
  "hn-core",
  "log",

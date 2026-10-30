@@ -2,7 +2,9 @@
 //! engine on this computer is used, through its socket or named pipe; this crate makes no other connection.
 
 pub mod discover;
+mod engine;
 pub mod postgres;
 
 pub use discover::{Endpoint, Found};
+pub use engine::{Container, Engine, Layers, NewContainer, Ran};
 pub use postgres::{Credentials, VERSIONS, data_path, is_postgres, label, major, pick_port, valid_name};
