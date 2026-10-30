@@ -92,3 +92,22 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **How far undo reaches.** **Chose:** "change_rows only": an agent's row changes get an Undo on the Agents page, which stages the reverse in that table like the person's own edits. Changes made with run_sql or to a structure can't be undone there. **Not chosen:** also run_sql, by reading first.
 - **Release v0.2.0 before checking the safety step?** **Chose:** "Release now": merge, tag v0.2.0, publish once both builds pass, then connect Claude Code to the installed app as the first real agent session. **Not chosen:** check first.
 - **Where to list Halfnine.** **Chose:** all four: the GitHub description and topics; a pull request to awesome-mcp-servers from Dan's account; the official MCP Registry, with a Claude Desktop extension (.mcpb) built with each release; mcp.so and Smithery, whose text Claude writes and Dan submits.
+
+## 2026-10-30: Docker databases, copies and backups
+
+- **What next.** **Dan:** "yes lets do docker next"
+- **Where Docker databases show.** **Chose:** "In the connections list": under a Docker heading, live, double-click to connect; a Docker page in the footer creates, starts, stops and deletes them. **Dan:** "this needs to be a toggle on settings or install, containerized databases enabled or something right? maybe on a short setup". **Not chosen:** only on a Docker page.
+- **Where the switches live.** **Chose:** "Short setup + Settings page": a first-launch screen asks about Docker databases and backups, and a Settings page in the footer holds the same switches with Pause agents. **Not chosen:** on their own pages; Settings page only.
+- **Agents deleting Docker databases.** **Dan:** "Only its own without asking if others ask Dangerous operations keep backups on data on temp always and when others on solid stuff and on settings too you know toggle off so always on unless turned off i thikn"
+- **What a backup covers.** **Chose:** deleting a Docker database; an agent dropping or emptying a table; Dan's own drops and truncates. **Dan:** "Maybe on delete ask or something what do you recommend behaviour what would Apple Framework and design would do do you think so most things have an undo so safe database operations for AI's right this is a good selling point and good management"
+- **How long backups are kept.** **Chose:** "Until you delete them". **Not chosen:** 30 days; the last 5 per database.
+- **Deleting with backups on.** **Chose:** "Undo instead of asking": as Apple's apps do, it's done and a note offers Undo; typing a table's name to drop it returns only when backups are off. **Not chosen:** ask, and Undo too.
+- **An agent's raw DROP or TRUNCATE.** **Chose:** "Point it to change_structure" while backups are on. **Not chosen:** let it run without a backup.
+- **Working on a copy.** **Chose:** "Now, for Docker databases". **Not chosen:** its own step, after Docker.
+- **Versions on Create.** **Chose:** "18 down to 14, 18 by default". **Not chosen:** only the newest.
+- **The backup size limit.** **Dan:** "1GB configurable in settings". **Not offered as such:** 1 GB, 10 GB, no limit.
+- **Volumes on delete.** **Chose:** "Remove Halfnine's own, keep others'". **Not chosen:** always remove it; never remove volumes.
+- **Which of an agent's run_sql statements are refused while backups are on.** **Chose:** "Only drops that lose data": DROP TABLE, SCHEMA, DATABASE, OWNED, MATERIALIZED VIEW, and TRUNCATE. **Not chosen:** every DROP and TRUNCATE.
+- **Dropping a column.** **Chose:** "Yes, like dropping a table": a column drop backs the table up first. **Not chosen:** tables only.
+- **The plan** for Docker databases, copies and backups, with the rules added to keep the decisions consistent (copies keep hidden columns; no URL for a database with hidden columns; a restored database keeps its origin; Pause shown on Settings and Agents; at most 10 databases per agent). **Accepted.**
+
