@@ -303,18 +303,6 @@ fn gone(name: &str) -> Error {
 /// environment names.
 pub fn connection(container: &Container, overrides: Option<&Overrides>) -> ConnectionSpec {
     let overrides = overrides.cloned().unwrap_or_default();
-    let labels = &container.labels;
-    let made = (labels.get(label::MANAGED).map(String::as_str) == Some("true")).then(|| Made {
-        how: match labels.get(label::ORIGIN).map(String::as_str) {
-            Some("copy") => MadeHow::Copy,
-            Some("restored") => MadeHow::Restored,
-            _ => MadeHow::New,
-        },
-        agent: labels.get(label::AGENT_KEY).map(|key| AgentMark {
-            key: key.clone(),
-            title: labels.get(label::AGENT).cloned().unwrap_or_else(|| key.clone()),
-        }),
-    });
     ConnectionSpec {
         id: format!("{ID_PREFIX}{}", container.name),
         name: container.name.clone(),
@@ -331,9 +319,25 @@ pub fn connection(container: &Container, overrides: Option<&Overrides>) -> Conne
         hidden_columns: overrides.hidden_columns,
         source: Source::Docker {
             container: container.name.clone(),
-            made,
+            made: made(container),
         },
     }
+}
+
+/// How Halfnine made a container, and for which agent, from its labels; `None` when Halfnine didn't make it.
+pub fn made(container: &Container) -> Option<Made> {
+    let labels = &container.labels;
+    (labels.get(label::MANAGED).map(String::as_str) == Some("true")).then(|| Made {
+        how: match labels.get(label::ORIGIN).map(String::as_str) {
+            Some("copy") => MadeHow::Copy,
+            Some("restored") => MadeHow::Restored,
+            _ => MadeHow::New,
+        },
+        agent: labels.get(label::AGENT_KEY).map(|key| AgentMark {
+            key: key.clone(),
+            title: labels.get(label::AGENT).cloned().unwrap_or_else(|| key.clone()),
+        }),
+    })
 }
 
 #[cfg(test)]

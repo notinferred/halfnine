@@ -107,10 +107,11 @@ export const commands = {
 	/**  Starts making a database. It returns at once; its progress shows on the Docker page. */
 	createDockerDatabase: (name: string, version: number, file: string | null) => __TAURI_INVOKE<null>("create_docker_database", { name, version, file }),
 	/**
-	 *  Deletes a Docker database, closing what the window and agents have open on it first. Returns whether its volume
-	 *  was kept because Halfnine didn't make it.
+	 *  Deletes a Docker database, backing it up first when backups are on, and refused with `NoBackup` when it can't be
+	 *  backed up, unless `without_backup` says someone confirmed going ahead without one. What the window and agents have
+	 *  open on it is closed once the backup is made.
 	 */
-	deleteDockerDatabase: (name: string) => __TAURI_INVOKE<boolean>("delete_docker_database", { name }),
+	deleteDockerDatabase: (name: string, withoutBackup: boolean) => __TAURI_INVOKE<DeleteDone>("delete_docker_database", { name, withoutBackup }),
 	dismissDockerJob: (name: string) => __TAURI_INVOKE<null>("dismiss_docker_job", { name }),
 	/**  Starts copying a Docker database into a new one. It returns at once; its progress shows on the Docker page. */
 	copyDockerDatabase: (source: string, name: string) => __TAURI_INVOKE<null>("copy_docker_database", { source, name }),
@@ -119,6 +120,11 @@ export const commands = {
 	reviewRestore: (sessionId: string, id: string) => __TAURI_INVOKE<string[]>("review_restore", { sessionId, id }),
 	/**  Puts a table backup back in one transaction, adds what ran to the history, and gives how many rows went back. */
 	restoreBackup: (sessionId: string, id: string) => __TAURI_INVOKE<number | null>("restore_backup", { sessionId, id }),
+	/**
+	 *  Makes a deleted Docker database again from its backup, and waits until it's back. Its progress shows on the Docker
+	 *  page meanwhile.
+	 */
+	restoreDatabaseBackup: (id: string) => __TAURI_INVOKE<ConnectionSpec>("restore_database_backup", { id }),
 	deleteBackup: (id: string) => __TAURI_INVOKE<null>("delete_backup", { id }),
 	setBackupsEnabled: (on: boolean) => __TAURI_INVOKE<Choices>("set_backups_enabled", { on }),
 	/**  The biggest table backed up before a drop, in bytes, or `None` for no limit. */
@@ -361,6 +367,13 @@ export type CutCell = {
 	column: number,
 };
 
+/**  A deleted Docker database, and the backup made before, if one was. */
+export type DeleteDone = {
+	/**  Its data volume was kept, because Halfnine didn't make it. */
+	keptVolume: boolean,
+	backup: Backup | null,
+};
+
 /**  The window should fetch `docker_state` again. It carries nothing, so a missed one loses nothing. */
 export type DockerChanged = null;
 
@@ -462,7 +475,9 @@ export type HistoryEntry = {
 
 export type Holds = { kind: "table"; connectionId: string; connectionName: string; database: string; table: TableRef; 
 /**  How it goes back, which also says what was done to it. */
-into: RestoreInto; rows: number | null };
+into: RestoreInto; rows: number | null } | 
+/**  A Docker database, deleted. */
+{ kind: "database"; container: KeptContainer };
 
 export type ImportPreview = {
 	token: string,
@@ -494,6 +509,23 @@ export type Job = {
 	failed: string | null,
 };
 
+/**  What a backup keeps of a container besides its dumps, to make it again as it was. */
+export type KeptContainer = {
+	name: string,
+	/**  The image as it was asked for, such as `postgres:18`. */
+	image: string,
+	major: number | null,
+	port: number | null,
+	user: string,
+	/**  The database the container was made with. */
+	database: string,
+	/**  Every database in it, dumped to `<n>.dump` in this order. */
+	databases: string[],
+	/**  How Halfnine made it, and for which agent; `None` when Halfnine didn't make it. */
+	made: Made | null,
+	overrides: Overrides,
+};
+
 /**  The colour that marks an environment, so production always looks different. */
 export type Label = "none" | "green" | "amber" | "red";
 
@@ -519,6 +551,14 @@ export type NewColumn = {
 };
 
 export type Outcome = "ok" | "waiting" | "approved" | "declined" | "conflict" | "refused" | "paused" | "busy" | "withdrawn" | "error";
+
+/**  What someone set for one container. The defaults are those of a new saved connection. */
+export type Overrides = {
+	label?: Label | null,
+	readOnly?: boolean,
+	agentAccess?: AgentAccess | null,
+	hiddenColumns?: HiddenColumn[],
+};
 
 export type Page = {
 	columns: PageColumn[],

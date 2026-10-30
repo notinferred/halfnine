@@ -6,5 +6,5 @@ mod engine;
 pub mod postgres;
 
 pub use discover::{Endpoint, Found};
-pub use engine::{Container, Engine, Layers, NewContainer, Ran};
+pub use engine::{Container, Engine, Layers, NewContainer, Ran, port_taken};
 pub use postgres::{Credentials, VERSIONS, data_path, is_postgres, label, major, pick_port, valid_name};

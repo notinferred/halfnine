@@ -2,8 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { commands, type DockerDatabase, type Job } from "../../ipc/bindings.ts";
-import { describe } from "../../ipc/errors.ts";
+import { describe, notBackedUp } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
+import { showNote } from "../../ui/note.tsx";
+import { noteUndo } from "../workspace/backup-note.ts";
 import { BackupsView } from "./backups-view.tsx";
 import { madeBy } from "./docker-detail.tsx";
 import { NewDatabaseSheet } from "./new-database.tsx";
@@ -46,8 +48,8 @@ export function DockerPage() {
 function Databases(props: { onCreate: () => void }) {
   const queries = useQueryClient();
   const docker = useQuery({ queryKey: ["docker"], queryFn: commands.dockerState });
+  const settings = useQuery({ queryKey: ["settings"], queryFn: commands.getSettings });
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const state = docker.data;
 
   const act = async (action: () => Promise<unknown>) => {
@@ -62,18 +64,29 @@ function Databases(props: { onCreate: () => void }) {
     }
   };
 
-  const remove = (database: DockerDatabase) =>
-    act(async () => {
-      const kept = await commands.deleteDockerDatabase(database.connection.name);
+  // With backups on, a database is backed up and deleted at once, with Undo. Otherwise this gives the reason, and the
+  // row asks for its name before deleting it without a backup.
+  const remove = async (database: DockerDatabase, withoutBackup: boolean): Promise<string | null> => {
+    const name = database.connection.name;
+    setError(null);
+    try {
+      const done = await commands.deleteDockerDatabase(name, withoutBackup);
       // The window was on that database, which is gone now.
       const { session, leave } = useWorkspace.getState();
       if (session?.connection.id === database.connection.id) leave();
-      setNote(
-        kept
-          ? `Deleted ${database.connection.name}. Its data volume wasn't made by Halfnine, so it was kept.`
-          : `Deleted ${database.connection.name}.`,
-      );
-    });
+      const kept = done.keptVolume ? " Its data volume wasn't made by Halfnine, so it was kept." : "";
+      if (done.backup) noteUndo(queries, done.backup, null, kept);
+      else showNote({ text: `Deleted ${name}.${kept}` });
+      return null;
+    } catch (e) {
+      if (notBackedUp(e)) return describe(e);
+      setError(describe(e));
+      return null;
+    } finally {
+      void queries.invalidateQueries({ queryKey: ["docker"] });
+      void queries.invalidateQueries({ queryKey: ["connections"] });
+    }
+  };
 
   const jobs = state?.jobs ?? [];
   const jobOf = (name: string) => jobs.find((j) => j.name === name);
@@ -92,7 +105,6 @@ function Databases(props: { onCreate: () => void }) {
       )}
       {state?.on && state.problem && <p className="queries-empty muted">{state.problem}</p>}
       {(error ?? docker.error) && <p className="queries-empty status-error">{error ?? describe(docker.error)}</p>}
-      {note && <p className="queries-empty muted">{note}</p>}
       {state?.on && (
         <ul className="queries-list">
           {making.map((job) => (
@@ -105,7 +117,8 @@ function Databases(props: { onCreate: () => void }) {
               job={jobOf(d.connection.name)}
               onStart={() => void act(() => commands.startDockerDatabase(d.connection.name))}
               onStop={() => void act(() => commands.stopDockerDatabase(d.connection.name))}
-              onDelete={() => void remove(d)}
+              asks={settings.data?.backups === false}
+              onDelete={(withoutBackup) => remove(d, withoutBackup)}
               onCopy={(name) => void act(() => commands.copyDockerDatabase(d.connection.name, name))}
               onDismiss={() => void act(() => commands.dismissDockerJob(d.connection.name))}
             />
@@ -146,14 +159,25 @@ function DatabaseRow(props: {
   job: Job | undefined;
   onStart: () => void;
   onStop: () => void;
-  onDelete: () => void;
+  /** Whether deleting asks for the name, as it does with backups off. */
+  asks: boolean;
+  /** Deletes it, or gives why it couldn't be backed up first. */
+  onDelete: (withoutBackup: boolean) => Promise<string | null>;
   onCopy: (name: string) => void;
   onDismiss: () => void;
 }) {
   const { database, job } = props;
   const name = database.connection.name;
-  const [confirming, setConfirming] = useState(false);
+  /** Why it can't be backed up, while its name is asked for. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [typed, setTyped] = useState("");
+  const remove = async (withoutBackup: boolean) => {
+    setDeleting(true);
+    const why = await props.onDelete(withoutBackup);
+    setDeleting(false);
+    setConfirming(why);
+  };
   const [copying, setCopying] = useState<string | null>(null);
   const made = madeBy(database);
   const detail = [
@@ -168,7 +192,17 @@ function DatabaseRow(props: {
     <li className="queries-item docker-row">
       <span className="docker-row-text">
         <span className="queries-name">{name}</span>
-        <span className={job?.failed ? "status-error docker-detail" : "muted docker-detail"}>{job ? (job.failed ?? job.doing) : detail}</span>
+        <span className={job?.failed ? "status-error docker-detail" : "muted docker-detail"}>
+          {job
+            ? (job.failed ?? job.doing)
+            : deleting
+              ? props.asks || confirming !== null
+                ? "Deleting…"
+                : "Backing up, then deleting…"
+              : confirming !== null
+                ? `${confirming} Deleting it can't be undone.`
+                : detail}
+        </span>
       </span>
       {job?.failed ? (
         <button type="button" className="btn btn-quiet" onClick={props.onDismiss}>
@@ -194,12 +228,12 @@ function DatabaseRow(props: {
             Copy
           </button>
         </form>
-      ) : confirming ? (
+      ) : deleting ? null : confirming !== null ? (
         <form
           className="docker-confirm"
           onSubmit={(e) => {
             e.preventDefault();
-            if (typed === name) props.onDelete();
+            if (typed === name) void remove(true);
           }}
         >
           <label htmlFor={`delete-${name}`} className="visually-hidden">
@@ -212,7 +246,7 @@ function DatabaseRow(props: {
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
           />
-          <button type="button" className="btn btn-quiet" onClick={() => setConfirming(false)}>
+          <button type="button" className="btn btn-quiet" onClick={() => setConfirming(null)}>
             Keep
           </button>
           <button type="submit" className="btn btn-danger" disabled={typed !== name}>
@@ -233,8 +267,8 @@ function DatabaseRow(props: {
           <button type="button" className="btn btn-quiet" title="Copy it before risky work" onClick={() => setCopying(`${name}-copy`)}>
             Copy
           </button>
-          <button type="button" className="btn btn-quiet" onClick={() => setConfirming(true)}>
-            Delete
+          <button type="button" className="btn btn-quiet" onClick={() => void remove(false)}>
+            {props.asks ? "Delete…" : "Delete"}
           </button>
         </span>
       )}

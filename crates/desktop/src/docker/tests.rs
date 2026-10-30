@@ -35,6 +35,7 @@ fn new_database(name: &str) -> NewDatabase {
         agent: None,
         user: None,
         database: None,
+        port: None,
     }
 }
 
@@ -139,6 +140,76 @@ async fn a_copy_has_the_same_rows_and_hides_the_same_columns() {
                 let _ = engine.remove(name, c.volume.as_deref()).await;
             }
         }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic.into_panic());
+    }
+}
+
+#[tokio::test]
+async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
+    let Some((docker, dir)) = docker().await else { return };
+    let name = format!("hn-kept-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let sql = dir.join("load.sql");
+    std::fs::write(&sql, "CREATE TABLE notes (body text); INSERT INTO notes VALUES ('kept'), ('');").unwrap();
+    let work = {
+        let (docker, name, dir) = (docker.clone(), name.clone(), dir.clone());
+        tokio::spawn(async move {
+            let made = docker
+                .make(NewDatabase {
+                    load: Some(sql),
+                    ..new_database(&name)
+                })
+                .await
+                .unwrap();
+            docker
+                .set_overrides(&name, |o| {
+                    o.label = Some(Label::Amber);
+                    o.read_only = true;
+                })
+                .unwrap();
+            let backups = crate::backups::Backups::open(&dir).unwrap();
+            let delete = async || docker.delete(&name).await;
+            let off = crate::settings::Choices {
+                backups: false,
+                ..Default::default()
+            };
+            let refused = backups.delete_database(&off, &docker, &name, None, false, delete).await;
+            assert_eq!(refused.unwrap_err().kind, ErrorKind::NoBackup);
+            assert!(docker.container(&name).is_some(), "nothing was deleted");
+
+            let delete = async || docker.delete(&name).await;
+            let done = backups
+                .delete_database(&Default::default(), &docker, &name, None, false, delete)
+                .await
+                .unwrap();
+            assert!(!done.kept_volume, "Halfnine's own volume goes with it");
+            assert!(docker.container(&name).is_none());
+            let backup = done.backup.unwrap();
+            let crate::backups::Holds::Database { container: kept } = &backup.holds else {
+                panic!("a database backup")
+            };
+            assert!(kept.databases.contains(&made.database), "{:?}", kept.databases);
+
+            let folder = dir.join("backups").join(&backup.id);
+            let back = docker.put_back(kept, &docker.free_name(&name).await.unwrap(), &folder).await.unwrap();
+            assert_eq!((back.name.as_str(), back.label, back.read_only), (name.as_str(), Label::Amber, true));
+            let Source::Docker { made: Some(how), .. } = &back.source else {
+                panic!("Halfnine made it")
+            };
+            assert_eq!(how.how, MadeHow::New, "it keeps how it was first made");
+            let db = PgDatabase::connect(&back, None, &docker.secrets(&name).await.unwrap()).await.unwrap();
+            let rows = db.read("SELECT body FROM notes ORDER BY body DESC", 5, &[]).await.unwrap();
+            assert_eq!(rows.rows, [[Some("kept".to_string())], [Some(String::new())]]);
+            db.close().await;
+        })
+    };
+    let outcome = work.await;
+    if let Ok(engine) = docker.engine().await
+        && let Ok(c) = engine.container(&name).await
+    {
+        let _ = engine.remove(&name, c.volume.as_deref()).await;
     }
     let _ = std::fs::remove_dir_all(dir);
     if let Err(panic) = outcome {

@@ -10,6 +10,7 @@ use tauri_specta::Event;
 use super::DockerState;
 use super::make::{NewDatabase, Origin};
 use crate::AppState;
+use crate::backups::DeleteDone;
 use crate::files::storage;
 
 /// The window should fetch `docker_state` again. It carries nothing, so a missed one loses nothing.
@@ -114,21 +115,29 @@ pub async fn create_docker_database(state: State<'_, AppState>, name: String, ve
         agent: None,
         user: None,
         database: None,
+        port: None,
     };
     let docker = state.docker.clone();
     let _ = state.docker.job(&name, "Starting…", async move { docker.make(new).await });
     Ok(())
 }
 
-/// Deletes a Docker database, closing what the window and agents have open on it first. Returns whether its volume
-/// was kept because Halfnine didn't make it.
+/// Deletes a Docker database, backing it up first when backups are on, and refused with `NoBackup` when it can't be
+/// backed up, unless `without_backup` says someone confirmed going ahead without one. What the window and agents have
+/// open on it is closed once the backup is made.
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_docker_database(state: State<'_, AppState>, name: String) -> Result<bool, Error> {
+pub async fn delete_docker_database(state: State<'_, AppState>, name: String, without_backup: bool) -> Result<DeleteDone, Error> {
     let id = format!("{}{name}", super::ID_PREFIX);
-    state.agents.forget_connection(&id).await;
-    state.sessions.close_connection(&id).await;
-    state.docker.delete(&name).await
+    let delete = async || {
+        state.agents.forget_connection(&id).await;
+        state.sessions.close_connection(&id).await;
+        state.docker.delete(&name).await
+    };
+    state
+        .backups
+        .delete_database(&state.settings.get(), &state.docker, &name, None, without_backup, delete)
+        .await
 }
 
 #[tauri::command]
@@ -153,6 +162,7 @@ pub async fn copy_docker_database(state: State<'_, AppState>, source: String, na
         agent: None,
         user: None,
         database: None,
+        port: None,
     };
     let docker = state.docker.clone();
     let _ = state

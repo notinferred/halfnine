@@ -1,6 +1,6 @@
 //! The window's commands for backups: listing them, putting one back, deleting one, and the backup settings.
 
-use hn_core::Error;
+use hn_core::{ConnectionSpec, Error};
 use serde::Serialize;
 use specta::Type;
 use tauri::State;
@@ -51,6 +51,14 @@ pub async fn restore_backup(state: State<'_, AppState>, session_id: String, id: 
     );
     record(&state, &session, shown, (now_ms() - started) as u32, restored.is_ok())?;
     restored
+}
+
+/// Makes a deleted Docker database again from its backup, and waits until it's back. Its progress shows on the Docker
+/// page meanwhile.
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_database_backup(state: State<'_, AppState>, id: String) -> Result<ConnectionSpec, Error> {
+    state.backups.restore_database(&state.docker, &id).await
 }
 
 #[tauri::command]

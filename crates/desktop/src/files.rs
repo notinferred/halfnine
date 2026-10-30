@@ -71,6 +71,16 @@ fn write<T: Serialize>(path: &Path, version: u32, body: &T, what: &str, private:
     fs::rename(&temporary, path).map_err(failed)
 }
 
+/// Makes a folder, and any missing above it, that only this account can open. On Windows the config folder is
+/// already private.
+pub fn private_dir(path: &Path) -> Result<(), Error> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path).map_err(|e| storage("Couldn't create a folder", e))
+}
+
 pub fn storage(what: &str, e: impl std::fmt::Display) -> Error {
     Error::new(ErrorKind::Storage, format!("{what}: {e}."))
 }

@@ -147,8 +147,7 @@ function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: st
     }
     refreshTable(queries, id, table);
     if (result.backup) {
-      noteUndo(queries, id, result.backup);
-      void queries.invalidateQueries({ queryKey: ["backups"] });
+      noteUndo(queries, result.backup, id);
     }
   };
 

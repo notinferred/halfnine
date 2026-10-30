@@ -3,10 +3,9 @@ import { useState } from "react";
 import { type Backup, commands } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
-import { showNote } from "../../ui/note.tsx";
 import { ago } from "../../ui/time.ts";
 import { sizeInWords } from "../settings/settings-page.tsx";
-import { doneInWords, inWords, refreshTable } from "../workspace/backup-note.ts";
+import { doneInWords, inWords, putBack, type TableHolds } from "../workspace/backup-note.ts";
 
 /** Every backup, newest first: what it holds and why it was made, with Restore and Delete. */
 export function BackupsView() {
@@ -16,8 +15,8 @@ export function BackupsView() {
   if (backups.data && list.length === 0) {
     return (
       <p className="queries-empty muted">
-        No backups yet. With backups on in Settings, a table is backed up before it is dropped or emptied, or a column before it is dropped, so it can
-        be put back.
+        No backups yet. With backups on in Settings, a table is backed up before it is dropped or emptied, a column before it is dropped, and a Docker
+        database before it is deleted, so each can be put back.
       </p>
     );
   }
@@ -35,21 +34,24 @@ function BackupRow(props: { backup: Backup }) {
   const { holds } = backup;
   const queries = useQueryClient();
   const session = useWorkspace((s) => s.session);
-  const here = session?.connection.id === holds.connectionId && session.server.database === holds.database ? session : null;
+  const here = holds.kind === "table" && session !== null && onSession(holds, session.connection.id, session.server.database);
   const [reviewing, setReviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const review = useQuery({
-    queryKey: ["review-restore", here?.sessionId, backup.id],
-    queryFn: () => commands.reviewRestore(here?.sessionId ?? "", backup.id),
-    enabled: reviewing && here !== null,
+    queryKey: ["review-restore", session?.sessionId, backup.id],
+    queryFn: () => commands.reviewRestore(session?.sessionId ?? "", backup.id),
+    enabled: reviewing && here,
   });
+  const what =
+    holds.kind === "table"
+      ? [`${(holds.rows ?? 0).toLocaleString()} ${holds.rows === 1 ? "row" : "rows"}`, `${holds.database} on ${holds.connectionName}`]
+      : [`${holds.container.databases.length} ${holds.container.databases.length === 1 ? "database" : "databases"}`, holds.container.image];
   const detail = [
-    `${ago(backup.madeAtMs)}`,
-    `${(holds.rows ?? 0).toLocaleString()} ${holds.rows === 1 ? "row" : "rows"}`,
+    ago(backup.madeAtMs),
+    ...what,
     sizeInWords(backup.bytes ?? 0),
-    `${holds.database} on ${holds.connectionName}`,
     backup.agent ? `by ${backup.agent.title}` : null,
     backup.restoredAtMs === null ? null : `put back ${ago(backup.restoredAtMs)}`,
   ]
@@ -57,20 +59,10 @@ function BackupRow(props: { backup: Backup }) {
     .join(" · ");
 
   const restore = async () => {
-    if (!here) return;
     setBusy(true);
-    setError(null);
-    try {
-      await commands.restoreBackup(here.sessionId, backup.id);
-      setReviewing(false);
-      showNote({ text: `Put ${holds.table.name} back.` });
-      refreshTable(queries, here.sessionId, holds.table);
-    } catch (e) {
-      setError(describe(e));
-    } finally {
-      setBusy(false);
-      void queries.invalidateQueries({ queryKey: ["backups"] });
-    }
+    await putBack(queries, backup, here ? (session?.sessionId ?? null) : null);
+    setBusy(false);
+    setReviewing(false);
   };
 
   const remove = async () => {
@@ -84,11 +76,12 @@ function BackupRow(props: { backup: Backup }) {
     }
   };
 
+  const restorable = holds.kind === "database" || here;
   return (
     <li className="queries-item backup-row">
       <div className="backup-head">
         <span className="docker-row-text">
-          <span className="queries-name">{doneInWords(backup)}</span>
+          <span className="queries-name">{doneInWords(holds)}</span>
           <span className="muted docker-detail">{detail}</span>
           {backup.notKept.length > 0 && <span className="muted docker-detail">It doesn't keep {inWords(backup.notKept)}.</span>}
         </span>
@@ -106,8 +99,8 @@ function BackupRow(props: { backup: Backup }) {
             <button
               type="button"
               className="btn btn-quiet"
-              disabled={!here}
-              title={here ? undefined : `Connect to ${holds.database} on ${holds.connectionName} to put it back`}
+              disabled={!restorable}
+              title={holds.kind === "table" && !here ? `Connect to ${holds.database} on ${holds.connectionName} to put it back` : undefined}
               aria-expanded={reviewing}
               onClick={() => setReviewing(!reviewing)}
             >
@@ -119,16 +112,29 @@ function BackupRow(props: { backup: Backup }) {
           </span>
         )}
       </div>
-      {reviewing && here && (
+      {reviewing && restorable && (
         <div className="backup-review">
-          <pre className="review-sql mono">
-            {review.isError ? describe(review.error) : review.data ? ["BEGIN;", ...review.data, "COMMIT;"].join("\n") : "…"}
-          </pre>
+          {holds.kind === "table" ? (
+            <pre className="review-sql mono">
+              {review.isError ? describe(review.error) : review.data ? ["BEGIN;", ...review.data, "COMMIT;"].join("\n") : "…"}
+            </pre>
+          ) : (
+            <p className="muted docker-detail">
+              Makes a container named {holds.container.name}, or {holds.container.name}-restored if that's taken, from {holds.container.image}
+              {holds.container.port === null ? "" : `, on port ${holds.container.port} if it's free`}, and restores{" "}
+              {inWords(holds.container.databases)} into it.
+            </p>
+          )}
           <span className="docker-actions">
             <button type="button" className="btn btn-quiet" onClick={() => setReviewing(false)}>
               Cancel
             </button>
-            <button type="button" className="btn btn-primary" disabled={busy || !review.data} onClick={() => void restore()}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy || (holds.kind === "table" && !review.data)}
+              onClick={() => void restore()}
+            >
               {busy ? "Putting it back…" : "Put it back"}
             </button>
           </span>
@@ -138,3 +144,5 @@ function BackupRow(props: { backup: Backup }) {
     </li>
   );
 }
+
+const onSession = (holds: TableHolds, connectionId: string, database: string) => holds.connectionId === connectionId && holds.database === database;

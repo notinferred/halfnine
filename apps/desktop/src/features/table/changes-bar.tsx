@@ -54,8 +54,7 @@ export function ChangesBar(props: {
     setReviewing(false);
     setUnbacked(null);
     if (done.backup) {
-      noteUndo(queries, id, done.backup);
-      void queries.invalidateQueries({ queryKey: ["backups"] });
+      noteUndo(queries, done.backup, id);
     }
     props.onCommitted(done.committed);
   };

@@ -6,14 +6,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use hn_core::{AgentMark, ConnectionSpec, Error, ErrorKind};
+use hn_core::{AgentMark, ConnectionSpec, Error, ErrorKind, Made, MadeHow};
 use hn_docker::{Engine, NewContainer, label, pick_port, postgres, valid_name};
 use hn_pg::{PgDatabase, Secrets};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::watch;
 
-use super::{Docker, lock};
+use super::dumps::{self, Dumped};
+use super::{Docker, Overrides, lock, made};
 
 /// What a Docker database job is doing, for the window to show beside its row.
 #[derive(Clone, Debug, Serialize, Type)]
@@ -74,6 +75,27 @@ pub struct NewDatabase {
     /// The user and database its container is made with; `postgres`, and one named after it, unless given.
     pub user: Option<String>,
     pub database: Option<String>,
+    /// The port to publish it on if that one is free, as when it is put back.
+    pub port: Option<u16>,
+}
+
+/// What a backup keeps of a container besides its dumps, to make it again as it was.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptContainer {
+    pub name: String,
+    /// The image as it was asked for, such as `postgres:18`.
+    pub image: String,
+    pub major: Option<u16>,
+    pub port: Option<u16>,
+    pub user: String,
+    /// The database the container was made with.
+    pub database: String,
+    /// Every database in it, dumped to `<n>.dump` in this order.
+    pub databases: Vec<String>,
+    /// How Halfnine made it, and for which agent; `None` when Halfnine didn't make it.
+    pub made: Option<Made>,
+    pub overrides: Overrides,
 }
 
 /// How long a new database may take to accept connections, past downloading its image.
@@ -187,7 +209,6 @@ impl Docker {
                 .await?;
         }
         self.progress(&new.name, "Starting…".into());
-        let port = self.hold_port(&engine).await?;
         let password = uuid::Uuid::new_v4().simple().to_string();
         let id = uuid::Uuid::new_v4().simple().to_string();
         let mut labels = HashMap::from([
@@ -206,20 +227,34 @@ impl Docker {
             labels.insert(label::TEST.into(), "true".into());
         }
         let database = new.database.clone().unwrap_or_else(|| new.name.replace(['-', '.'], "_"));
-        engine
-            .create(&NewContainer {
-                name: new.name.clone(),
-                image,
-                major: new.major,
-                port: port.0,
-                user: new.user.clone().unwrap_or_else(|| "postgres".into()),
-                password: password.clone(),
-                database: database.clone(),
-                volume: format!("halfnine-{}", &id[..12]),
-                labels,
-            })
-            .await?;
-        engine.start(&new.name).await?;
+        let volume = format!("halfnine-{}", &id[..12]);
+        // Docker takes the port only as the container starts, so another program may take it first. Then the
+        // container is made again on another port.
+        let mut passed_over = HashSet::new();
+        let _port = loop {
+            let port = self.hold_port(&engine, new.port, &passed_over).await?;
+            engine
+                .create(&NewContainer {
+                    name: new.name.clone(),
+                    image: image.clone(),
+                    major: new.major,
+                    port: port.0,
+                    user: new.user.clone().unwrap_or_else(|| "postgres".into()),
+                    password: password.clone(),
+                    database: database.clone(),
+                    volume: volume.clone(),
+                    labels: labels.clone(),
+                })
+                .await?;
+            match engine.start(&new.name).await {
+                Ok(()) => break port,
+                Err(error) if hn_docker::port_taken(&error) && passed_over.len() < 5 => {
+                    passed_over.insert(port.0);
+                    engine.remove(&new.name, Some(&volume)).await?;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         self.refresh().await?;
         let spec = self
             .connections()
@@ -235,16 +270,94 @@ impl Docker {
         Ok(spec)
     }
 
-    /// Picks a port for a new container and keeps it from other jobs until the hold is dropped, by which time Docker
-    /// lists the container publishing it.
-    async fn hold_port(&self, engine: &Engine) -> Result<PortHold<'_>, Error> {
+    /// Picks a port for a new container, other than those `passed_over`, and keeps it from other jobs until the hold
+    /// is dropped, by which time Docker lists the container publishing it.
+    async fn hold_port(&self, engine: &Engine, preferred: Option<u16>, passed_over: &HashSet<u16>) -> Result<PortHold<'_>, Error> {
         let published: HashSet<u16> = engine.containers().await?.iter().filter_map(|c| c.port).collect();
         let mut held = lock(&self.ports);
-        let taken: HashSet<u16> = published.union(&held).copied().collect();
-        let port = pick_port(&taken, |p| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok())
+        let taken: HashSet<u16> = published.iter().chain(held.iter()).chain(passed_over).copied().collect();
+        let free = |p: u16| !taken.contains(&p) && std::net::TcpListener::bind(("127.0.0.1", p)).is_ok();
+        let port = preferred
+            .filter(|p| free(*p))
+            .or_else(|| pick_port(&taken, free))
             .ok_or_else(|| Error::new(ErrorKind::Docker, "Every port from 5433 to 5532 is taken."))?;
         held.insert(port);
         Ok(PortHold(port, self))
+    }
+
+    /// Dumps a container's databases and roles into `folder`, starting it for that if it's stopped, and says what a
+    /// backup keeps of it to make it again. A container started for this is stopped again if the dump fails.
+    pub async fn back_up(&self, name: &str, folder: &std::path::Path) -> Result<KeptContainer, Error> {
+        let engine = self.engine().await?;
+        let container = engine.container(name).await?;
+        if !container.running {
+            engine.start(name).await?;
+        }
+        let user = &container.credentials.user;
+        let dumped = match dumps::dump(&engine, name, user, folder).await {
+            Ok(dumped) => dumped,
+            Err(error) => {
+                if !container.running {
+                    let _ = engine.stop(name).await;
+                }
+                return Err(error);
+            }
+        };
+        Ok(KeptContainer {
+            name: name.to_string(),
+            image: container.image.clone(),
+            major: container.major,
+            port: container.port,
+            user: user.clone(),
+            database: container.credentials.database.clone(),
+            databases: dumped.databases,
+            made: made(&container),
+            overrides: self.overrides(name),
+        })
+    }
+
+    /// The name a database put back takes: its own if it's free, else the first free of `<name>-restored`,
+    /// `<name>-restored-2` and on.
+    pub async fn free_name(&self, name: &str) -> Result<String, Error> {
+        let engine = self.engine().await?;
+        let names: HashSet<String> = engine.containers().await?.into_iter().map(|c| c.name).collect();
+        let taken = |n: &String| names.contains(n) || lock(&self.jobs).contains_key(n);
+        Ok(std::iter::once(name.to_string())
+            .chain(std::iter::once(format!("{name}-restored")))
+            .chain((2..).map(|n| format!("{name}-restored-{n}")))
+            .find(|n| !taken(n))
+            .unwrap_or_default())
+    }
+
+    /// Makes a backed-up database again as `name`: the same image, user and databases, on its old port if that's
+    /// free, made the way the original was and set as it was.
+    pub async fn put_back(&self, kept: &KeptContainer, name: &str, folder: &std::path::Path) -> Result<ConnectionSpec, Error> {
+        let origin = match kept.made.as_ref().map(|m| m.how) {
+            Some(MadeHow::New) => Origin::New,
+            Some(MadeHow::Copy) => Origin::Copy,
+            Some(MadeHow::Restored) | None => Origin::Restored,
+        };
+        self.make(NewDatabase {
+            name: name.to_string(),
+            major: kept.major.unwrap_or(18),
+            image: Some(kept.image.clone()),
+            load: None,
+            origin,
+            copy_of: None,
+            agent: kept.made.as_ref().and_then(|m| m.agent.clone()),
+            user: Some(kept.user.clone()),
+            database: Some(kept.database.clone()),
+            port: kept.port,
+        })
+        .await?;
+        self.progress(name, format!("Restoring {}…", kept.name));
+        let engine = self.engine().await?;
+        let dumped = Dumped {
+            user: kept.user.clone(),
+            databases: kept.databases.clone(),
+        };
+        dumps::restore(&engine, name, folder, &dumped).await?;
+        self.set_overrides(name, |overrides| *overrides = kept.overrides.clone())
     }
 
     /// Copies a Docker database into a new container: the same image, user and databases, restored from a fresh dump
@@ -270,6 +383,7 @@ impl Docker {
                     user: Some(user.clone()),
                     database: Some(from.credentials.database.clone()),
                     load: None,
+                    port: None,
                     ..new.clone()
                 })
                 .await?;

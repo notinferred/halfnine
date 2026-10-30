@@ -52,6 +52,11 @@ pub struct Container {
     pub credentials: Credentials,
 }
 
+/// Whether Docker couldn't start a container because something else took its port first.
+pub fn port_taken(error: &Error) -> bool {
+    error.message.contains("port is already allocated") || error.message.contains("address already in use")
+}
+
 /// A new Postgres container to make.
 #[derive(Clone, Debug)]
 pub struct NewContainer {
@@ -405,6 +410,13 @@ impl Layers {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knows_when_something_took_the_port_first() {
+        let taken = "Docker couldn't start hn: Bind for 127.0.0.1:5433 failed: port is already allocated";
+        assert!(port_taken(&Error::new(ErrorKind::Docker, taken)));
+        assert!(!port_taken(&Error::new(ErrorKind::Docker, "Docker couldn't start hn: no such image")));
+    }
 
     #[test]
     fn counts_download_progress_across_layers() {

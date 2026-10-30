@@ -65,6 +65,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             backups::commands::list_backups,
             backups::commands::review_restore,
             backups::commands::restore_backup,
+            backups::commands::restore_database_backup,
             backups::commands::delete_backup,
             backups::commands::set_backups_enabled,
             backups::commands::set_backup_limit,

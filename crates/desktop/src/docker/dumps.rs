@@ -3,12 +3,17 @@
 //! this way, and a backup before a delete.
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use hn_core::{Error, ErrorKind};
 use hn_docker::Engine;
 use serde::{Deserialize, Serialize};
 
+use crate::files::private_dir;
+
 const GLOBALS: &str = "globals.sql";
+/// How long a container just started may take before Postgres in it accepts connections.
+const STARTING: Duration = Duration::from_secs(60);
 
 /// What a dump folder holds.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,9 +33,37 @@ fn write_failed(e: std::io::Error) -> Error {
     Error::new(ErrorKind::Storage, format!("Couldn't write the dump: {e}."))
 }
 
+/// A file only this account can read, as a dump holds every row.
+async fn create(path: &Path) -> Result<tokio::fs::File, Error> {
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.open(path).await.map_err(write_failed)
+}
+
+/// Waits until Postgres in a running container accepts connections, which it doesn't at once after starting.
+async fn accepting(engine: &Engine, container: &str, user: &str) -> Result<(), Error> {
+    let started = Instant::now();
+    loop {
+        let (ran, _) = engine.run(container, &["pg_isready", "-q", "-U", user]).await?;
+        if ran.succeeded() {
+            return Ok(());
+        }
+        if started.elapsed() > STARTING {
+            return Err(Error::new(
+                ErrorKind::Docker,
+                format!("{container} didn't start accepting connections within a minute."),
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
 /// Saves every database of a running container, and the roles, to `dir`, streamed to disk.
 pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path) -> Result<Dumped, Error> {
-    std::fs::create_dir_all(dir).map_err(write_failed)?;
+    private_dir(dir)?;
+    accepting(engine, container, user).await?;
     let list = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname";
     let (ran, out) = engine.run(container, &["psql", "-U", user, "-d", "postgres", "-tAc", list]).await?;
     if !ran.succeeded() {
@@ -41,7 +74,7 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path) -> R
         .map(str::to_string)
         .filter(|d| !d.is_empty())
         .collect();
-    let mut globals = tokio::fs::File::create(dir.join(GLOBALS)).await.map_err(write_failed)?;
+    let mut globals = create(&dir.join(GLOBALS)).await?;
     let ran = engine
         .run_to(
             container,
@@ -54,7 +87,7 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path) -> R
     }
     for (n, database) in databases.iter().enumerate() {
         let path = dir.join(format!("{n}.dump"));
-        let mut file = tokio::fs::File::create(&path).await.map_err(write_failed)?;
+        let mut file = create(&path).await?;
         let ran = engine
             .run_to(container, &["pg_dump", "-Fc", "-U", user, "-d", database], &mut file)
             .await?;
@@ -68,8 +101,7 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path) -> R
         user: user.to_string(),
         databases,
     };
-    let index = serde_json::to_vec_pretty(&dumped).map_err(|e| Error::new(ErrorKind::Storage, e.to_string()))?;
-    std::fs::write(dir.join("dumped.json"), index).map_err(write_failed)?;
+    globals.sync_all().await.map_err(write_failed)?;
     Ok(dumped)
 }
 

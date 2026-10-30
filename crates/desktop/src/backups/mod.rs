@@ -1,7 +1,8 @@
-//! Backups made before something is dropped or emptied, kept until someone deletes them. Each is a folder in
-//! `backups/` that only this account can read, listed in `backups/backups.json`. A table's folder holds its
-//! definition and its rows as CSV. A backup is listed once its files are on disk and before the drop commits, so a
-//! crash can leave an extra backup but never lose one.
+//! Backups made before something is dropped, emptied or deleted, kept until someone deletes them. Each is a folder
+//! in `backups/` that only this account can read, listed in `backups/backups.json`. A table's folder holds its
+//! definition and its rows as CSV; a Docker database's holds its roles and a dump of each database. A backup is
+//! listed once its files are on disk and before the drop or delete happens, so a crash can leave an extra backup but
+//! never lose one.
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -16,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::commands::now_ms;
-use crate::files::{self, storage};
+use crate::docker::Docker;
+use crate::docker::make::KeptContainer;
+use crate::files::{self, private_dir, storage};
 use crate::import::FileSource;
 use crate::sessions::Session;
 use crate::settings::Choices;
@@ -57,11 +60,22 @@ pub enum Holds {
         into: RestoreInto,
         rows: f64,
     },
+    /// A Docker database, deleted.
+    Database { container: KeptContainer },
 }
 
 #[derive(Default, Serialize, Deserialize)]
 struct Index {
     backups: Vec<Backup>,
+}
+
+/// A deleted Docker database, and the backup made before, if one was.
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteDone {
+    /// Its data volume was kept, because Halfnine didn't make it.
+    pub kept_volume: bool,
+    pub backup: Option<Backup>,
 }
 
 /// A commit, and the backup made before it, if one was.
@@ -157,7 +171,8 @@ impl Backups {
         }
         let mut files = self.start(session, table, into, agent)?;
         let id = files.backup.id.clone();
-        match session.db.commit_with_backup(changes, &files.table().clone(), &mut files).await {
+        let table = files.table.clone();
+        match session.db.commit_with_backup(changes, &table, &mut files).await {
             Ok(committed) => Ok(CommitDone {
                 committed,
                 backup: Some(self.get(&id)?),
@@ -169,6 +184,95 @@ impl Backups {
         }
     }
 
+    /// Backs up a Docker database before it is deleted, as `choices` allow, and refuses with
+    /// [`ErrorKind::NoBackup`], saying why, when it can't be, unless `without_backup` says someone confirmed going
+    /// ahead without one. `delete` runs once the backup is listed.
+    pub async fn delete_database(
+        &self,
+        choices: &Choices,
+        docker: &Docker,
+        name: &str,
+        agent: Option<AgentMark>,
+        without_backup: bool,
+        delete: impl AsyncFnOnce() -> Result<bool, Error>,
+    ) -> Result<DeleteDone, Error> {
+        if without_backup {
+            return Ok(DeleteDone {
+                kept_volume: delete().await?,
+                backup: None,
+            });
+        }
+        if !choices.backups {
+            return Err(Error::new(ErrorKind::NoBackup, "Backups are off in Settings."));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let folder = self.dir.join(&id);
+        let kept = match docker.back_up(name, &folder).await {
+            Ok(kept) => kept,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&folder);
+                return Err(Error {
+                    kind: ErrorKind::NoBackup,
+                    message: format!("The backup failed, so nothing was deleted: {}", error.message),
+                    ..error
+                });
+            }
+        };
+        let backup = Backup {
+            id: id.clone(),
+            made_at_ms: now_ms(),
+            holds: Holds::Database { container: kept },
+            agent,
+            bytes: folder_bytes(&folder),
+            not_kept: vec![
+                "role passwords".into(),
+                "container settings beyond its image, port, user and database".into(),
+            ],
+            restored_at_ms: None,
+        };
+        let listed = backup.clone();
+        self.change(|backups| backups.push(listed))?;
+        match delete().await {
+            Ok(kept_volume) => Ok(DeleteDone {
+                kept_volume,
+                backup: Some(backup),
+            }),
+            Err(error) => {
+                let _ = self.delete(&id);
+                Err(error)
+            }
+        }
+    }
+
+    /// Makes a deleted Docker database again from its backup, as a job the Docker page follows, and waits for it.
+    pub async fn restore_database(&self, docker: &std::sync::Arc<Docker>, id: &str) -> Result<hn_core::ConnectionSpec, Error> {
+        let Holds::Database { container } = self.get(id)?.holds else {
+            return Err(Error::new(ErrorKind::Invalid, "This backup is of a table."));
+        };
+        let name = docker.free_name(&container.name).await?;
+        let folder = self.dir.join(id);
+        let job = std::sync::Arc::clone(docker);
+        let target = name.clone();
+        let mut done = docker.job(&name, "Putting it back…", async move { job.put_back(&container, &target, &folder).await });
+        let outcome = done
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| Error::new(ErrorKind::Docker, "Halfnine lost track of putting it back."))?
+            .clone()
+            .unwrap_or_else(|| Err(Error::new(ErrorKind::Docker, "Halfnine lost track of putting it back.")));
+        let spec = outcome?;
+        self.restored(id)?;
+        Ok(spec)
+    }
+
+    fn restored(&self, id: &str) -> Result<(), Error> {
+        self.change(|backups| {
+            if let Some(backup) = backups.iter_mut().find(|b| b.id == id) {
+                backup.restored_at_ms = Some(now_ms());
+            }
+        })
+    }
+
     fn start(&self, session: &Session, table: TableRef, into: RestoreInto, agent: Option<AgentMark>) -> Result<TableFiles<'_>, Error> {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let folder = self.dir.join(&id);
@@ -177,7 +281,9 @@ impl Backups {
         Ok(TableFiles {
             backups: self,
             folder,
+            table: table.clone(),
             rows: BufWriter::new(rows),
+            written: 0.0,
             backup: Backup {
                 id,
                 made_at_ms: now_ms(),
@@ -208,11 +314,7 @@ impl Backups {
         let (definition, into) = self.table_backup(session, id)?;
         let mut rows = FileSource::open(&self.dir.join(id).join(ROWS))?;
         let restored = session.db.restore(&definition, &into, &mut rows).await?;
-        self.change(|backups| {
-            if let Some(backup) = backups.iter_mut().find(|b| b.id == id) {
-                backup.restored_at_ms = Some(now_ms());
-            }
-        })?;
+        self.restored(id)?;
         Ok(restored)
     }
 
@@ -223,7 +325,10 @@ impl Backups {
             database,
             into,
             ..
-        } = self.get(id)?.holds;
+        } = self.get(id)?.holds
+        else {
+            return Err(Error::new(ErrorKind::Invalid, "This backup is of a Docker database."));
+        };
         if connection_id != session.connection.id || database != session.database {
             return Err(Error::new(
                 ErrorKind::Invalid,
@@ -267,20 +372,10 @@ impl Backups {
 struct TableFiles<'a> {
     backups: &'a Backups,
     folder: PathBuf,
+    table: TableRef,
     rows: BufWriter<File>,
+    written: f64,
     backup: Backup,
-}
-
-impl TableFiles<'_> {
-    fn table(&self) -> &TableRef {
-        let Holds::Table { table, .. } = &self.backup.holds;
-        table
-    }
-
-    fn rows_written(&mut self) -> &mut f64 {
-        let Holds::Table { rows, .. } = &mut self.backup.holds;
-        rows
-    }
 }
 
 impl RowSink for TableFiles<'_> {
@@ -291,7 +386,7 @@ impl RowSink for TableFiles<'_> {
     }
 
     fn row(&mut self, row: &[Cell]) -> Result<(), Error> {
-        *self.rows_written() += 1.0;
+        self.written += 1.0;
         self.rows
             .write_all(csv_line(row.iter().map(Option::as_deref)).as_bytes())
             .map_err(|e| storage("Couldn't write the backup", e))
@@ -310,6 +405,9 @@ impl TableSink for TableFiles<'_> {
         self.rows.get_ref().sync_all().map_err(failed)?;
         File::open(self.folder.join(DEFINITION)).and_then(|f| f.sync_all()).map_err(failed)?;
         self.backup.bytes = folder_bytes(&self.folder);
+        if let Holds::Table { rows, .. } = &mut self.backup.holds {
+            *rows = self.written;
+        }
         let backup = self.backup.clone();
         self.backups.change(|backups| backups.push(backup))
     }
@@ -319,15 +417,6 @@ fn folder_bytes(folder: &Path) -> f64 {
     fs::read_dir(folder)
         .map(|entries| entries.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len() as f64).sum())
         .unwrap_or_default()
-}
-
-/// A folder only this account can open. On Windows the config folder is already private.
-fn private_dir(path: &Path) -> Result<(), Error> {
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(path).map_err(|e| storage("Couldn't create the backups folder", e))
 }
 
 fn private_file(path: &Path) -> Result<File, Error> {
