@@ -4,6 +4,7 @@
 mod agents;
 mod bindings;
 mod commands;
+mod connections;
 mod export;
 mod files;
 mod import;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub sessions: Arc<sessions::Sessions>,
     pub imports: import::Imports,
     pub passwords: Arc<secrets::Passwords>,
+    pub directory: Arc<connections::Directory>,
     pub agents: Arc<agents::Agents>,
 }
 
@@ -58,7 +60,8 @@ fn main() {
             let sessions = Arc::new(sessions::Sessions::default());
             let passwords = Arc::new(secrets::Passwords::default());
             let desk = Arc::new(agents::desk::WindowDesk(app.handle().clone()));
-            let agents = Arc::new(agents::Agents::new(&dir, store.clone(), passwords.clone(), sessions.clone(), desk));
+            let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone()));
+            let agents = Arc::new(agents::Agents::new(&dir, directory.clone(), sessions.clone(), desk));
             tauri::async_runtime::spawn(agents::listen::listen(agents.clone(), dir.clone()));
             app.manage(AppState {
                 store,
@@ -66,6 +69,7 @@ fn main() {
                 sessions,
                 imports: import::Imports::default(),
                 passwords,
+                directory,
                 agents,
             });
             Ok(())

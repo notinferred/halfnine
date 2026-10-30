@@ -75,7 +75,7 @@ pub struct SessionInfo {
 /// The saved connections. Their secrets stay in the keychain, which is read only to connect: macOS asks before an app
 /// that didn't save a secret reads it, and to macOS every new build is a different app.
 pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<ConnectionSpec>, Error> {
-    Ok(state.store.list())
+    Ok(state.directory.list())
 }
 
 #[tauri::command]
@@ -147,32 +147,15 @@ pub async fn open_session(
     database: Option<String>,
     typed: Option<Typed>,
 ) -> Result<SessionInfo, Error> {
-    let connection = state.store.get(&connection_id)?;
-    let id = connection.id.clone();
-    let asks = !connection.save_password;
-    let secrets = match typed {
-        Some(typed) => {
-            let secrets = Secrets {
-                password: typed.password.filter(|p| !p.is_empty()),
-                ssh: typed.ssh_secret.filter(|p| !p.is_empty()),
-            };
-            if asks {
-                state.passwords.remember(&id, &secrets);
-            }
-            secrets
-        }
-        None if asks => state.passwords.remembered(&id).ok_or_else(|| {
-            Error::new(
-                ErrorKind::PasswordNeeded,
-                format!("Type the password for {} to connect.", connection.name),
-            )
-        })?,
-        None => state.passwords.saved(&id)?,
-    };
-    let opened = open_with(&state.sessions, connection, database.as_deref(), secrets).await;
-    // A password typed this launch that the server refused is asked for again next time.
-    if asks && opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
-        state.passwords.forget_typed(&id);
+    let connection = state.directory.get(&connection_id)?;
+    let typed = typed.map(|typed| Secrets {
+        password: typed.password.filter(|p| !p.is_empty()),
+        ssh: typed.ssh_secret.filter(|p| !p.is_empty()),
+    });
+    let secrets = state.directory.secrets(&connection, typed).await?;
+    let opened = open_with(&state.sessions, connection.clone(), database.as_deref(), secrets).await;
+    if opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
+        state.directory.refused(&connection);
     }
     opened
 }

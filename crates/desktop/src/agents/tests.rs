@@ -13,6 +13,8 @@ use rmcp::{RoleClient, ServiceExt};
 use serde_json::{Value, json};
 
 use super::*;
+use crate::secrets::Passwords;
+use crate::store::Store;
 
 #[derive(Default)]
 struct TestDesk {
@@ -81,7 +83,8 @@ fn world(url: Option<&str>) -> World {
         store.save(connection).unwrap();
     }
     let desk = Arc::new(TestDesk::default());
-    let agents = Agents::new(&dir, store, passwords, Arc::new(Sessions::default()), desk.clone()).waiting_at_most(Duration::from_millis(300));
+    let directory = Arc::new(crate::connections::Directory::new(store, passwords));
+    let agents = Agents::new(&dir, directory, Arc::new(Sessions::default()), desk.clone()).waiting_at_most(Duration::from_millis(300));
     World {
         agents: Arc::new(agents),
         desk,
@@ -400,7 +403,7 @@ async fn asks_the_person_for_a_password_and_waits() {
     let Some(url) = database_url() else { return };
     let world = world(Some(&url));
     let parts = hn_core::parse_url(&url).unwrap();
-    world.agents.passwords.forget_typed("id-read");
+    world.agents.directory.passwords.forget_typed("id-read");
     let agents = world.agents.clone();
     let answer = tokio::spawn(async move {
         loop {
@@ -426,14 +429,14 @@ async fn asks_the_person_for_a_password_and_waits() {
 async fn an_agent_sees_a_hidden_column_only_as_hidden() {
     let Some(url) = database_url() else { return };
     let world = world(Some(&url));
-    let mut full = world.agents.store.get("id-full").unwrap();
+    let mut full = world.agents.directory.store.get("id-full").unwrap();
     full.hidden_columns.push(hn_core::HiddenColumn {
         database: full.database.clone(),
         schema: "hn_fixture".into(),
         table: "customers".into(),
         column: "email".into(),
     });
-    world.agents.store.save(full).unwrap();
+    world.agents.directory.store.save(full).unwrap();
     let client = client(&world.agents, "claude-code").await;
     let (text, _) = call(
         &client,

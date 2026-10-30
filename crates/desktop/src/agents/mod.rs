@@ -28,10 +28,9 @@ use specta::Type;
 use tokio::sync::watch;
 
 use crate::commands::{SessionInfo, now_ms, open_with};
+use crate::connections::Directory;
 use crate::files;
-use crate::secrets::Passwords;
 use crate::sessions::{Session, Sessions};
-use crate::store::Store;
 use activity::{ActivityEntry, ActivityLog, Call, Done, Outcome};
 use results::{Reply, Status, plural};
 use undo::{UndoRecord, Undos};
@@ -228,8 +227,7 @@ struct Settings {
 }
 
 pub struct Agents {
-    store: Arc<Store>,
-    passwords: Arc<Passwords>,
+    directory: Arc<Directory>,
     sessions: Arc<Sessions>,
     desk: Arc<dyn Desk>,
     log: ActivityLog,
@@ -256,12 +254,11 @@ fn new_id(prefix: &str) -> String {
 }
 
 impl Agents {
-    pub fn new(dir: &Path, store: Arc<Store>, passwords: Arc<Passwords>, sessions: Arc<Sessions>, desk: Arc<dyn Desk>) -> Self {
+    pub fn new(dir: &Path, directory: Arc<Directory>, sessions: Arc<Sessions>, desk: Arc<dyn Desk>) -> Self {
         let settings = dir.join("agents.json");
         let paused = files::load::<Settings>(&settings, SETTINGS_VERSION, "the agent settings").is_ok_and(|s| s.paused);
         Self {
-            store,
-            passwords,
+            directory,
             sessions,
             desk,
             log: ActivityLog::open(dir.to_path_buf()),
@@ -353,7 +350,7 @@ impl Agents {
 
     /// The connection an agent named, by the name the person gave it.
     fn connection(&self, name: &str) -> Result<ConnectionSpec, Reply> {
-        let matching: Vec<ConnectionSpec> = self.store.list().into_iter().filter(|c| c.name == name).collect();
+        let matching: Vec<ConnectionSpec> = self.directory.list().into_iter().filter(|c| c.name == name).collect();
         match matching.len() {
             1 => Ok(matching.into_iter().next().expect("one connection")),
             0 => Err(Reply::new(
@@ -440,16 +437,6 @@ impl Agents {
         self.end(call, outcome, None, None, None, None);
     }
 
-    fn secrets(&self, spec: &ConnectionSpec) -> Result<Secrets, Error> {
-        if spec.save_password {
-            self.passwords.saved(&spec.id)
-        } else {
-            self.passwords
-                .remembered(&spec.id)
-                .ok_or_else(|| Error::new(ErrorKind::PasswordNeeded, format!("Halfnine needs the password for {} first.", spec.name)))
-        }
-    }
-
     /// The agents' own session on a database, opened on first use. For a connection that asks for its password each
     /// time, Halfnine asks the person, once, and the agent waits.
     async fn database(&self, agent: &Agent, spec: &ConnectionSpec, database: Option<&str>) -> Result<(Arc<Session>, SessionInfo), Reply> {
@@ -461,17 +448,17 @@ impl Agents {
         {
             return Ok((session, info));
         }
-        let secrets = match self.secrets(spec) {
+        let secrets = match self.directory.secrets(spec, None).await {
             Ok(secrets) => secrets,
             Err(e) if e.kind == ErrorKind::PasswordNeeded => {
                 self.ask_password(agent, spec).await?;
-                self.secrets(spec)?
+                self.directory.secrets(spec, None).await?
             }
             Err(e) => return Err(e.into()),
         };
         let opened = open_with(&self.sessions, spec.clone(), Some(&name), secrets).await;
-        if !spec.save_password && opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
-            self.passwords.forget_typed(&spec.id);
+        if opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
+            self.directory.refused(spec);
         }
         let info = opened?;
         let mut databases = self.databases.lock().await;
@@ -531,7 +518,8 @@ impl Agents {
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "The agent stopped waiting for this password."))?;
         let db = PgDatabase::connect(&spec, None, &secrets).await?;
         db.close().await;
-        self.passwords.remember(&spec.id, &secrets);
+        // Remembered until quit, as when the person connects themselves.
+        self.directory.secrets(&spec, Some(secrets)).await?;
         if let Some(request) = lock(&self.asked).remove(&spec.id) {
             request.answered.send_replace(Some(true));
         }
@@ -809,7 +797,7 @@ impl Agents {
 
     /// The columns hidden from agents in a connection's database, as saved now.
     fn hidden(&self, connection_id: &str, database: &str) -> Vec<ColumnRef> {
-        self.store.get(connection_id).map(|spec| spec.hidden_in(database)).unwrap_or_default()
+        self.directory.get(connection_id).map(|spec| spec.hidden_in(database)).unwrap_or_default()
     }
 
     /// Keeps the reverse of committed row changes, so the person can undo them from the Agents page.

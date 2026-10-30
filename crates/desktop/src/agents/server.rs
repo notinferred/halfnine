@@ -67,7 +67,7 @@ impl Server {
             if self.agents.paused() {
                 return paused();
             }
-            let connections = self.agents.store.list();
+            let connections = self.agents.directory.list();
             if connections.is_empty() {
                 return Reply::new(Status::Ok, "Halfnine has no connections yet. The person adds them in Halfnine.");
             }

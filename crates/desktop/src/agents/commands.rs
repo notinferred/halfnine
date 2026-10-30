@@ -92,17 +92,11 @@ pub async fn set_column_hidden(
     column: String,
     hidden: bool,
 ) -> Result<ConnectionSpec, Error> {
-    let mut spec = state.store.get(&connection_id)?;
-    let entry = HiddenColumn {
+    let column = HiddenColumn {
         database,
         schema: table.schema,
         table: table.name,
         column,
     };
-    spec.hidden_columns.retain(|h| h != &entry);
-    if hidden {
-        spec.hidden_columns.push(entry);
-    }
-    state.store.save(spec.clone())?;
-    Ok(spec)
+    state.directory.set_hidden(&connection_id, column, hidden)
 }
