@@ -17,6 +17,7 @@ unsafe_code = "forbid"
 [workspace.dependencies]
 hn-core = { path = "crates/core" }
 hn-pg = { path = "crates/pg" }
+hn-docker = { path = "crates/docker" }
 
 serde = { version = "=1.0.229", features = ["derive"] }
 # Keeps the key order of the other apps' settings files that setting up an agent edits.
@@ -54,6 +55,10 @@ dirs = "=7.0.0"
 # Opens Cursor's and VS Code's own install screens for Halfnine, from Rust only. What Tauri's opener plugin uses inside.
 open = "=5.4.4"
 base64 = "=0.22.1"
+# The Docker engine on this computer (2026-10-30), through its socket or named pipe only: no TLS, no TCP, no C
+# toolchain. tar packs the files uploaded into a container.
+bollard = { version = "=0.21.1", default-features = false, features = ["pipe"] }
+tar = { version = "=0.4.46", default-features = false }
 # Passwords in the macOS Keychain and the Windows Credential Manager.
 keyring-core = "=1.0.1"
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
