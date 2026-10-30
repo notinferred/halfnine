@@ -45,6 +45,15 @@ export const hasStaged = (tab: Tab) =>
   (tab.kind === "table" && (countEdits(tab.edits) > 0 || (tab.draft !== null && structureChanges(tab.draft).length > 0))) ||
   (tab.kind === "proposal" && !tab.settled);
 
+/** A connection open in the window, with its tabs, kept whole while another is shown so switching back loses nothing. */
+export type OpenConnection = {
+  session: SessionInfo;
+  tabs: Tab[];
+  active: string | null;
+  held: string | null;
+  queriesOpened: number;
+};
+
 type Workspace = {
   session: SessionInfo | null;
   tabs: Tab[];
@@ -53,8 +62,20 @@ type Workspace = {
   held: string | null;
   paletteOpen: boolean;
   queriesOpened: number;
+  /** The other connections open in the window, in the order they were last shown. */
+  parked: OpenConnection[];
+  /** Shows a newly opened connection, keeping the one shown open behind it. */
   enter: (session: SessionInfo) => void;
+  /** Shows a connection already open, keeping the one shown open behind it. */
+  show: (sessionId: string) => void;
+  /** Shows the connections screen to open another, keeping every open connection. */
+  openAnother: () => void;
+  /** The shown connection is now this session, as after switching databases, and its tabs start afresh. */
+  replace: (session: SessionInfo) => void;
+  /** Closes the shown connection, then shows the one shown before it, or the connections screen. */
   leave: () => void;
+  /** Lets go of every open connection to `connectionId`, as when its Docker database is gone. */
+  forgetConnection: (connectionId: string) => void;
   /** Activates the first tab with staged changes and holds it, so they aren't lost. `true` when there was one. */
   holdStaged: () => boolean;
   openTable: (table: TableRef, filter?: Filter | null) => void;
@@ -81,6 +102,26 @@ type Workspace = {
 
 const sameTable = (a: TableRef, b: TableRef) => a.schema === b.schema && a.name === b.name;
 
+type Shown = Pick<Workspace, "session" | "tabs" | "active" | "held" | "queriesOpened">;
+
+const fresh = (session: SessionInfo): OpenConnection => ({ session, tabs: [], active: null, held: null, queriesOpened: 0 });
+
+/** What the window shows for an open connection, or the connections screen for `null`. */
+const showing = (open: OpenConnection | null): Shown =>
+  open
+    ? { session: open.session, tabs: open.tabs, active: open.active, held: open.held, queriesOpened: open.queriesOpened }
+    : { session: null, tabs: [], active: null, held: null, queriesOpened: 0 };
+
+/** The open connections once the shown one is set aside. */
+const parking = (s: Shown & { parked: OpenConnection[] }): OpenConnection[] =>
+  s.session ? [...s.parked, { session: s.session, tabs: s.tabs, active: s.active, held: s.held, queriesOpened: s.queriesOpened }] : s.parked;
+
+/** The open session on a connection, shown or not, on `database` when one is given. */
+export function openOn(s: Shown & { parked: OpenConnection[] }, connectionId: string, database?: string): SessionInfo | null {
+  const all = [s.session, ...s.parked.map((p) => p.session)];
+  return all.find((x) => x?.connection.id === connectionId && (database === undefined || x.server.database === database)) ?? null;
+}
+
 export const useWorkspace = create<Workspace>((set, get) => {
   const add = (tab: Tab) => set((s) => ({ tabs: [...s.tabs, tab], active: tab.id, paletteOpen: false }));
   return {
@@ -90,8 +131,23 @@ export const useWorkspace = create<Workspace>((set, get) => {
     held: null,
     paletteOpen: false,
     queriesOpened: 0,
-    enter: (session) => set({ session, tabs: [], active: null, held: null, paletteOpen: false, queriesOpened: 0 }),
-    leave: () => set({ session: null, tabs: [], active: null, held: null, paletteOpen: false }),
+    parked: [],
+    enter: (session) => set((s) => ({ parked: parking(s), ...showing(fresh(session)), paletteOpen: false })),
+    show: (sessionId) =>
+      set((s) => {
+        const target = s.parked.find((p) => p.session.sessionId === sessionId);
+        if (!target) return {};
+        return { parked: parking(s).filter((p) => p !== target), ...showing(target), paletteOpen: false };
+      }),
+    openAnother: () => set((s) => ({ parked: parking(s), ...showing(null), paletteOpen: false })),
+    replace: (session) => set({ ...showing(fresh(session)), paletteOpen: false }),
+    leave: () => set((s) => ({ parked: s.parked.slice(0, -1), ...showing(s.parked.at(-1) ?? null), paletteOpen: false })),
+    forgetConnection: (connectionId) =>
+      set((s) => {
+        const parked = s.parked.filter((p) => p.session.connection.id !== connectionId);
+        if (s.session?.connection.id !== connectionId) return { parked };
+        return { parked: parked.slice(0, -1), ...showing(parked.at(-1) ?? null), paletteOpen: false };
+      }),
     holdStaged: () => {
       const staged = get().tabs.find(hasStaged);
       if (staged) set({ active: staged.id, held: staged.id, paletteOpen: false });
@@ -144,13 +200,24 @@ export const useWorkspace = create<Workspace>((set, get) => {
         undoOf: undo.call,
       }),
     openProposal: (proposalId) => {
-      if (get().tabs.some((t) => t.kind === "proposal" && t.proposalId === proposalId)) return;
+      const isIt = (t: Tab) => t.kind === "proposal" && t.proposalId === proposalId;
+      if (get().tabs.some(isIt) || get().parked.some((p) => p.tabs.some(isIt))) return;
       add({ kind: "proposal", id: crypto.randomUUID(), proposalId, settled: false });
     },
     settleProposal: (proposalId) =>
       set((s) => ({ tabs: s.tabs.map((t) => (t.kind === "proposal" && t.proposalId === proposalId ? { ...t, settled: true } : t)) })),
     closeProposal: (proposalId) => {
-      const tab = get().tabs.find((t) => t.kind === "proposal" && t.proposalId === proposalId);
+      const isIt = (t: Tab) => t.kind === "proposal" && t.proposalId === proposalId;
+      if (get().parked.some((p) => p.tabs.some(isIt))) {
+        set((s) => ({
+          parked: s.parked.map((p) => ({
+            ...p,
+            tabs: p.tabs.filter((t) => !isIt(t)),
+            held: p.tabs.some((t) => t.id === p.held && isIt(t)) ? null : p.held,
+          })),
+        }));
+      }
+      const tab = get().tabs.find(isIt);
       if (!tab) return;
       set((s) => {
         const index = s.tabs.findIndex((t) => t.id === tab.id);

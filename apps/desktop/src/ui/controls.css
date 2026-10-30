@@ -174,6 +174,9 @@
 }
 
 .menu-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   height: 26px;
   padding: 0 var(--space-2);
   border: 0;
@@ -181,6 +184,36 @@
   background: transparent;
   font-size: var(--text-sm);
   text-align: left;
+}
+
+.menu-list .menu-apart {
+  position: relative;
+  margin-top: var(--space-2);
+}
+
+.menu-list .menu-apart::before {
+  position: absolute;
+  top: calc(var(--space-1) * -1);
+  right: var(--space-2);
+  left: var(--space-2);
+  border-top: 1px solid var(--line);
+  content: "";
+}
+
+.menu-check {
+  width: 12px;
+  color: var(--accent);
+}
+
+.menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-keys {
+  color: var(--text-3);
 }
 
 .menu-list button:hover,

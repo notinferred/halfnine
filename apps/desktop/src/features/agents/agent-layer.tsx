@@ -2,20 +2,23 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { commands, events } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
-import { useWorkspace } from "../../state.ts";
+import { openOn, useWorkspace } from "../../state.ts";
 import { showNote } from "../../ui/note.tsx";
 import { PasswordSheet } from "../connections/password-sheet.tsx";
 import { DeletionSheet } from "./deletion-sheet.tsx";
 
-/** Leaves a Docker database the window is on once it's gone, as when an agent deleted one it made. */
+/** Lets go of the Docker databases open in the window once they're gone, as when an agent deleted one it made. */
 async function leaveIfDeleted() {
-  const { session, leave } = useWorkspace.getState();
-  if (session?.connection.source?.kind !== "docker") return;
+  const { session, parked, forgetConnection } = useWorkspace.getState();
+  const open = [session, ...parked.map((p) => p.session)].filter((s) => s?.connection.source?.kind === "docker");
+  if (open.length === 0) return;
   const state = await commands.dockerState().catch(() => null);
   if (!state?.on || state.problem) return;
-  if (state.databases.some((d) => d.connection.id === session.connection.id)) return;
-  leave();
-  showNote({ text: `${session.connection.name} was deleted.` });
+  for (const gone of open) {
+    if (!gone || state.databases.some((d) => d.connection.id === gone.connection.id)) continue;
+    forgetConnection(gone.connection.id);
+    showNote({ text: `${gone.connection.name} was deleted.` });
+  }
 }
 
 /**
@@ -60,6 +63,12 @@ export function AgentLayer() {
     if (!session) {
       const first = proposals[0];
       if (!first || opening.current) return;
+      // A proposal on a connection already open in the window shows that one.
+      const already = openOn(useWorkspace.getState(), first.session.connection.id);
+      if (already) {
+        useWorkspace.getState().show(already.sessionId);
+        return;
+      }
       opening.current = true;
       commands
         .openSession(first.session.connection.id, first.session.server.database, null)

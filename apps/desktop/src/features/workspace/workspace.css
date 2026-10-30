@@ -12,11 +12,15 @@
   border-right: 1px solid var(--line);
 }
 
+.sidebar > .menu {
+  margin: 0 var(--space-2) var(--space-2);
+}
+
 .sidebar-connection {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 var(--space-2) var(--space-2);
+  width: 100%;
   padding: 6px var(--space-2);
   border: 0;
   border-radius: var(--radius-md);

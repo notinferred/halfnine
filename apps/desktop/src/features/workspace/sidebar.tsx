@@ -1,11 +1,27 @@
 import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, ChevronRight, Container, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Settings, Sheet, Table2 } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  Container,
+  Ellipsis,
+  Eye,
+  Layers,
+  Lock,
+  Plus,
+  ScrollText,
+  Settings,
+  Sheet,
+  Table2,
+} from "lucide-react";
 import { useState } from "react";
 import { type Changes, type CommitDone, commands, type RelationKind, type SchemaNode, type SessionInfo, type TableRef } from "../../ipc/bindings.ts";
 import { describe, notBackedUp } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { Menu } from "../../ui/menu.tsx";
 import { showNote } from "../../ui/note.tsx";
+import { modKey } from "../../ui/shortcuts.ts";
 import { noteUndo, refreshTable } from "./backup-note.ts";
 import { ConfirmByName } from "./confirm-by-name.tsx";
 
@@ -28,10 +44,14 @@ const KIND_NAME: Record<RelationKind, string> = {
 export function Sidebar(props: {
   session: SessionInfo;
   schema: UseQueryResult<SchemaNode[]>;
-  onDisconnect: () => void;
+  onClose: () => void;
   onSwitchDatabase: (database: string) => Promise<void>;
 }) {
   const { connection, server } = props.session;
+  const { parked, show, openAnother } = useWorkspace();
+  // The connections open in the window, by name, so the list stays put as you switch.
+  const named = (o: SessionInfo) => `${o.connection.name} · ${o.server.database}`;
+  const open = [...parked.map((p) => p.session), props.session].sort((a, b) => named(a).localeCompare(named(b)));
   const [filter, setFilter] = useState("");
   const [switchError, setSwitchError] = useState<string | null>(null);
   const nodes = props.schema.data ?? [];
@@ -40,16 +60,34 @@ export function Sidebar(props: {
   return (
     <nav className="sidebar" aria-label="Schema">
       <div className="traffic-lights-space" data-tauri-drag-region />
-      <button type="button" className="sidebar-connection" onClick={props.onDisconnect} title="Switch connection">
-        <span className="dot" data-label={connection.label} aria-hidden="true" />
-        <span className="sidebar-connection-text">
-          <span className="sidebar-connection-name">{connection.name}</span>
-          <span className="sidebar-connection-detail">
-            {server.user} · PostgreSQL {server.version.split(" ")[0]}
-          </span>
-        </span>
-        {connection.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
-      </button>
+      <Menu
+        label=""
+        className="sidebar-connection"
+        title="Open connections"
+        align="start"
+        icon={
+          <>
+            <span className="dot" data-label={connection.label} aria-hidden="true" />
+            <span className="sidebar-connection-text">
+              <span className="sidebar-connection-name">{connection.name}</span>
+              <span className="sidebar-connection-detail">
+                {server.user} · PostgreSQL {server.version.split(" ")[0]}
+              </span>
+            </span>
+            {connection.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
+            <ChevronDown size={13} strokeWidth={1.5} aria-hidden="true" className="muted" />
+          </>
+        }
+        items={[
+          ...open.map((o) => ({
+            label: named(o),
+            checked: o.sessionId === props.session.sessionId,
+            onSelect: () => show(o.sessionId),
+          })),
+          { label: "Open another…", keys: `${modKey}O`, apart: true, onSelect: openAnother },
+          { label: `Close ${connection.name}`, onSelect: props.onClose },
+        ]}
+      />
       {server.databases.length > 1 && (
         <div className="sidebar-field">
           <label htmlFor="database-switch" className="visually-hidden">

@@ -48,7 +48,7 @@ const TAB_ICON = {
 
 export function Workspace({ session }: { session: SessionInfo }) {
   const queries = useQueryClient();
-  const { tabs, active, paletteOpen, setPaletteOpen, activate, closeTab, newQuery, enter, leave, holdStaged } = useWorkspace();
+  const { tabs, active, paletteOpen, setPaletteOpen, activate, closeTab, newQuery, replace, leave, openAnother, holdStaged } = useWorkspace();
   const schema = useQuery({ queryKey: ["schema", session.sessionId], queryFn: () => commands.schema(session.sessionId) });
   const proposals = useQuery({ queryKey: ["agents"], queryFn: commands.agentState }).data?.proposals ?? [];
 
@@ -56,8 +56,9 @@ export function Workspace({ session }: { session: SessionInfo }) {
   const ofSession = { predicate: (q: { queryKey: readonly unknown[] }) => q.queryKey[1] === session.sessionId };
   const refresh = () => void queries.invalidateQueries(ofSession);
 
-  // Leaving the connection would lose staged changes, so a tab holding some is shown instead.
-  const disconnect = async () => {
+  // Closing the connection would lose staged changes, so a tab holding some is shown instead. Other open connections
+  // stay open, and the window shows the one shown before.
+  const close = async () => {
     if (holdStaged()) return;
     await commands.closeSession(session.sessionId).catch(() => undefined);
     queries.removeQueries(ofSession);
@@ -68,7 +69,7 @@ export function Workspace({ session }: { session: SessionInfo }) {
     if (holdStaged()) throw new Error("Commit or discard the staged changes before switching databases.");
     const next = await commands.switchDatabase(session.sessionId, database);
     queries.removeQueries(ofSession);
-    enter(next);
+    replace(next);
   };
 
   useShortcuts({
@@ -76,13 +77,14 @@ export function Workspace({ session }: { session: SessionInfo }) {
     "$mod+r": refresh,
     "$mod+w": () => active && closeTab(active),
     "$mod+t": () => newQuery(),
+    "$mod+o": openAnother,
   });
 
   const activeTab = tabs.find((t) => t.id === active);
 
   return (
     <div className="workspace">
-      <Sidebar session={session} schema={schema} onDisconnect={disconnect} onSwitchDatabase={switchDatabase} />
+      <Sidebar session={session} schema={schema} onClose={() => void close()} onSwitchDatabase={switchDatabase} />
       <main className="workspace-main">
         <div className="tabs" data-tauri-drag-region>
           <nav className="tabs-list" aria-label="Open tabs">
@@ -144,7 +146,7 @@ export function Workspace({ session }: { session: SessionInfo }) {
           </div>
         )}
       </main>
-      {paletteOpen && <Palette session={session} schema={schema.data ?? []} onRefresh={refresh} onDisconnect={disconnect} />}
+      {paletteOpen && <Palette session={session} schema={schema.data ?? []} onRefresh={refresh} onClose={() => void close()} />}
     </div>
   );
 }

@@ -9,8 +9,8 @@ import "./palette.css";
 const firstLine = (sql: string) => sql.trim().split("\n")[0]?.slice(0, 80) ?? "";
 
 /** ⌘K: go to any table, view or query by typing part of its name, or run an action. */
-export function Palette(props: { session: SessionInfo; schema: SchemaNode[]; onRefresh: () => void; onDisconnect: () => void }) {
-  const { openTable, newQuery, newTable, openPage, setPaletteOpen } = useWorkspace();
+export function Palette(props: { session: SessionInfo; schema: SchemaNode[]; onRefresh: () => void; onClose: () => void }) {
+  const { openTable, newQuery, newTable, openPage, setPaletteOpen, parked, show, openAnother } = useWorkspace();
   const saved = useQuery({ queryKey: ["saved"], queryFn: commands.listSavedQueries });
   const history = useQuery({ queryKey: ["history"], queryFn: commands.listHistory });
   const close = () => setPaletteOpen(false);
@@ -125,9 +125,26 @@ export function Palette(props: { session: SessionInfo; schema: SchemaNode[]; onR
               <span className="palette-name">Refresh</span>
               <span className="palette-keys">{modKey}R</span>
             </Command.Item>
-            <Command.Item value="Switch connection" onSelect={props.onDisconnect}>
+            {parked.map(({ session }) => (
+              <Command.Item
+                key={session.sessionId}
+                value={`Switch to ${session.connection.name} ${session.server.database}`}
+                onSelect={() => show(session.sessionId)}
+              >
+                <ChevronRight size={15} strokeWidth={1.5} aria-hidden="true" />
+                <span className="palette-name">
+                  Switch to {session.connection.name} · {session.server.database}
+                </span>
+              </Command.Item>
+            ))}
+            <Command.Item value="Open another connection" onSelect={openAnother}>
               <ChevronRight size={15} strokeWidth={1.5} aria-hidden="true" />
-              <span className="palette-name">Switch connection</span>
+              <span className="palette-name">Open another connection</span>
+              <span className="palette-keys">{modKey}O</span>
+            </Command.Item>
+            <Command.Item value={`Close connection ${props.session.connection.name}`} onSelect={props.onClose}>
+              <ChevronRight size={15} strokeWidth={1.5} aria-hidden="true" />
+              <span className="palette-name">Close {props.session.connection.name}</span>
             </Command.Item>
           </Command.Group>
         </Command.List>

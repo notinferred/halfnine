@@ -25,9 +25,8 @@ export function DeletionSheet(props: { request: DeletionRequestView }) {
     try {
       const done = await commands.answerDeletion(request.id, yes);
       if (!done) return;
-      // The window was on that database, which is gone now.
-      const { session, leave } = useWorkspace.getState();
-      if (session?.connection.id === request.connection.id) leave();
+      // The window may have had that database open, which is gone now.
+      useWorkspace.getState().forgetConnection(request.connection.id);
       const kept = done.keptVolume ? " Its data volume wasn't made by Halfnine, so it was kept." : "";
       if (done.backup) noteUndo(queries, done.backup, null, kept);
       else showNote({ text: `Deleted ${name}.${kept}` });

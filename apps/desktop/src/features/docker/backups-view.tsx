@@ -2,10 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type Backup, commands } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
-import { useWorkspace } from "../../state.ts";
+import { openOn, useWorkspace } from "../../state.ts";
 import { ago } from "../../ui/time.ts";
 import { sizeInWords } from "../settings/settings-page.tsx";
-import { doneInWords, inWords, putBack, type TableHolds } from "../workspace/backup-note.ts";
+import { doneInWords, inWords, putBack } from "../workspace/backup-note.ts";
 
 /** Every backup, newest first: what it holds and why it was made, with Restore and Delete. */
 export function BackupsView() {
@@ -34,8 +34,9 @@ export function BackupRow(props: { backup: Backup }) {
   const { backup } = props;
   const { holds } = backup;
   const queries = useQueryClient();
-  const session = useWorkspace((s) => s.session);
-  const here = holds.kind === "table" && session !== null && onSession(holds, session.connection.id, session.server.database);
+  // A table backup goes back through a session on its database, which any connection open in the window may hold.
+  const session = useWorkspace((s) => (holds.kind === "table" ? openOn(s, holds.connectionId, holds.database) : null));
+  const here = session !== null;
   const [reviewing, setReviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -145,5 +146,3 @@ export function BackupRow(props: { backup: Backup }) {
     </li>
   );
 }
-
-const onSession = (holds: TableHolds, connectionId: string, database: string) => holds.connectionId === connectionId && holds.database === database;

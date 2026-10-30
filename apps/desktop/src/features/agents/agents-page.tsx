@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type ActivityEntry, commands, type Outcome } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
-import { useWorkspace } from "../../state.ts";
+import { openOn, useWorkspace } from "../../state.ts";
 import { ago } from "../../ui/time.ts";
 import { BackupRow } from "../docker/backups-view.tsx";
 import { Connect } from "./connect.tsx";
@@ -51,13 +51,11 @@ export function AgentsPage() {
     setError(null);
     try {
       const record = await commands.undoChange(entry.call);
-      const { session, enter, openUndo } = useWorkspace.getState();
-      if (session && (session.connection.id !== record.connectionId || session.server.database !== record.database)) {
-        setError(`Open ${entry.connection ?? "its connection"} to undo this change.`);
-        return;
-      }
-      if (!session) enter(await commands.openSession(record.connectionId, record.database, null));
-      openUndo(record);
+      const workspace = useWorkspace.getState();
+      const open = openOn(workspace, record.connectionId, record.database);
+      if (!open) workspace.enter(await commands.openSession(record.connectionId, record.database, null));
+      else if (open.sessionId !== workspace.session?.sessionId) workspace.show(open.sessionId);
+      useWorkspace.getState().openUndo(record);
     } catch (e) {
       setError(describe(e));
     }

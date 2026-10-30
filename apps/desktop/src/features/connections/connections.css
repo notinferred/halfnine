@@ -12,6 +12,25 @@
   border-right: 1px solid var(--line);
 }
 
+/* Back to a connection still open in the window, above everything else in the list. */
+.connections-back {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 var(--space-3) var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.connections-back:hover {
+  background: var(--hover);
+}
+
 .connections-search {
   position: relative;
   padding: var(--space-1) var(--space-3) var(--space-3);

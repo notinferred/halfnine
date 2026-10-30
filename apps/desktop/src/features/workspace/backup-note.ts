@@ -4,7 +4,6 @@ import { describe } from "../../ipc/errors.ts";
 import { showNote } from "../../ui/note.tsx";
 
 type Holds = Backup["holds"];
-export type TableHolds = Extract<Holds, { kind: "table" }>;
 
 /** Names in a sentence: "a", "a and b", "a, b and c". */
 export const inWords = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);

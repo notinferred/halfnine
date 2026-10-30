@@ -13,7 +13,7 @@ export function App() {
   if (settings.data && !settings.data.setupSeen) return <FirstRun />;
   return (
     <>
-      {session ? <Workspace session={session} /> : <ConnectionsScreen />}
+      {session ? <Workspace key={session.sessionId} session={session} /> : <ConnectionsScreen />}
       <AgentLayer />
       <NoteLayer />
     </>

@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Container, Lock, Plus, Search, Settings } from "lucide-react";
+import { Bot, ChevronLeft, Container, Lock, Plus, Search, Settings } from "lucide-react";
 import { useState } from "react";
 import { type ConnectionSpec, commands, type DockerDatabase, type Typed } from "../../ipc/bindings.ts";
 import { describe, needsPassword } from "../../ipc/errors.ts";
-import { useWorkspace } from "../../state.ts";
+import { openOn, useWorkspace } from "../../state.ts";
 import { AgentsPage } from "../agents/agents-page.tsx";
 import { DockerDetail, madeBy } from "../docker/docker-detail.tsx";
 import { DockerPage } from "../docker/docker-page.tsx";
@@ -14,7 +14,9 @@ import "./connections.css";
 
 export function ConnectionsScreen() {
   const queries = useQueryClient();
-  const enter = useWorkspace((s) => s.enter);
+  const { enter, show, parked } = useWorkspace();
+  const openNow = (connectionId: string) => openOn(useWorkspace.getState(), connectionId);
+  const last = parked.at(-1)?.session;
   const list = useQuery({ queryKey: ["connections"], queryFn: commands.listConnections });
   const [chosen, setChosen] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -35,6 +37,12 @@ export function ConnectionsScreen() {
 
   // A connection that asks for its password each time, with none typed yet this launch, asks before it opens.
   const open = async (connection: ConnectionSpec, typed: Typed | null) => {
+    // One already open in the window is shown, not opened twice.
+    const already = openNow(connection.id);
+    if (already) {
+      show(already.sessionId);
+      return;
+    }
     setOpening(connection.id);
     setOpenError(null);
     try {
@@ -64,6 +72,12 @@ export function ConnectionsScreen() {
     <div className="connections">
       <nav className="connections-list" aria-label="Saved connections">
         <div className="traffic-lights-space" data-tauri-drag-region />
+        {last && (
+          <button type="button" className="connections-back" onClick={() => show(last.sessionId)}>
+            <ChevronLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+            Back to {last.connection.name}
+          </button>
+        )}
         <div className="connections-search">
           <label htmlFor="connection-search" className="visually-hidden">
             Search connections
@@ -86,6 +100,7 @@ export function ConnectionsScreen() {
               connection={c}
               current={c.id === selectedId}
               busy={opening === c.id}
+              open={openNow(c.id) !== null}
               onSelect={() => setChosen(c.id)}
               onOpen={() => openFromList(c)}
             />
@@ -101,6 +116,7 @@ export function ConnectionsScreen() {
                   database={d}
                   current={d.connection.id === chosen}
                   busy={opening === d.connection.id}
+                  open={openNow(d.connection.id) !== null}
                   onSelect={() => setChosen(d.connection.id)}
                   onOpen={() => openFromList(d.connection)}
                 />
@@ -178,7 +194,17 @@ export function ConnectionsScreen() {
   );
 }
 
-function ConnectionRow(props: { connection: ConnectionSpec; current: boolean; busy: boolean; onSelect: () => void; onOpen: () => void }) {
+/** Whether a row's connection is open in the window, in words before its detail. */
+const opened = (open: boolean, detail: string) => (open ? `Open · ${detail}` : detail);
+
+function ConnectionRow(props: {
+  connection: ConnectionSpec;
+  current: boolean;
+  busy: boolean;
+  open: boolean;
+  onSelect: () => void;
+  onOpen: () => void;
+}) {
   const spec = props.connection;
   return (
     <button
@@ -187,13 +213,13 @@ function ConnectionRow(props: { connection: ConnectionSpec; current: boolean; bu
       aria-current={props.current || undefined}
       onClick={props.onSelect}
       onDoubleClick={props.onOpen}
-      title="Double-click to connect"
+      title={props.open ? "Double-click to show it" : "Double-click to connect"}
     >
       <span className="dot" data-label={spec.label} aria-hidden="true" />
       <span className="connection-row-text">
         <span className="connection-row-name">{spec.name}</span>
         <span className="connection-row-detail">
-          {props.busy ? "Connecting…" : `${spec.host}${spec.port === 5432 ? "" : `:${spec.port}`} · ${spec.database}`}
+          {props.busy ? "Connecting…" : opened(props.open, `${spec.host}${spec.port === 5432 ? "" : `:${spec.port}`} · ${spec.database}`)}
         </span>
       </span>
       {spec.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
@@ -202,7 +228,7 @@ function ConnectionRow(props: { connection: ConnectionSpec; current: boolean; bu
 }
 
 /** A Docker database in the list: its state in words, never a coloured dot, since dots are labels. */
-function DockerRow(props: { database: DockerDatabase; current: boolean; busy: boolean; onSelect: () => void; onOpen: () => void }) {
+function DockerRow(props: { database: DockerDatabase; current: boolean; busy: boolean; open: boolean; onSelect: () => void; onOpen: () => void }) {
   const { database } = props;
   const spec = database.connection;
   const made = madeBy(database);
@@ -225,7 +251,7 @@ function DockerRow(props: { database: DockerDatabase; current: boolean; busy: bo
       <span className="dot" data-label={spec.label} aria-hidden="true" />
       <span className="connection-row-text">
         <span className="connection-row-name">{spec.name}</span>
-        <span className="connection-row-detail">{props.busy ? "Connecting…" : detail}</span>
+        <span className="connection-row-detail">{props.busy ? "Connecting…" : opened(props.open, detail)}</span>
       </span>
       {made && made !== "made by Halfnine" && <span className="chip connection-row-chip">{made.replace("made by ", "")}</span>}
       {spec.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
