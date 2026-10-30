@@ -97,6 +97,8 @@ pub struct ActivityEntry {
     pub reason: Option<String>,
     /// Its row changes can still be undone.
     pub undo: bool,
+    /// The backup Halfnine made before it dropped or emptied something, to put back.
+    pub backup: Option<String>,
 }
 
 pub struct ActivityLog {
@@ -171,6 +173,7 @@ impl ActivityLog {
                             code: None,
                             reason: None,
                             undo: false,
+                            backup: None,
                         },
                     );
                 }

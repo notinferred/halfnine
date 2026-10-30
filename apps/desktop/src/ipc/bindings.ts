@@ -182,6 +182,8 @@ export type ActivityEntry = {
 	reason: string | null,
 	/**  Its row changes can still be undone. */
 	undo: boolean,
+	/**  The backup Halfnine made before it dropped or emptied something, to put back. */
+	backup: string | null,
 };
 
 /**  What an AI agent may do on a connection. A read-only connection stays read-only whatever this says. */
@@ -218,6 +220,8 @@ export type Backup = {
 	holds: Holds,
 	/**  The agent whose change it was, or `None` for the person's own. */
 	agent: AgentMark | null,
+	/**  The agent call that made the change, as the activity log names it. */
+	call?: string | null,
 	/**  The size of its files. */
 	bytes: number | null,
 	/**  What it couldn't keep, in words, such as grants. */
@@ -613,7 +617,9 @@ export type PasswordRequestView = {
 
 export type ProposalKind = "rows" | "structure" | "statements";
 
-export type ProposalState = { kind: "pending" } | { kind: "committing" } | { kind: "approved"; statements: number; rows: number | null; elapsedMs: number } | { kind: "declined"; reason: string } | { kind: "failed"; error: Error } | { kind: "withdrawn"; why: string };
+export type ProposalState = { kind: "pending" } | { kind: "committing" } | { kind: "approved"; 
+/**  What the agent reads of it. */
+summary: string; statements: number; rows: number | null; elapsedMs: number } | { kind: "declined"; reason: string } | { kind: "failed"; error: Error } | { kind: "withdrawn"; why: string };
 
 /**  A proposal as the window shows it. Approving it commits what is kept here, never anything the window sends back. */
 export type ProposalView = {

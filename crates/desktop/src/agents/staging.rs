@@ -50,6 +50,22 @@ fn drops(statement: &str) -> bool {
     matches!(hn_pg::first_word(statement).as_str(), "DROP" | "TRUNCATE")
 }
 
+impl Request {
+    /// Whether it holds a statement that drops or empties what holds rows, which `run_sql` refuses while backups are on.
+    pub fn loses_data(&self) -> bool {
+        matches!(&self.work, Asked::Statements(statements) if statements.iter().any(|s| loses_data(s)))
+    }
+}
+
+/// Dropping a table, schema, database, materialized view or everything a role owns, or emptying a table.
+fn loses_data(statement: &str) -> bool {
+    match hn_pg::leading_words(statement, 2).as_slice() {
+        [first, ..] if first == "TRUNCATE" => true,
+        [first, second] if first == "DROP" => matches!(second.as_str(), "TABLE" | "SCHEMA" | "DATABASE" | "OWNED" | "MATERIALIZED"),
+        _ => false,
+    }
+}
+
 fn refused(text: impl Into<String>) -> Reply {
     Reply::new(Status::Refused, text)
 }
@@ -333,4 +349,23 @@ async fn page(db: &PgDatabase, table: &TableRef, filter: Filter, rows: usize) ->
 fn matching(page: &Page, key: &[String], asked: &[ColumnValue]) -> Option<usize> {
     let at: Vec<usize> = key.iter().filter_map(|k| page.columns.iter().position(|c| &c.name == k)).collect();
     page.rows.iter().position(|row| at.iter().zip(asked).all(|(&i, v)| row[i] == v.value))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn knows_the_drops_that_lose_data() {
+        for lost in [
+            "DROP TABLE t",
+            "drop /* old */ schema s cascade",
+            "TRUNCATE t",
+            "drop materialized view v",
+            "DROP OWNED BY r",
+        ] {
+            assert!(super::loses_data(lost), "{lost}");
+        }
+        for kept in ["DROP FUNCTION f()", "drop view v", "DROP INDEX i", "DROP TYPE t", "UPDATE t SET a = 1"] {
+            assert!(!super::loses_data(kept), "{kept}");
+        }
+    }
 }

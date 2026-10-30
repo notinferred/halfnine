@@ -21,13 +21,13 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use hn_core::{AgentAccess, Changes, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
+use hn_core::{AgentAccess, AgentMark, Changes, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
 use hn_pg::{PgDatabase, Secrets};
 use serde::Serialize;
 use specta::Type;
 use tokio::sync::watch;
 
-use crate::backups::Backups;
+use crate::backups::{AgentCall, Backups, Holds};
 use crate::commands::{SessionInfo, now_ms, open_with};
 use crate::connections::Directory;
 use crate::sessions::{Session, Sessions};
@@ -140,10 +140,22 @@ pub enum Work {
 pub enum ProposalState {
     Pending,
     Committing,
-    Approved { statements: u32, rows: f64, elapsed_ms: u32 },
-    Declined { reason: String },
-    Failed { error: Error },
-    Withdrawn { why: String },
+    Approved {
+        /// What the agent reads of it.
+        summary: String,
+        statements: u32,
+        rows: f64,
+        elapsed_ms: u32,
+    },
+    Declined {
+        reason: String,
+    },
+    Failed {
+        error: Error,
+    },
+    Withdrawn {
+        why: String,
+    },
 }
 
 impl ProposalState {
@@ -702,7 +714,7 @@ impl Agents {
         }
         let hidden = self.hidden(&session.connection.id, &session.server.database);
         let ran = match self.sessions.get(&session.session_id).await {
-            Ok(db_session) => run(&db_session.db, &work, rows, &hidden).await,
+            Ok(db_session) => self.run(&db_session, &work, rows, &hidden, &agent, &call).await,
             Err(e) => Err(e),
         };
         let result = match ran {
@@ -710,6 +722,7 @@ impl Agents {
                 self.end(&call, Outcome::Approved, Some(ran.rows), Some(ran.elapsed_ms), None, None);
                 self.keep_undo(&call, &agent, &session, &work, restore.as_deref(), &ran.inserted);
                 state.send_replace(ProposalState::Approved {
+                    summary: ran.summary(),
                     statements: ran.statements,
                     rows: ran.rows,
                     elapsed_ms: ran.elapsed_ms,
@@ -816,8 +829,10 @@ impl Agents {
 
     pub fn activity(&self, limit: usize) -> Vec<ActivityEntry> {
         let mut entries = self.log.recent(limit);
+        let backups = self.backups.list();
         for entry in &mut entries {
             entry.undo = self.undos.get(&entry.call).is_some();
+            entry.backup = backups.iter().find(|b| b.call.as_ref() == Some(&entry.call)).map(|b| b.id.clone());
         }
         entries
     }
@@ -887,6 +902,7 @@ impl Agents {
         let refused = match &spec {
             None => self.connection(&request.connection).err(),
             Some(_) if self.paused() => Some(paused()),
+            Some(_) if request.loses_data() && self.settings.get().backups => Some(Reply::new(Status::Refused, LOSES_DATA)),
             Some(spec) => match verdict(spec, Ask::Write { drops: request.drops() }, self.allowed(agent, spec)) {
                 Verdict::Refuse(why) => Some(Reply::new(Status::Refused, why)),
                 _ => None,
@@ -917,21 +933,12 @@ impl Agents {
             return reply;
         }
         if verdict(&spec, Ask::Write { drops: staged.drops }, self.allowed(agent, &spec)) == Verdict::Run {
-            let started = Instant::now();
             let hidden = spec.hidden_in(&info.server.database);
-            return match run(&session.db, &staged.work, staged.rows, &hidden).await {
+            return match self.run(&session, &staged.work, staged.rows, &hidden, agent, &call).await {
                 Ok(ran) => {
                     self.end(&call, Outcome::Ok, Some(ran.rows), Some(ran.elapsed_ms), None, None);
                     self.keep_undo(&call, agent, &info, &staged.work, staged.restore.as_deref(), &ran.inserted);
-                    Reply::new(
-                        Status::Ok,
-                        format!(
-                            "Committed {}, {}, in {} ms.",
-                            plural(ran.statements as usize, "statement"),
-                            plural(ran.rows as usize, "row"),
-                            hn_core::millis(started.elapsed())
-                        ),
-                    )
+                    Reply::new(Status::Ok, ran.summary())
                 }
                 Err(error) => {
                     let reply = Reply::from(error.clone());
@@ -955,6 +962,10 @@ impl Agents {
     }
 }
 
+const LOSES_DATA: &str = "While backups are on in Halfnine, run_sql doesn't drop or empty tables, schemas or databases, \
+which nothing could undo. To drop or empty a table, or drop a column, use change_structure: Halfnine backs the table up \
+first, so the person can put it back. Ask the person to drop a schema or a database.";
+
 fn paused() -> Reply {
     Reply::new(
         Status::Paused,
@@ -969,44 +980,83 @@ struct Ran {
     elapsed_ms: u32,
     /// The key of each row it added.
     inserted: Vec<Vec<ColumnValue>>,
+    /// The table it dropped or emptied, or took columns from, backed up first.
+    backed_up: Option<TableRef>,
 }
 
-/// Runs approved work: a commit of staged changes, or statements in one transaction, which may not read a hidden column.
-async fn run(db: &PgDatabase, work: &Work, rows: usize, hidden: &[ColumnRef]) -> Result<Ran, Error> {
-    match work {
-        Work::Changes(changes) => db.commit(changes).await.map(|c| Ran {
-            statements: c.statements,
-            rows: rows as f64,
-            elapsed_ms: c.elapsed_ms,
-            inserted: c.inserted,
-        }),
-        Work::Statements(statements) => {
-            let started = Instant::now();
-            let results = db.execute(statements, hidden).await?;
-            Ok(Ran {
-                statements: results.len() as u32,
-                rows: results.iter().map(|r| f64::from(r.rows_affected)).sum(),
-                elapsed_ms: hn_core::millis(started.elapsed()),
-                inserted: Vec::new(),
-            })
+impl Ran {
+    /// What an agent reads of it.
+    fn summary(&self) -> String {
+        let committed = format!(
+            "Committed {}, {}, in {} ms.",
+            plural(self.statements as usize, "statement"),
+            plural(self.rows as usize, "row"),
+            self.elapsed_ms
+        );
+        match &self.backed_up {
+            Some(table) => format!("{committed} Halfnine backed up {} first, so the person can put it back.", table.name),
+            None => committed,
+        }
+    }
+}
+
+impl Agents {
+    /// Runs work an agent may do: a commit of staged changes, backed up first when it drops or empties a table or
+    /// drops a column and backups are on, or statements in one transaction, which may not read a hidden column.
+    async fn run(&self, session: &Session, work: &Work, rows: usize, hidden: &[ColumnRef], agent: &Agent, call: &str) -> Result<Ran, Error> {
+        match work {
+            Work::Changes(changes) => {
+                let choices = self.settings.get();
+                let by = AgentCall {
+                    agent: AgentMark {
+                        key: agent.key.clone(),
+                        title: agent.title.clone(),
+                    },
+                    call: call.to_string(),
+                };
+                let done = self
+                    .backups
+                    .commit(&choices, session, changes, Some(by), !choices.backups)
+                    .await
+                    .map_err(|error| match error.kind {
+                        ErrorKind::NoBackup => Error {
+                            message: format!(
+                                "Halfnine backs a table up before an agent drops or empties it, and couldn't: {}",
+                                error.message
+                            ),
+                            ..error
+                        },
+                        _ => error,
+                    })?;
+                Ok(Ran {
+                    statements: done.committed.statements,
+                    rows: rows as f64,
+                    elapsed_ms: done.committed.elapsed_ms,
+                    inserted: done.committed.inserted,
+                    backed_up: done.backup.and_then(|b| match b.holds {
+                        Holds::Table { table, .. } => Some(table),
+                        Holds::Database { .. } => None,
+                    }),
+                })
+            }
+            Work::Statements(statements) => {
+                let started = Instant::now();
+                let results = session.db.execute(statements, hidden).await?;
+                Ok(Ran {
+                    statements: results.len() as u32,
+                    rows: results.iter().map(|r| f64::from(r.rows_affected)).sum(),
+                    elapsed_ms: hn_core::millis(started.elapsed()),
+                    inserted: Vec::new(),
+                    backed_up: None,
+                })
+            }
         }
     }
 }
 
 fn settled_reply(state: &ProposalState) -> Reply {
     match state {
-        ProposalState::Approved {
-            statements,
-            rows,
-            elapsed_ms,
-        } => Reply::new(
-            Status::Approved,
-            format!(
-                "The person approved it in Halfnine, and it was committed: {}, {}, in {elapsed_ms} ms.",
-                plural(*statements as usize, "statement"),
-                plural(*rows as usize, "row")
-            ),
-        ),
+        ProposalState::Approved { summary, .. } => Reply::new(Status::Approved, format!("The person approved it in Halfnine. {summary}")),
         ProposalState::Declined { reason } if reason.is_empty() => Reply::new(
             Status::Declined,
             "The person declined it in Halfnine. Nothing was written. Don't make this change again unless they ask.",

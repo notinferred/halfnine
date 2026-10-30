@@ -41,6 +41,16 @@
   margin: var(--space-3) var(--space-2) 0 0;
 }
 
+/* The backup of an agent's drop opens under its entry, full width. */
+.queries-item:has(.agents-backup) {
+  flex-wrap: wrap;
+}
+
+.agents-backup {
+  flex-basis: 100%;
+  margin: 0 var(--space-2) var(--space-2);
+}
+
 .agents-reason {
   font-size: var(--text-sm);
   color: var(--text-2);

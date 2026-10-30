@@ -4,6 +4,7 @@ import { type ActivityEntry, commands, type Outcome } from "../../ipc/bindings.t
 import { describe } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { ago } from "../../ui/time.ts";
+import { BackupRow } from "../docker/backups-view.tsx";
 import { Connect } from "./connect.tsx";
 import "../queries/queries.css";
 import "./agents.css";
@@ -96,8 +97,22 @@ export function AgentsPage() {
   );
 }
 
+/** The backup Halfnine made before an agent dropped or emptied something, to put back. */
+function BackupOf(props: { id: string }) {
+  const backups = useQuery({ queryKey: ["backups"], queryFn: commands.listBackups });
+  const backup = backups.data?.backups.find((b) => b.id === props.id);
+  if (!backups.data) return null;
+  if (!backup) return <p className="muted agents-backup">This backup has been deleted.</p>;
+  return (
+    <ul className="queries-list agents-backup">
+      <BackupRow backup={backup} />
+    </ul>
+  );
+}
+
 function Activity(props: { entries: ActivityEntry[]; onConnect: () => void; onUndo: (entry: ActivityEntry) => void }) {
   const { entries, onConnect } = props;
+  const [restoring, setRestoring] = useState<string | null>(null);
   if (entries.length === 0) {
     return (
       <div className="queries-empty agents-start">
@@ -138,6 +153,17 @@ function Activity(props: { entries: ActivityEntry[]; onConnect: () => void; onUn
                 Undo
               </button>
             )}
+            {entry.backup && (
+              <button
+                type="button"
+                className="btn btn-quiet agents-undo"
+                aria-expanded={restoring === entry.call}
+                onClick={() => setRestoring(restoring === entry.call ? null : entry.call)}
+              >
+                Restore…
+              </button>
+            )}
+            {entry.backup && restoring === entry.call && <BackupOf id={entry.backup} />}
           </li>
         );
       })}

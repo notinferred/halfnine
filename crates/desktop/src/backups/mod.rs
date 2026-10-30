@@ -39,6 +39,9 @@ pub struct Backup {
     pub holds: Holds,
     /// The agent whose change it was, or `None` for the person's own.
     pub agent: Option<AgentMark>,
+    /// The agent call that made the change, as the activity log names it.
+    #[serde(default)]
+    pub call: Option<String>,
     /// The size of its files.
     pub bytes: f64,
     /// What it couldn't keep, in words, such as grants.
@@ -76,6 +79,12 @@ pub struct DeleteDone {
     /// Its data volume was kept, because Halfnine didn't make it.
     pub kept_volume: bool,
     pub backup: Option<Backup>,
+}
+
+/// An agent's call that changed something, which its backup names so the Agents page can offer to put it back.
+pub struct AgentCall {
+    pub agent: AgentMark,
+    pub call: String,
 }
 
 /// A commit, and the backup made before it, if one was.
@@ -146,7 +155,7 @@ impl Backups {
         choices: &Choices,
         session: &Session,
         changes: &Changes,
-        agent: Option<AgentMark>,
+        by: Option<AgentCall>,
         without_backup: bool,
     ) -> Result<CommitDone, Error> {
         let Some((table, into)) = loses(changes).filter(|_| !without_backup) else {
@@ -169,7 +178,7 @@ impl Backups {
                 size_in_words(limit)
             )));
         }
-        let mut files = self.start(session, table, into, agent)?;
+        let mut files = self.start(session, table, into, by)?;
         let id = files.backup.id.clone();
         let table = files.table.clone();
         match session.db.commit_with_backup(changes, &table, &mut files).await {
@@ -223,6 +232,7 @@ impl Backups {
             made_at_ms: now_ms(),
             holds: Holds::Database { container: kept },
             agent,
+            call: None,
             bytes: folder_bytes(&folder),
             not_kept: vec![
                 "role passwords".into(),
@@ -273,7 +283,7 @@ impl Backups {
         })
     }
 
-    fn start(&self, session: &Session, table: TableRef, into: RestoreInto, agent: Option<AgentMark>) -> Result<TableFiles<'_>, Error> {
+    fn start(&self, session: &Session, table: TableRef, into: RestoreInto, by: Option<AgentCall>) -> Result<TableFiles<'_>, Error> {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let folder = self.dir.join(&id);
         private_dir(&folder)?;
@@ -295,7 +305,8 @@ impl Backups {
                     into,
                     rows: 0.0,
                 },
-                agent,
+                agent: by.as_ref().map(|b| b.agent.clone()),
+                call: by.map(|b| b.call),
                 bytes: 0.0,
                 not_kept: Vec::new(),
                 restored_at_ms: None,

@@ -26,7 +26,7 @@ use crate::errors::from_sqlx;
 use crate::sql::{Built, ColumnMeta};
 use crate::tunnel::Tunnel;
 
-pub use crate::editor::first_word;
+pub use crate::editor::{first_word, leading_words};
 
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 

@@ -119,21 +119,33 @@ pub(crate) async fn run_in_transaction(conn: &mut PgConnection, sql: &str) -> Re
 
 /// The statement's first keyword in capitals, after any spaces, comments and opening parentheses, such as `SELECT`.
 pub fn first_word(sql: &str) -> String {
+    leading_words(sql, 1).pop().unwrap_or_default()
+}
+
+/// The statement's first `count` words in capitals, skipping spaces and comments between them, and opening
+/// parentheses before the first: `DROP TABLE` for `drop /* old */ table t`.
+pub fn leading_words(sql: &str, count: usize) -> Vec<String> {
     let mut rest = sql;
-    loop {
-        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
-        if let Some(line) = rest.strip_prefix("--") {
-            rest = line.split_once('\n').map_or("", |(_, after)| after);
-        } else if rest.starts_with("/*") {
-            rest = after_block_comment(rest);
-        } else {
+    let mut words = Vec::new();
+    while words.len() < count {
+        loop {
+            rest = rest.trim_start_matches(|c: char| c.is_whitespace() || (words.is_empty() && c == '('));
+            if let Some(line) = rest.strip_prefix("--") {
+                rest = line.split_once('\n').map_or("", |(_, after)| after);
+            } else if rest.starts_with("/*") {
+                rest = after_block_comment(rest);
+            } else {
+                break;
+            }
+        }
+        let word: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if word.is_empty() {
             break;
         }
+        rest = &rest[word.len()..];
+        words.push(word.to_uppercase());
     }
-    rest.chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
-        .collect::<String>()
-        .to_uppercase()
+    words
 }
 
 /// What follows the block comment `sql` starts with. Postgres nests them, so `/* a /* b */ c */` is one comment.
@@ -320,7 +332,7 @@ pub(crate) fn activity(row: &PgRow) -> Result<Activity, sqlx::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::first_word;
+    use super::{first_word, leading_words};
 
     #[test]
     fn finds_the_first_keyword_past_comments_and_parentheses() {
@@ -332,5 +344,8 @@ mod tests {
         assert_eq!(first_word("/* unclosed"), "");
         assert_eq!(first_word("drop_me()"), "DROP_ME");
         assert_eq!(first_word("TRUNCATE ünïcödé"), "TRUNCATE");
+        assert_eq!(leading_words("drop /* old */\n -- gone\n table t", 2), ["DROP", "TABLE"]);
+        assert_eq!(leading_words("DROP materialized view v", 2), ["DROP", "MATERIALIZED"]);
+        assert_eq!(leading_words("truncate", 2), ["TRUNCATE"]);
     }
 }

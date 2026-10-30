@@ -29,7 +29,8 @@ export function BackupsView() {
   );
 }
 
-function BackupRow(props: { backup: Backup }) {
+/** One backup: what it holds, with Restore, which shows what it runs first, and Delete. */
+export function BackupRow(props: { backup: Backup }) {
   const { backup } = props;
   const { holds } = backup;
   const queries = useQueryClient();

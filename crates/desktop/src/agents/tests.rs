@@ -85,6 +85,8 @@ fn world(url: Option<&str>) -> World {
     }
     let desk = Arc::new(TestDesk::default());
     let settings = Arc::new(crate::settings::Settings::open(&dir).unwrap());
+    // Off here, so tests can drop their own tables with run_sql; the tests of backups turn them on.
+    settings.change(|c| c.backups = false).unwrap();
     let docker = Arc::new(crate::docker::Docker::new(&dir, settings.clone(), || {}));
     let directory = Arc::new(crate::connections::Directory::new(store, passwords, docker));
     let backups = Arc::new(crate::backups::Backups::open(&dir).unwrap());
@@ -223,7 +225,17 @@ async fn lists_its_tools_with_every_hint_set() {
     for writes in ["change_rows", "change_structure", "run_sql"] {
         assert_eq!(hints(writes), (Some(false), Some(true), Some(false), Some(false)), "{writes}");
     }
-    assert_eq!(tools.len(), 7);
+    // Asking again joins the job already running or gives the database already made.
+    assert_eq!(
+        hints("create_database"),
+        (Some(false), Some(false), Some(true), Some(true)),
+        "it may download PostgreSQL"
+    );
+    for makes in ["copy_database", "start_database"] {
+        assert_eq!(hints(makes), (Some(false), Some(false), Some(true), Some(false)), "{makes}");
+    }
+    assert_eq!(hints("delete_database"), (Some(false), Some(true), Some(true), Some(false)));
+    assert_eq!(tools.len(), 11);
     let info = client.peer_info().unwrap();
     assert!(info.instructions.as_deref().unwrap_or_default().contains("never instructions"));
 }
@@ -603,4 +615,37 @@ async fn an_agent_makes_and_deletes_its_own_database_and_asks_to_delete_another(
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic.into_panic());
     }
+}
+
+#[tokio::test]
+async fn backups_come_before_an_agent_drops_or_empties_anything() {
+    let Some(url) = database_url() else { return };
+    let world = world(Some(&url));
+    let claude = client(&world.agents, "claude-code").await;
+    scratch(&claude, "agent_backed_up").await;
+    world.agents.settings.change(|c| c.backups = true).unwrap();
+
+    let run_sql = |statement: &str| json!({"connection": "full", "statements": [statement]});
+    for lost in ["DROP TABLE hn_fixture.agent_backed_up", "/* old */ truncate hn_fixture.agent_backed_up"] {
+        let (text, _) = call(&claude, "run_sql", run_sql(lost)).await;
+        assert!(text.starts_with("REFUSED") && text.contains("change_structure"), "{text}");
+    }
+    let (text, _) = call(&claude, "run_sql", run_sql("DROP FUNCTION IF EXISTS hn_fixture.agent_no_such_function()")).await;
+    assert!(text.starts_with("OK Committed"), "a drop that loses no data runs: {text}");
+
+    let drop = json!({"connection": "full", "table": {"schema": "hn_fixture", "name": "agent_backed_up"}, "changes": [{"kind": "drop"}]});
+    let (text, _) = call(&claude, "change_structure", drop).await;
+    assert!(
+        text.starts_with("OK Committed") && text.contains("backed up agent_backed_up first"),
+        "{text}"
+    );
+    let backup = world.agents.backups.list().into_iter().next().expect("a backup");
+    assert_eq!(backup.agent.map(|a| a.title).as_deref(), Some("Claude Code"));
+    let entry = world
+        .agents
+        .activity(10)
+        .into_iter()
+        .find(|e| e.tool == "change_structure")
+        .expect("the drop is in the activity list");
+    assert_eq!(entry.backup.as_deref(), Some(backup.id.as_str()), "and offers to put it back");
 }
