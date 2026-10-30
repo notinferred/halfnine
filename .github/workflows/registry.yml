@@ -1,0 +1,51 @@
+# Lists a release in the official MCP Registry once Dan publishes it, when its Claude Desktop extension can be downloaded.
+# The registry checks the extension's SHA-256, and GitHub's own OIDC token proves the listing comes from this repository,
+# so there is no secret to keep.
+name: registry
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      # The newest mcp-publisher at least two weeks old on 2026-10-29.
+      MCP_PUBLISHER_VERSION: v1.8.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Describe this release's extension in server.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          file="halfnine-$version.mcpb"
+          gh release download "$TAG" --pattern "$file"
+          sha="$(sha256sum "$file" | cut -d' ' -f1)"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$file"
+          jq --arg v "$version" --arg u "$url" --arg s "$sha" \
+            '.version = $v | .packages[0].identifier = $u | .packages[0].fileSha256 = $s' server.json > server.tmp
+          mv server.tmp server.json
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download mcp-publisher and check its signature
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish

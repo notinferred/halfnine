@@ -1,5 +1,6 @@
-# Builds the installers once, when a version tag such as v0.1.0 is pushed, into a draft GitHub Release that Dan publishes.
-# Nothing is signed yet: the macOS app is signed ad hoc and the Windows installer not at all. The README says how to open them.
+# Builds the installers once, when a version tag such as v0.1.0 is pushed, into a draft GitHub Release that Dan publishes,
+# with the Claude Desktop extension beside them. Nothing is signed yet: the macOS app is signed ad hoc and the Windows
+# installer not at all. The README says how to open them.
 name: release
 
 on:
@@ -43,3 +44,26 @@ jobs:
             - **Windows** (x64): run the `-setup.exe`. At the SmartScreen warning choose More info › Run anyway. It installs for the current user.
 
             When a connection saves its password, macOS asks once before Halfnine first reads it. Choose Always Allow.
+
+            **AI agents:** open Agents in Halfnine to connect Claude Code, Codex, Cursor or VS Code. For Claude Desktop, install Halfnine first, then open the `.mcpb` file here to add it as an extension.
+
+  # The extension holds no part of Halfnine: a few lines that start the installed app as the MCP server. It is zipped as
+  # the MCPB format describes, so no packaging tool is installed for it.
+  extension:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Pack the Claude Desktop extension
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          cd packaging/claude-desktop
+          cp ../../crates/desktop/icons/icon.png icon.png
+          jq --arg v "$version" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+          zip -r "../../halfnine-$version.mcpb" manifest.json icon.png server
+          cd ../..
+          gh release upload "$TAG" "halfnine-$version.mcpb" --clobber

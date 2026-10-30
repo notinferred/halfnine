@@ -37,6 +37,7 @@ Values cross the boundary as Postgres's own text. A page selects every column as
 | Tauri plugins: single-instance, window-state, log | A second launch focuses the open window, the window reopens where it was, and logs go to the app's log folder |
 | rmcp 3.5.1, schemars | The official Rust SDK for MCP, the protocol AI agents use to call tools. Each tool's input schema is derived from its Rust type |
 | tokio's own sockets and pipes, dirs | The local socket or named pipe between `halfnine mcp` and the app needs no IPC crate, and `dirs` finds the config folder by Tauri's own rules without starting Tauri |
+| The MCPB format, mcp-publisher | Claude Desktop's extension is a manifest and a few lines of Node that start the installed app with `mcp`, zipped by the release workflow as the format describes. Publishing a release lists it in the official MCP Registry through `mcp-publisher`, pinned and checked against its Sigstore signature, signed in with GitHub's own OIDC token |
 | open, base64 | `open` opens Cursor's and VS Code's own install screens, as Tauri's opener plugin does inside. `base64` writes Cursor's install link |
 | bollard (M5, candidate) | It is a Rust client for the Docker Engine API. It finds, starts, stops and creates local Postgres containers through any Docker socket |
 

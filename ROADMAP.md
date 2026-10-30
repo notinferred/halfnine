@@ -150,7 +150,7 @@ Dan chose to release sooner: this step, then v0.2.0 with agents, then the rest o
 
 - [ ] **v0.2.0** with the agent core and the safety step, built by `release.yml` from a tag.
 - [ ] **Listed:** the repository's description without "(coming soon)", the topics mcp, mcp-server, ai-agents and claude-code, and Halfnine in the official MCP Registry, Smithery, mcp.so and awesome-mcp-servers.
-- [ ] **A Claude Code plugin and a Claude Desktop extension,** if the listings want them.
+- [x] **A Claude Desktop extension** (`.mcpb`), built with each release; the MCP Registry lists it.
 
 ### Next in M5
 - **Migrations, not direct DDL:** when the agent's project has migrations (Drizzle, Prisma, sqlx and others, found through the project folder the agent shares by MCP roots), a schema change becomes a migration file in that project rather than a direct change to the database. Direct DDL is only for databases nothing owns, such as a scratch Docker database.

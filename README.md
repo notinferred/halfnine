@@ -22,6 +22,8 @@ claude mcp add --scope user --transport stdio halfnine -- /Applications/Halfnine
 codex mcp add halfnine -- /Applications/Halfnine.app/Contents/MacOS/halfnine mcp
 ```
 
+For Claude Desktop, install Halfnine first, then open the `.mcpb` file from the same release to add it as an extension. It is also listed in the official MCP Registry as `io.github.notinferred/halfnine`.
+
 Each connection sets what agents may do there, under Agents in its settings: Off, Read, Read with approved writes, or Full. Red-labelled connections start at Off and every other at Read. At Read with approved writes, an agent's change opens in Halfnine as staged rows or SQL and waits for your answer. Everything agents do is listed on the Agents page, where one switch pauses them all. What an agent reads goes to its AI provider.
 
 ## Develop
@@ -38,7 +40,7 @@ You need Node 24 or later, pnpm (the version in `package.json` is fetched automa
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints the Rust crates |
 | `pnpm icons` | Renders every app icon size from `assets/brand/app-icon.svg` |
 | `pnpm tauri build` | Builds the installer for the machine it runs on |
-| `git tag v0.1.0 && git push origin v0.1.0` | Builds the macOS and Windows installers in GitHub Actions into a draft release, to check and publish |
+| `git tag v0.2.0 && git push origin v0.2.0` | Builds the macOS and Windows installers and the Claude Desktop extension in GitHub Actions into a draft release, to check and publish. Publishing it lists that version in the MCP Registry |
 | `cargo test --workspace` | Runs the Rust tests. The Postgres tests skip themselves unless `HN_TEST_DATABASE_URL` names a database loaded with `crates/pg/tests/fixture.sql` |
 
 To check the app or run the Postgres tests on a Mac without a database, start a throwaway one in Docker. It deletes itself when stopped:

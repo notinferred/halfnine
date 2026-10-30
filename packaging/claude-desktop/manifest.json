@@ -1,0 +1,42 @@
+{
+  "manifest_version": "0.3",
+  "name": "halfnine",
+  "display_name": "Halfnine",
+  "version": "0.2.0",
+  "description": "Your PostgreSQL connections in Halfnine, for Claude: describe and query them, and propose changes you approve in Halfnine.",
+  "long_description": "Halfnine is a small PostgreSQL client for macOS and Windows. This extension lets Claude use the connections you saved in it. Each connection sets what agents may do there: Off, Read, Read with approved writes, or Full. Queries always run read-only. A change at Read with approved writes opens in Halfnine as staged rows or SQL, and waits for you to answer. Columns you hide never reach Claude. Install Halfnine first, from its releases page.",
+  "author": {
+    "name": "notInferred",
+    "url": "https://github.com/notinferred"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/notinferred/halfnine"
+  },
+  "homepage": "https://github.com/notinferred/halfnine",
+  "support": "https://github.com/notinferred/halfnine/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"]
+    }
+  },
+  "tools": [
+    { "name": "list_connections", "description": "The saved PostgreSQL connections, with what agents may do on each." },
+    { "name": "describe", "description": "A database's schemas, tables, columns and foreign keys, or one table in full." },
+    { "name": "query", "description": "Runs one statement that reads, in a read-only transaction." },
+    { "name": "change_rows", "description": "Inserts, updates or deletes rows by primary key, approved in Halfnine where the connection asks for it." },
+    { "name": "change_structure", "description": "Changes a table's structure in one transaction, approved in Halfnine where the connection asks for it." },
+    { "name": "run_sql", "description": "Runs statements that write in one transaction, approved in Halfnine where the connection asks for it." },
+    { "name": "wait_for_approval", "description": "Keeps waiting for the person's answer to a staged change." }
+  ],
+  "keywords": ["postgresql", "postgres", "database", "sql", "tableplus"],
+  "license": "PolyForm-Shield-1.0.0",
+  "compatibility": {
+    "platforms": ["darwin", "win32"],
+    "runtimes": { "node": ">=18.0.0" }
+  }
+}

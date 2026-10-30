@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.notinferred/halfnine",
+  "title": "Halfnine",
+  "description": "PostgreSQL through Halfnine: describe, read-only queries, and changes you approve in the app.",
+  "version": "0.2.0",
+  "repository": {
+    "url": "https://github.com/notinferred/halfnine",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/notinferred/halfnine/releases/download/v0.2.0/halfnine-0.2.0.mcpb",
+      "fileSha256": "filled in by .github/workflows/registry.yml",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
