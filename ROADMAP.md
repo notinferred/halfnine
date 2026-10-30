@@ -1,12 +1,13 @@
 # Roadmap
 
-## Where things stand (2026-10-29)
+## Where things stand (2026-10-30)
 
 M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry:
 
-- Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself.
-- CI passed: lint, types, the build, and all 86 Rust tests, the agent tests against Postgres 18 included.
-- v0.1.0 is published, with a 3.3 MB macOS installer and a 3.0 MB Windows one. It predates the agent core, which comes in the next release. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
+- Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself. Hidden columns reach them only as `[hidden]`, and their row changes can be undone.
+- CI passed: lint, types, the build, and all 97 Rust tests, the agent tests against Postgres 18 included.
+- The installers are 4.1 MB for macOS and 3.7 MB for Windows, beside a Claude Desktop extension. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
+- Next in M5: Docker databases, agents creating their own, working on a copy, and migrations as files. Then the M1 and M2 leftovers.
 
 ## M0: Foundation
 
