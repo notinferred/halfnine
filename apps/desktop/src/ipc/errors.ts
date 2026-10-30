@@ -15,6 +15,11 @@ export function needsPassword(error: unknown): boolean {
   return isAppError(error) && error.kind === "passwordNeeded";
 }
 
+/** Halfnine couldn't back up what a drop or truncate would lose, so nothing changed; the message says why. */
+export function notBackedUp(error: unknown): boolean {
+  return isAppError(error) && error.kind === "noBackup";
+}
+
 /** Network trouble and timeouts may pass; everything else needs someone to change something first. */
 export function isTransient(error: unknown): boolean {
   return isAppError(error) && (error.kind === "network" || error.kind === "timeout");

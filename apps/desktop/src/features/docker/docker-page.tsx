@@ -4,16 +4,48 @@ import { useState } from "react";
 import { commands, type DockerDatabase, type Job } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
+import { BackupsView } from "./backups-view.tsx";
 import { madeBy } from "./docker-detail.tsx";
 import { NewDatabaseSheet } from "./new-database.tsx";
 import "../queries/queries.css";
 import "./docker.css";
 
-/** The Docker page: the Postgres containers on this computer, making new ones, and starting, stopping and deleting them. */
+/**
+ * The Docker page: the Postgres containers on this computer, making new ones, and starting, stopping and deleting
+ * them; and the backups made before something was dropped, emptied or deleted.
+ */
 export function DockerPage() {
-  const queries = useQueryClient();
+  const [showing, setShowing] = useState<"databases" | "backups">("databases");
   const docker = useQuery({ queryKey: ["docker"], queryFn: commands.dockerState });
   const [creating, setCreating] = useState(false);
+  return (
+    <div className="queries-page">
+      <header className="queries-header">
+        <h1>Docker</h1>
+        <fieldset className="segmented" aria-label="Show">
+          <button type="button" aria-pressed={showing === "databases"} onClick={() => setShowing("databases")}>
+            Databases
+          </button>
+          <button type="button" aria-pressed={showing === "backups"} onClick={() => setShowing("backups")}>
+            Backups
+          </button>
+        </fieldset>
+        {showing === "databases" && docker.data?.on && (
+          <button type="button" className="btn btn-primary queries-new" disabled={!docker.data.engine} onClick={() => setCreating(true)}>
+            <Plus size={13} strokeWidth={2} aria-hidden="true" />
+            New database
+          </button>
+        )}
+      </header>
+      {showing === "databases" ? <Databases onCreate={() => setCreating(true)} /> : <BackupsView />}
+      {creating && <NewDatabaseSheet taken={(docker.data?.databases ?? []).map((d) => d.connection.name)} onClose={() => setCreating(false)} />}
+    </div>
+  );
+}
+
+function Databases(props: { onCreate: () => void }) {
+  const queries = useQueryClient();
+  const docker = useQuery({ queryKey: ["docker"], queryFn: commands.dockerState });
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const state = docker.data;
@@ -49,16 +81,7 @@ export function DockerPage() {
   const making = jobs.filter((j) => !state?.databases.some((d) => d.connection.name === j.name));
 
   return (
-    <div className="queries-page">
-      <header className="queries-header">
-        <h1>Docker</h1>
-        {state?.on && (
-          <button type="button" className="btn btn-primary queries-new" disabled={!state.engine} onClick={() => setCreating(true)}>
-            <Plus size={13} strokeWidth={2} aria-hidden="true" />
-            New database
-          </button>
-        )}
-      </header>
+    <>
       {state && !state.on && (
         <div className="queries-empty docker-off">
           <p className="muted">Docker databases are off. Turned on, the Postgres containers on this computer show up as connections.</p>
@@ -90,15 +113,14 @@ export function DockerPage() {
           {state.engine && state.databases.length === 0 && making.length === 0 && (
             <li className="queries-empty docker-off">
               <p className="muted">No Postgres containers on this computer yet.</p>
-              <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+              <button type="button" className="btn btn-primary" onClick={props.onCreate}>
                 New database
               </button>
             </li>
           )}
         </ul>
       )}
-      {creating && <NewDatabaseSheet taken={(state?.databases ?? []).map((d) => d.connection.name)} onClose={() => setCreating(false)} />}
-    </div>
+    </>
   );
 }
 

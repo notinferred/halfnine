@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { type Changes, commands, type RelationKind, type SessionInfo, type TableRef } from "../../ipc/bindings.ts";
+import { type Changes, type CommitDone, commands, type RelationKind, type SessionInfo, type StructureChange } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
+import { inWords } from "./backup-note.ts";
 
 const NOUN: Record<RelationKind, string> = {
   table: "table",
@@ -11,33 +12,36 @@ const NOUN: Record<RelationKind, string> = {
   materializedView: "materialized view",
 };
 
-/** Truncating or dropping can't be undone, so it asks for the table's name to be typed first, and shows the statement. */
+type Structure = Extract<Changes, { kind: "structure" }>;
+
+/**
+ * A drop, truncate or column drop that Halfnine couldn't back up first can't be undone, so it says why, shows the
+ * statements, and waits for the table's name to be typed. Then it runs without a backup.
+ */
 export function ConfirmByName(props: {
   session: SessionInfo;
-  table: TableRef;
+  changes: Structure;
   kind: RelationKind;
-  action: "truncate" | "drop";
-  onDone: () => void;
+  /** Why there's no backup to undo it with. */
+  why: string;
+  onDone: (done: CommitDone) => void;
   onClose: () => void;
 }) {
   const id = props.session.sessionId;
-  const { name } = props.table;
+  const { name } = props.changes.table;
   const [typed, setTyped] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const changes: Changes = { kind: "structure", table: props.table, changes: [{ kind: props.action }] };
-  const statement = useQuery({ queryKey: ["review", id, changes], queryFn: () => commands.reviewChanges(id, changes) });
-  const noun = NOUN[props.kind];
-  const verb = props.action === "drop" ? "Drop" : "Truncate";
+  const statements = useQuery({ queryKey: ["review", id, props.changes], queryFn: () => commands.reviewChanges(id, props.changes) });
+  const { title, consequence, button, doing } = words(props.changes.changes, name, NOUN[props.kind]);
 
   const run = async () => {
     setBusy(true);
     setError(null);
     try {
-      await commands.commitChanges(id, changes, true);
-      props.onDone();
+      props.onDone(await commands.commitChanges(id, props.changes, true));
     } catch (e) {
       setError(describe(e));
       setBusy(false);
@@ -60,15 +64,11 @@ export function ConfirmByName(props: {
           if (e.key === "Escape") props.onClose();
         }}
       >
-        <h2 id="confirm-title">
-          {verb} {name}?
-        </h2>
+        <h2 id="confirm-title">{title}</h2>
         <p className="muted">
-          {props.action === "drop"
-            ? `This deletes the ${noun} ${name}${noun === "view" ? "" : " and every row in it"}. It can't be undone.`
-            : `This deletes every row in ${name}. The table and its structure stay. It can't be undone.`}
+          {consequence} It can't be undone. {props.why}
         </p>
-        <pre className="review-sql mono">{statement.data?.join("\n") ?? "…"}</pre>
+        <pre className="review-sql mono">{statements.data?.join("\n") ?? "…"}</pre>
         <label className="sheet-label" htmlFor="confirm-name">
           Type <strong>{name}</strong> to confirm
         </label>
@@ -91,10 +91,36 @@ export function ConfirmByName(props: {
             Cancel
           </button>
           <button type="submit" className="btn btn-danger btn-danger-strong" disabled={typed !== name || busy}>
-            {busy ? `${verb === "Drop" ? "Dropping" : "Truncating"}…` : `${verb} ${noun}`}
+            {busy ? doing : button}
           </button>
         </div>
       </form>
     </div>
   );
+}
+
+function words(changes: StructureChange[], name: string, noun: string) {
+  if (changes.some((c) => c.kind === "drop")) {
+    return {
+      title: `Drop ${name}?`,
+      consequence: `This deletes the ${noun} ${name}${noun === "view" ? "" : " and every row in it"}.`,
+      button: `Drop ${noun}`,
+      doing: "Dropping…",
+    };
+  }
+  if (changes.some((c) => c.kind === "truncate")) {
+    return {
+      title: `Truncate ${name}?`,
+      consequence: `This deletes every row in ${name}. The table and its structure stay.`,
+      button: `Truncate ${noun}`,
+      doing: "Truncating…",
+    };
+  }
+  const columns = changes.flatMap((c) => (c.kind === "dropColumn" ? [c.column] : []));
+  return {
+    title: `Drop ${inWords(columns)} from ${name}?`,
+    consequence: `This deletes ${columns.length > 1 ? "these columns and every value in them" : "the column and every value in it"}.`,
+    button: "Commit",
+    doing: "Committing…",
+  };
 }

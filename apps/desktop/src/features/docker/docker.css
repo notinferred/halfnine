@@ -45,3 +45,29 @@
   min-height: 30px;
   font-size: var(--text-sm);
 }
+
+.backup-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.backup-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.backup-review {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.backup-review .review-sql {
+  align-self: stretch;
+  max-height: 240px;
+  overflow: auto;
+}

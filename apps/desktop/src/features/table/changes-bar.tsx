@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { type Changes, type Committed, commands, type SessionInfo } from "../../ipc/bindings.ts";
-import { describe } from "../../ipc/errors.ts";
+import { type Changes, type CommitDone, type Committed, commands, type SessionInfo } from "../../ipc/bindings.ts";
+import { describe, notBackedUp } from "../../ipc/errors.ts";
 import { Keys } from "../../ui/keys.tsx";
 import { modCap, useShortcuts } from "../../ui/shortcuts.ts";
+import { noteUndo } from "../workspace/backup-note.ts";
+import { ConfirmByName } from "../workspace/confirm-by-name.tsx";
 
 /**
  * The bar under staged changes: what is staged, the SQL it will run, and Commit (⌘S) or Discard. Nothing is written
@@ -22,7 +24,10 @@ export function ChangesBar(props: {
   onCommitted: (done: Committed) => void;
 }) {
   const id = props.session.sessionId;
+  const queries = useQueryClient();
   const [reviewing, setReviewing] = useState(false);
+  /** Why dropping a column can't be backed up, while its name is asked for instead. */
+  const [unbacked, setUnbacked] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const review = useQuery({
@@ -36,14 +41,23 @@ export function ChangesBar(props: {
     setCommitting(true);
     setError(null);
     try {
-      const done = await commands.commitChanges(id, props.changes, false);
-      setReviewing(false);
-      props.onCommitted(done.committed);
+      committed(await commands.commitChanges(id, props.changes, false));
     } catch (e) {
-      setError(describe(e));
+      if (notBackedUp(e)) setUnbacked(describe(e));
+      else setError(describe(e));
     } finally {
       setCommitting(false);
     }
+  };
+
+  const committed = (done: CommitDone) => {
+    setReviewing(false);
+    setUnbacked(null);
+    if (done.backup) {
+      noteUndo(queries, id, done.backup);
+      void queries.invalidateQueries({ queryKey: ["backups"] });
+    }
+    props.onCommitted(done.committed);
   };
 
   useShortcuts({ "$mod+s": () => void commit() });
@@ -83,6 +97,16 @@ export function ChangesBar(props: {
           {!committing && <Keys keys={[modCap, "S"]} />}
         </button>
       </div>
+      {unbacked !== null && props.changes.kind === "structure" && (
+        <ConfirmByName
+          session={props.session}
+          changes={props.changes}
+          kind="table"
+          why={unbacked}
+          onClose={() => setUnbacked(null)}
+          onDone={committed}
+        />
+      )}
     </div>
   );
 }

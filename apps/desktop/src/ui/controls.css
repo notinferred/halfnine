@@ -366,3 +366,49 @@
 .page-link[aria-current="true"] {
   background: var(--selection);
 }
+
+/* The note at the foot of the window: what just happened, and Undo when it can be undone. */
+.note {
+  position: fixed;
+  bottom: var(--space-4);
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(560px, calc(100% - 32px));
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--field);
+  box-shadow: var(--shadow-overlay);
+  font-size: var(--text-md);
+  transform: translateX(-50%);
+}
+
+.note-text {
+  min-width: 0;
+  padding: var(--space-1) 0;
+}
+
+.note-error .note-text {
+  color: var(--label-red);
+}
+
+.note .note-action {
+  height: 26px;
+}
+
+.note-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-2);
+}
+
+.note-close:hover {
+  background: var(--hover);
+}

@@ -1,10 +1,12 @@
-import { type UseQueryResult, useQueryClient } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Bot, ChevronRight, Container, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Settings, Sheet, Table2 } from "lucide-react";
 import { useState } from "react";
-import type { RelationKind, SchemaNode, SessionInfo, TableRef } from "../../ipc/bindings.ts";
-import { describe } from "../../ipc/errors.ts";
+import { type Changes, type CommitDone, commands, type RelationKind, type SchemaNode, type SessionInfo, type TableRef } from "../../ipc/bindings.ts";
+import { describe, notBackedUp } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { Menu } from "../../ui/menu.tsx";
+import { showNote } from "../../ui/note.tsx";
+import { noteUndo, refreshTable } from "./backup-note.ts";
 import { ConfirmByName } from "./confirm-by-name.tsx";
 
 const KIND_ICON: Record<RelationKind, typeof Table2> = {
@@ -120,14 +122,49 @@ function Pages() {
   );
 }
 
-type Confirming = { table: TableRef; kind: RelationKind; action: "truncate" | "drop" };
+type Emptying = { table: TableRef; kind: RelationKind; action: "truncate" | "drop" };
+type Confirming = Emptying & { why: string };
 
 function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: string; startOpen: boolean }) {
   const queries = useQueryClient();
   const openTable = useWorkspace((s) => s.openTable);
   const newTable = useWorkspace((s) => s.newTable);
   const [confirming, setConfirming] = useState<Confirming | null>(null);
+  const settings = useQuery({ queryKey: ["settings"], queryFn: commands.getSettings });
+  const backingUp = settings.data?.backups ?? true;
   const writable = !props.session.connection.readOnly;
+  const id = props.session.sessionId;
+  const changesOf = ({ table, action }: Emptying): Extract<Changes, { kind: "structure" }> => ({
+    kind: "structure",
+    table,
+    changes: [{ kind: action }],
+  });
+
+  const done = ({ table, action }: Emptying, result: CommitDone) => {
+    if (action === "drop") {
+      const { tabs, closeTab } = useWorkspace.getState();
+      for (const t of tabs) if (t.kind === "table" && t.table.schema === table.schema && t.table.name === table.name) closeTab(t.id);
+    }
+    refreshTable(queries, id, table);
+    if (result.backup) {
+      noteUndo(queries, id, result.backup);
+      void queries.invalidateQueries({ queryKey: ["backups"] });
+    }
+  };
+
+  // With backups on, a table is backed up and dropped or emptied at once, with Undo. Otherwise its name is asked for.
+  const empty = async (target: Emptying) => {
+    const backingUpThis = backingUp && target.kind === "table";
+    const slow = backingUpThis ? setTimeout(() => showNote({ text: `Backing up ${target.table.name}…` }), 400) : undefined;
+    try {
+      done(target, await commands.commitChanges(id, changesOf(target), false));
+    } catch (e) {
+      if (notBackedUp(e)) setConfirming({ ...target, why: describe(e) });
+      else showNote({ text: describe(e), error: true });
+    } finally {
+      clearTimeout(slow);
+    }
+  };
   const active = useWorkspace((s) => {
     const tab = s.tabs.find((t) => t.id === s.active);
     return tab?.kind === "table" ? tab.table : undefined;
@@ -168,6 +205,8 @@ function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: st
             const current = active?.schema === node.name && active.name === r.name;
             const table = { schema: node.name, name: r.name };
             const truncatable = r.kind === "table" || r.kind === "partitionedTable";
+            // Only a plain table is backed up first; anything else asks for its name.
+            const asks = !backingUp || r.kind !== "table";
             return (
               <div key={r.name} className="leaf-row">
                 <button
@@ -185,8 +224,10 @@ function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: st
                     label=""
                     icon={<Ellipsis size={14} strokeWidth={1.5} aria-label={`More for ${r.name}`} />}
                     items={[
-                      ...(truncatable ? [{ label: "Truncate…", onSelect: () => setConfirming({ table, kind: r.kind, action: "truncate" }) }] : []),
-                      { label: "Drop…", onSelect: () => setConfirming({ table, kind: r.kind, action: "drop" }) },
+                      ...(truncatable
+                        ? [{ label: asks ? "Truncate…" : "Truncate", onSelect: () => void empty({ table, kind: r.kind, action: "truncate" }) }]
+                        : []),
+                      { label: asks ? "Drop…" : "Drop", onSelect: () => void empty({ table, kind: r.kind, action: "drop" }) },
                     ]}
                   />
                 )}
@@ -201,22 +242,13 @@ function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: st
       {confirming && (
         <ConfirmByName
           session={props.session}
-          table={confirming.table}
+          changes={changesOf(confirming)}
           kind={confirming.kind}
-          action={confirming.action}
+          why={confirming.why}
           onClose={() => setConfirming(null)}
-          onDone={() => {
-            const { table, action } = confirming;
+          onDone={(result) => {
             setConfirming(null);
-            const id = props.session.sessionId;
-            if (action === "drop") {
-              const { tabs, closeTab } = useWorkspace.getState();
-              for (const t of tabs) if (t.kind === "table" && t.table.schema === table.schema && t.table.name === table.name) closeTab(t.id);
-              void queries.invalidateQueries({ queryKey: ["schema", id] });
-            } else {
-              void queries.invalidateQueries({ queryKey: ["page", id, table.schema, table.name] });
-              void queries.invalidateQueries({ queryKey: ["structure", id, table.schema, table.name] });
-            }
+            done(confirming, result);
           }}
         />
       )}

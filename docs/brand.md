@@ -41,7 +41,7 @@ The whole window follows one layout, so a new feature finds its place rather tha
 - **Shortcuts are shown as keycaps,** one per key, so ⌘ and . can't read as ⌘ followed by a full stop.
 - **A change is staged before it is written.** Staged cells and columns take the accent colour on a faint accent ground. A bar at the foot of the view counts them and offers Review SQL, Discard and Commit.
 - **An agent's change is staged like yours.** It opens in its own tab, marked with the agent's name, as staged cells, rows or columns that only answering can change. The bar asks the way Claude Code asks: 1. Yes, 2. Yes, don't ask again here, 3. No, and tell it why. Nothing is chosen by default, and the choices work only after the window has had focus for a second.
-- **What can't be undone asks for the name.** Truncate and drop show the statement and wait for the table's name to be typed.
+- **Undo instead of asking; what can't be backed up asks for the name.** With backups on, dropping or emptying a table, or dropping a column, backs it up and acts at once, and a note at the foot of the window offers Undo until another replaces it or it is closed. When it can't be backed up, the statement and the reason are shown, and the table's name must be typed.
 
 ## Icon
 

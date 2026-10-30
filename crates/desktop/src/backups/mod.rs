@@ -141,7 +141,7 @@ impl Backups {
         };
         let refused = |why: String| Error::new(ErrorKind::NoBackup, why);
         if !choices.backups {
-            return Err(refused("Backups are off in Settings, so this can't be undone.".into()));
+            return Err(refused("Backups are off in Settings.".into()));
         }
         let size = session.db.backup_size(&table, &into).await.map_err(|e| match e.kind {
             ErrorKind::Invalid => refused(e.message),
