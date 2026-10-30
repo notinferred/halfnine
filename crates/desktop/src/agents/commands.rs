@@ -100,3 +100,10 @@ pub async fn set_column_hidden(
     };
     state.directory.set_hidden(&connection_id, column, hidden)
 }
+
+/// The app's few choices, for the Settings page and the first-launch setup.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_settings(state: State<'_, AppState>) -> Result<crate::settings::Choices, Error> {
+    Ok(state.settings.get())
+}

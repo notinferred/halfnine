@@ -16,21 +16,20 @@ pub mod undo;
 mod tests;
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use hn_core::{AgentAccess, Changes, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
 use hn_pg::{PgDatabase, Secrets};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use specta::Type;
 use tokio::sync::watch;
 
 use crate::commands::{SessionInfo, now_ms, open_with};
 use crate::connections::Directory;
-use crate::files;
 use crate::sessions::{Session, Sessions};
+use crate::settings::Settings;
 use activity::{ActivityEntry, ActivityLog, Call, Done, Outcome};
 use results::{Reply, Status, plural};
 use undo::{UndoRecord, Undos};
@@ -40,7 +39,6 @@ pub use server::Server;
 
 /// How long a call waits for the person before answering WAITING, under the 60 seconds some clients allow a call.
 const WAIT: Duration = Duration::from_secs(45);
-const SETTINGS_VERSION: u32 = 1;
 /// Settled proposals are kept this long, so an agent that comes back late still learns what happened.
 const KEEP_SETTLED: f64 = 60.0 * 60.0 * 1000.0;
 
@@ -221,19 +219,13 @@ pub struct AgentState {
     pub passwords: Vec<PasswordRequestView>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
-struct Settings {
-    paused: bool,
-}
-
 pub struct Agents {
     directory: Arc<Directory>,
     sessions: Arc<Sessions>,
     desk: Arc<dyn Desk>,
     log: ActivityLog,
     undos: Undos,
-    settings: PathBuf,
-    paused: AtomicBool,
+    settings: Arc<Settings>,
     /// Each agent database session by (connection id, database), shared by every agent and apart from the window's.
     databases: tokio::sync::Mutex<HashMap<(String, String), SessionInfo>>,
     proposals: Mutex<HashMap<String, Proposal>>,
@@ -254,9 +246,7 @@ fn new_id(prefix: &str) -> String {
 }
 
 impl Agents {
-    pub fn new(dir: &Path, directory: Arc<Directory>, sessions: Arc<Sessions>, desk: Arc<dyn Desk>) -> Self {
-        let settings = dir.join("agents.json");
-        let paused = files::load::<Settings>(&settings, SETTINGS_VERSION, "the agent settings").is_ok_and(|s| s.paused);
+    pub fn new(dir: &Path, directory: Arc<Directory>, settings: Arc<Settings>, sessions: Arc<Sessions>, desk: Arc<dyn Desk>) -> Self {
         Self {
             directory,
             sessions,
@@ -264,7 +254,6 @@ impl Agents {
             log: ActivityLog::open(dir.to_path_buf()),
             undos: Undos::open(dir),
             settings,
-            paused: AtomicBool::new(paused),
             databases: tokio::sync::Mutex::new(HashMap::new()),
             proposals: Mutex::new(HashMap::new()),
             allowed: Mutex::new(HashSet::new()),
@@ -281,13 +270,12 @@ impl Agents {
     }
 
     pub fn paused(&self) -> bool {
-        self.paused.load(Ordering::SeqCst)
+        self.settings.get().agents_paused
     }
 
     /// Pausing withdraws whatever agents are waiting on and closes their database sessions.
     pub async fn set_paused(&self, paused: bool) -> Result<(), Error> {
-        files::save(&self.settings, SETTINGS_VERSION, &Settings { paused }, "the agent settings")?;
-        self.paused.store(paused, Ordering::SeqCst);
+        self.settings.change(|choices| choices.agents_paused = paused)?;
         if paused {
             self.withdraw_where(|_| true, "The person paused agents in Halfnine.");
             for request in lock(&self.asked).drain().map(|(_, r)| r) {

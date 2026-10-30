@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Lock, Plus, Search } from "lucide-react";
+import { Bot, Lock, Plus, Search, Settings } from "lucide-react";
 import { useState } from "react";
 import { type ConnectionSpec, commands, type Typed } from "../../ipc/bindings.ts";
 import { describe, needsPassword } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { AgentsPage } from "../agents/agents-page.tsx";
+import { SettingsPage } from "../settings/settings-page.tsx";
 import { ConnectionForm } from "./connection-form.tsx";
 import { PasswordSheet } from "./password-sheet.tsx";
 import "./connections.css";
@@ -96,11 +97,17 @@ export function ConnectionsScreen() {
             <Bot className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
             Agents
           </button>
+          <button type="button" className="page-link" aria-current={chosen === "settings" || undefined} onClick={() => setChosen("settings")}>
+            <Settings className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
+            Settings
+          </button>
         </div>
       </nav>
       <main className="connections-detail">
         <div className="traffic-lights-space" data-tauri-drag-region />
-        {chosen === "agents" ? (
+        {chosen === "settings" ? (
+          <SettingsPage />
+        ) : chosen === "agents" ? (
           <AgentsPage />
         ) : (
           <ConnectionForm

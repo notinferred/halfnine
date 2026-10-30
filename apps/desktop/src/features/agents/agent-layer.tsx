@@ -21,7 +21,10 @@ export function AgentLayer() {
   const [answerError, setAnswerError] = useState<string | null>(null);
 
   useEffect(() => {
-    const changed = events.agentsChanged.listen(() => void queries.invalidateQueries({ queryKey: ["agents"] }));
+    const changed = events.agentsChanged.listen(() => {
+      void queries.invalidateQueries({ queryKey: ["agents"] });
+      void queries.invalidateQueries({ queryKey: ["settings"] });
+    });
     const logged = events.agentActivityAdded.listen(() => void queries.invalidateQueries({ queryKey: ["agentActivity"] }));
     return () => {
       void changed.then((stop) => stop());

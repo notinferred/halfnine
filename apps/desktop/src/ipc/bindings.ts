@@ -86,6 +86,8 @@ export const commands = {
 	forgetUndo: (call: string) => __TAURI_INVOKE<null>("forget_undo", { call }),
 	/**  Hides a column from agents, or shows it to them again. It applies from their next call. */
 	setColumnHidden: (connectionId: string, database: string, table: TableRef, column: string, hidden: boolean) => __TAURI_INVOKE<ConnectionSpec>("set_column_hidden", { connectionId, database, table, column, hidden }),
+	/**  The app's few choices, for the Settings page and the first-launch setup. */
+	getSettings: () => __TAURI_INVOKE<Choices>("get_settings"),
 	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
 	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
 	/**  Does what `plan_client` showed. Returns what to do next, if anything. */
@@ -183,6 +185,15 @@ restores?: ColumnValue[][] } |
 export type Choice = {
 	value: string,
 	label: string | null,
+};
+
+export type Choices = {
+	setupSeen?: boolean,
+	docker?: boolean,
+	backups?: boolean,
+	/**  The biggest table backed up before it is dropped or emptied, in bytes. `None` is no limit. */
+	backupLimitBytes?: number | null,
+	agentsPaused?: boolean,
 };
 
 export type Client = "claudeCode" | "codex" | "cursor" | "vsCode" | "claudeDesktop";

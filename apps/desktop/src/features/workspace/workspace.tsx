@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, FileCode, Plus, ScrollText, Search, Sparkles, Table2, TableProperties, X } from "lucide-react";
+import { Activity, Bot, FileCode, Plus, ScrollText, Search, Settings, Sparkles, Table2, TableProperties, X } from "lucide-react";
 import { commands, type ProposalView, type SessionInfo } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { hasStaged, type Tab, useWorkspace } from "../../state.ts";
@@ -12,13 +12,14 @@ import { Palette } from "../palette/palette.tsx";
 import { QueriesPage } from "../queries/queries-page.tsx";
 import { QueryTab } from "../query/query-tab.tsx";
 import { SessionsTab } from "../sessions/sessions-tab.tsx";
+import { SettingsPage } from "../settings/settings-page.tsx";
 import { StagedMark } from "../table/changes-bar.tsx";
 import { NewTable } from "../table/new-table.tsx";
 import { TableTab } from "../table/table-tab.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import "./workspace.css";
 
-const PAGE_TITLE = { queries: "Queries", sessions: "Sessions", agents: "Agents" };
+const PAGE_TITLE = { queries: "Queries", sessions: "Sessions", agents: "Agents", settings: "Settings" };
 
 function title(tab: Tab, proposals: ProposalView[], connectionId: string) {
   if (tab.kind === "table") return tab.table.name;
@@ -39,6 +40,7 @@ const TAB_ICON = {
   queries: ScrollText,
   sessions: Activity,
   agents: Bot,
+  settings: Settings,
   proposal: Sparkles,
 };
 
@@ -117,6 +119,7 @@ export function Workspace({ session }: { session: SessionInfo }) {
         {activeTab?.kind === "queries" && <QueriesPage key={activeTab.id} session={session} />}
         {activeTab?.kind === "sessions" && <SessionsTab key={activeTab.id} session={session} />}
         {activeTab?.kind === "agents" && <AgentsPage key={activeTab.id} />}
+        {activeTab?.kind === "settings" && <SettingsPage key={activeTab.id} />}
         {activeTab?.kind === "proposal" && <ProposalTab key={activeTab.id} tab={activeTab} />}
         {!activeTab && (
           <div className="workspace-empty">

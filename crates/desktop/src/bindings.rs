@@ -50,6 +50,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             agents::commands::undo_change,
             agents::commands::forget_undo,
             agents::commands::set_column_hidden,
+            agents::commands::get_settings,
             setup::client_setups,
             setup::plan_client,
             setup::connect_client,

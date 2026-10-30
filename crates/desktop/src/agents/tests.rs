@@ -1,6 +1,7 @@
 //! Agents end to end, without a window: an MCP client talks to the server over an in-memory pipe, against the
 //! Postgres CI provides. Without `HN_TEST_DATABASE_URL` the database tests report that they were skipped and pass.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -84,7 +85,8 @@ fn world(url: Option<&str>) -> World {
     }
     let desk = Arc::new(TestDesk::default());
     let directory = Arc::new(crate::connections::Directory::new(store, passwords));
-    let agents = Agents::new(&dir, directory, Arc::new(Sessions::default()), desk.clone()).waiting_at_most(Duration::from_millis(300));
+    let settings = Arc::new(crate::settings::Settings::open(&dir).unwrap());
+    let agents = Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), desk.clone()).waiting_at_most(Duration::from_millis(300));
     World {
         agents: Arc::new(agents),
         desk,
