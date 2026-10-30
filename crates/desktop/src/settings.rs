@@ -88,6 +88,25 @@ impl Settings {
     }
 }
 
+/// Which Docker engine is on this computer, for the first-launch setup to suggest turning Docker databases on. It
+/// looks once and keeps nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn find_docker() -> Result<Option<String>, Error> {
+    Ok(hn_docker::Engine::find(&hn_docker::discover::here()).await.ok().map(|engine| engine.found.by))
+}
+
+/// The person's two choices in the first-launch setup, which then doesn't show again.
+#[tauri::command]
+#[specta::specta]
+pub async fn finish_setup(state: tauri::State<'_, crate::AppState>, docker: bool, backups: bool) -> Result<(), Error> {
+    state.settings.change(|choices| {
+        choices.setup_seen = true;
+        choices.backups = backups;
+    })?;
+    state.docker.set_on(docker).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

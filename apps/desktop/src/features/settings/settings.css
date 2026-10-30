@@ -10,3 +10,44 @@
 .settings .row-label {
   white-space: nowrap;
 }
+
+.first-run {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+}
+
+.first-run-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  width: min(520px, calc(100% - 32px));
+  margin: auto;
+  padding-bottom: var(--space-8);
+  text-align: center;
+}
+
+.first-run-card h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.first-run-card p {
+  margin: 0;
+}
+
+.first-run-card .group {
+  align-self: stretch;
+  text-align: left;
+}
+
+.first-run-card .row-label {
+  white-space: nowrap;
+}
+
+.first-run-continue {
+  min-width: 120px;
+}

@@ -4,7 +4,7 @@ use tauri_specta::{Builder, ErrorHandlingMode, collect_commands, collect_events}
 
 use crate::agents::desk::{AgentActivityAdded, AgentsChanged};
 use crate::docker::commands::DockerChanged;
-use crate::{agents, backups, commands, docker, setup};
+use crate::{agents, backups, commands, docker, settings, setup};
 
 #[cfg(any(debug_assertions, test))]
 const OUTPUT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/desktop/src/ipc/bindings.ts");
@@ -53,6 +53,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             agents::commands::set_column_hidden,
             agents::commands::answer_deletion,
             agents::commands::get_settings,
+            settings::find_docker,
+            settings::finish_setup,
             docker::commands::docker_state,
             docker::commands::set_docker_enabled,
             docker::commands::start_docker_database,

@@ -101,6 +101,13 @@ export const commands = {
 } | null>("answer_deletion", { id, yes }),
 	/**  The app's few choices, for the Settings page and the first-launch setup. */
 	getSettings: () => __TAURI_INVOKE<Choices>("get_settings"),
+	/**
+	 *  Which Docker engine is on this computer, for the first-launch setup to suggest turning Docker databases on. It
+	 *  looks once and keeps nothing.
+	 */
+	findDocker: () => __TAURI_INVOKE<string | null>("find_docker"),
+	/**  The person's two choices in the first-launch setup, which then doesn't show again. */
+	finishSetup: (docker: boolean, backups: boolean) => __TAURI_INVOKE<null>("finish_setup", { docker, backups }),
 	dockerState: () => __TAURI_INVOKE<DockerState>("docker_state"),
 	/**  Turns Docker databases on or off in Settings. Off, Halfnine stops talking to the engine. */
 	setDockerEnabled: (on: boolean) => __TAURI_INVOKE<null>("set_docker_enabled", { on }),
