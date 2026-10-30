@@ -30,7 +30,7 @@ export type QueryTab = {
 };
 
 /** The app's pages, opened from the sidebar's footer. Each is open at most once. */
-export type PageTab = { kind: "queries" | "sessions" | "agents" | "settings"; id: string };
+export type PageTab = { kind: "queries" | "sessions" | "agents" | "docker" | "settings"; id: string };
 
 /**
  * A change an agent proposed, shown on the agent's own session until the person answers it. What it holds lives in

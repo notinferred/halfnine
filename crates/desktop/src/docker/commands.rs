@@ -1,13 +1,16 @@
 //! What the window asks of Docker databases.
 
-use hn_core::{AgentAccess, ConnectionSpec, Error, Label};
+use hn_core::{AgentAccess, ConnectionSpec, Error, ErrorKind, Label};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
 use super::DockerState;
+use super::make::{NewDatabase, Origin};
 use crate::AppState;
+use crate::files::storage;
 
 /// The window should fetch `docker_state` again. It carries nothing, so a missed one loses nothing.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
@@ -60,4 +63,75 @@ pub async fn set_docker_settings(state: State<'_, AppState>, name: String, setti
     // A lowered access level applies to agents at once.
     state.agents.forget_connection(&spec.id).await;
     Ok(spec)
+}
+
+/// A file chosen to load into a new database: the token the window holds for it, and its name to show.
+#[derive(Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChosenFile {
+    pub token: String,
+    pub name: String,
+}
+
+/// Opens the dialog for a dump or SQL file to load into a new database. A path never comes from the window.
+#[tauri::command]
+#[specta::specta]
+pub async fn choose_database_file(app: AppHandle, state: State<'_, AppState>) -> Result<Option<ChosenFile>, Error> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Dump or SQL", &["sql", "dump", "backup", "pgdump"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| storage("The open dialog failed", e))?;
+    let Some(path) = picked.as_ref().and_then(|p| p.as_path()).map(|p| p.to_path_buf()) else {
+        return Ok(None);
+    };
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Some(ChosenFile {
+        token: state.docker.keep_file(path),
+        name,
+    }))
+}
+
+/// Starts making a database. It returns at once; its progress shows on the Docker page.
+#[tauri::command]
+#[specta::specta]
+pub async fn create_docker_database(state: State<'_, AppState>, name: String, version: u16, file: Option<String>) -> Result<(), Error> {
+    if !hn_docker::VERSIONS.contains(&version) {
+        return Err(Error::new(ErrorKind::Invalid, "Choose PostgreSQL 14 to 18."));
+    }
+    hn_docker::valid_name(&name)?;
+    let load = file.map(|token| state.docker.file(&token)).transpose()?;
+    let new = NewDatabase {
+        name: name.clone(),
+        major: version,
+        image: None,
+        load,
+        origin: Origin::New,
+        copy_of: None,
+        agent: None,
+    };
+    let docker = state.docker.clone();
+    let _ = state.docker.job(&name, "Starting…", async move { docker.make(new).await });
+    Ok(())
+}
+
+/// Deletes a Docker database, closing what the window and agents have open on it first. Returns whether its volume
+/// was kept because Halfnine didn't make it.
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_docker_database(state: State<'_, AppState>, name: String) -> Result<bool, Error> {
+    let id = format!("{}{name}", super::ID_PREFIX);
+    state.agents.forget_connection(&id).await;
+    state.sessions.close_connection(&id).await;
+    state.docker.delete(&name).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn dismiss_docker_job(state: State<'_, AppState>, name: String) -> Result<(), Error> {
+    state.docker.dismiss(&name);
+    Ok(())
 }

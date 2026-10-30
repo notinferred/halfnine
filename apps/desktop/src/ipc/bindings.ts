@@ -95,6 +95,19 @@ export const commands = {
 	/**  Stops a container, closing what the window and agents have open on it first. */
 	stopDockerDatabase: (name: string) => __TAURI_INVOKE<null>("stop_docker_database", { name }),
 	setDockerSettings: (name: string, settings: DockerSettings) => __TAURI_INVOKE<ConnectionSpec>("set_docker_settings", { name, settings }),
+	/**  Opens the dialog for a dump or SQL file to load into a new database. A path never comes from the window. */
+	chooseDatabaseFile: () => __TAURI_INVOKE<{
+	token: string,
+	name: string,
+} | null>("choose_database_file"),
+	/**  Starts making a database. It returns at once; its progress shows on the Docker page. */
+	createDockerDatabase: (name: string, version: number, file: string | null) => __TAURI_INVOKE<null>("create_docker_database", { name, version, file }),
+	/**
+	 *  Deletes a Docker database, closing what the window and agents have open on it first. Returns whether its volume
+	 *  was kept because Halfnine didn't make it.
+	 */
+	deleteDockerDatabase: (name: string) => __TAURI_INVOKE<boolean>("delete_docker_database", { name }),
+	dismissDockerJob: (name: string) => __TAURI_INVOKE<null>("dismiss_docker_job", { name }),
 	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
 	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
 	/**  Does what `plan_client` showed. Returns what to do next, if anything. */
@@ -202,6 +215,12 @@ export type Choices = {
 	/**  The biggest table backed up before it is dropped or emptied, in bytes. `None` is no limit. */
 	backupLimitBytes?: number | null,
 	agentsPaused?: boolean,
+};
+
+/**  A file chosen to load into a new database: the token the window holds for it, and its name to show. */
+export type ChosenFile = {
+	token: string,
+	name: string,
 };
 
 export type Client = "claudeCode" | "codex" | "cursor" | "vsCode" | "claudeDesktop";
@@ -327,6 +346,8 @@ export type DockerState = {
 	/**  Why there is no engine, when Docker databases are on. */
 	problem: string | null,
 	databases: DockerDatabase[],
+	/**  Databases being made, copied, backed up or deleted, and those whose job failed. */
+	jobs: Job[],
 };
 
 export type EnumType = {
@@ -416,6 +437,13 @@ export type Index = {
 	definition: string,
 	unique: boolean,
 	primary: boolean,
+};
+
+/**  What a Docker database job is doing, for the window to show beside its row. */
+export type Job = {
+	name: string,
+	doing: string,
+	failed: string | null,
 };
 
 /**  The colour that marks an environment, so production always looks different. */

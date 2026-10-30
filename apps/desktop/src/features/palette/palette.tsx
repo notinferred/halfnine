@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { Activity, Bookmark, Bot, ChevronRight, Eye, History, Layers, Plus, ScrollText, Search, Settings, Table2 } from "lucide-react";
+import { Activity, Bookmark, Bot, ChevronRight, Container, Eye, History, Layers, Plus, ScrollText, Search, Settings, Table2 } from "lucide-react";
 import { commands, type SchemaNode, type SessionInfo } from "../../ipc/bindings.ts";
 import { useWorkspace } from "../../state.ts";
 import { modKey } from "../../ui/shortcuts.ts";
@@ -101,6 +101,10 @@ export function Palette(props: { session: SessionInfo; schema: SchemaNode[]; onR
             <Command.Item value="Agents activity connect" onSelect={() => openPage("agents")}>
               <Bot size={15} strokeWidth={1.5} aria-hidden="true" />
               <span className="palette-name">Agents</span>
+            </Command.Item>
+            <Command.Item value="Docker databases containers" onSelect={() => openPage("docker")}>
+              <Container size={15} strokeWidth={1.5} aria-hidden="true" />
+              <span className="palette-name">Docker</span>
             </Command.Item>
             <Command.Item value="Settings preferences" onSelect={() => openPage("settings")}>
               <Settings size={15} strokeWidth={1.5} aria-hidden="true" />

@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Lock, Plus, Search, Settings } from "lucide-react";
+import { Bot, Container, Lock, Plus, Search, Settings } from "lucide-react";
 import { useState } from "react";
 import { type ConnectionSpec, commands, type DockerDatabase, type Typed } from "../../ipc/bindings.ts";
 import { describe, needsPassword } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { AgentsPage } from "../agents/agents-page.tsx";
 import { DockerDetail, madeBy } from "../docker/docker-detail.tsx";
+import { DockerPage } from "../docker/docker-page.tsx";
 import { SettingsPage } from "../settings/settings-page.tsx";
 import { ConnectionForm } from "./connection-form.tsx";
 import { PasswordSheet } from "./password-sheet.tsx";
@@ -123,6 +124,10 @@ export function ConnectionsScreen() {
             <Bot className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
             Agents
           </button>
+          <button type="button" className="page-link" aria-current={chosen === "docker" || undefined} onClick={() => setChosen("docker")}>
+            <Container className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
+            Docker
+          </button>
           <button type="button" className="page-link" aria-current={chosen === "settings" || undefined} onClick={() => setChosen("settings")}>
             <Settings className="page-icon" size={14} strokeWidth={1.5} aria-hidden="true" />
             Settings
@@ -139,6 +144,8 @@ export function ConnectionsScreen() {
             openError={openError}
             onOpen={() => openFromList(dockerSelected.connection)}
           />
+        ) : chosen === "docker" ? (
+          <DockerPage />
         ) : chosen === "settings" ? (
           <SettingsPage />
         ) : chosen === "agents" ? (

@@ -4,6 +4,7 @@
 //! container name, and holds no credentials.
 
 pub mod commands;
+pub mod make;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -63,6 +64,8 @@ pub struct DockerState {
     /// Why there is no engine, when Docker databases are on.
     pub problem: Option<String>,
     pub databases: Vec<DockerDatabase>,
+    /// Databases being made, copied, backed up or deleted, and those whose job failed.
+    pub jobs: Vec<make::Job>,
 }
 
 pub struct Docker {
@@ -73,10 +76,14 @@ pub struct Docker {
     containers: Mutex<Vec<Container>>,
     problem: Mutex<Option<String>>,
     watcher: Mutex<Option<JoinHandle<()>>>,
+    jobs: Mutex<HashMap<String, make::Running>>,
+    last_progress: Mutex<Option<std::time::Instant>>,
+    /// Files chosen in the open dialog, by the token the window holds.
+    files: Mutex<HashMap<String, PathBuf>>,
     changed: Box<dyn Fn() + Send + Sync>,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
@@ -92,6 +99,9 @@ impl Docker {
             containers: Mutex::new(Vec::new()),
             problem: Mutex::new(None),
             watcher: Mutex::new(None),
+            jobs: Mutex::new(HashMap::new()),
+            last_progress: Mutex::new(None),
+            files: Mutex::new(HashMap::new()),
             changed: Box::new(changed),
         }
     }
@@ -111,12 +121,8 @@ impl Docker {
         *watcher = Some(tauri::async_runtime::spawn(async move {
             let mut wait = Duration::from_secs(1);
             while docker.on() {
-                match Engine::find(&discover::here()).await {
+                match docker.attach().await {
                     Ok(engine) => {
-                        let engine = Arc::new(engine);
-                        *docker.engine.write().await = Some(engine.clone());
-                        *lock(&docker.problem) = None;
-                        let _ = docker.refresh().await;
                         wait = Duration::from_secs(1);
                         let mut changes = engine.changes();
                         while let Some(Ok(())) = changes.next().await {
@@ -133,6 +139,15 @@ impl Docker {
                 wait = (wait * 2).min(Duration::from_secs(30));
             }
         }));
+    }
+
+    /// Finds the engine and lists its containers.
+    pub async fn attach(&self) -> Result<Arc<Engine>, Error> {
+        let engine = Arc::new(Engine::find(&discover::here()).await?);
+        *self.engine.write().await = Some(engine.clone());
+        *lock(&self.problem) = None;
+        let _ = self.refresh().await;
+        Ok(engine)
     }
 
     /// Turns Docker databases on or off. Off, the engine is let go and nothing talks to it.
@@ -194,6 +209,7 @@ impl Docker {
             engine: self.engine.try_read().ok().and_then(|e| e.as_ref().map(|e| e.found.by.clone())),
             problem: lock(&self.problem).clone(),
             databases,
+            jobs: self.jobs(),
         }
     }
 
@@ -251,6 +267,20 @@ impl Docker {
         Ok(connection(&container, Some(&self.overrides(name))))
     }
 
+    /// Keeps a file the person chose in the open dialog, and gives the window a token for it.
+    pub fn keep_file(&self, path: PathBuf) -> String {
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        lock(&self.files).insert(token.clone(), path);
+        token
+    }
+
+    pub fn file(&self, token: &str) -> Result<PathBuf, Error> {
+        lock(&self.files)
+            .get(token)
+            .cloned()
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "Choose the file again."))
+    }
+
     /// Forgets what was kept for a container Halfnine deleted, so a new one by that name starts afresh.
     pub fn forget(&self, name: &str) -> Result<(), Error> {
         let mut overlay = lock(&self.overlay);
@@ -303,7 +333,10 @@ pub fn connection(container: &Container, overrides: Option<&Overrides>) -> Conne
 }
 
 #[cfg(test)]
-mod tests {
+mod tests;
+
+#[cfg(test)]
+mod unit {
     use super::*;
     use hn_docker::Credentials;
 

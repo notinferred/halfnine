@@ -1,5 +1,5 @@
 import { type UseQueryResult, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, ChevronRight, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Settings, Sheet, Table2 } from "lucide-react";
+import { Activity, Bot, ChevronRight, Container, Ellipsis, Eye, Layers, Lock, Plus, ScrollText, Settings, Sheet, Table2 } from "lucide-react";
 import { useState } from "react";
 import type { RelationKind, SchemaNode, SessionInfo, TableRef } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
@@ -100,6 +100,7 @@ const PAGES = [
   { kind: "queries", name: "Queries", Icon: ScrollText },
   { kind: "sessions", name: "Sessions", Icon: Activity },
   { kind: "agents", name: "Agents", Icon: Bot },
+  { kind: "docker", name: "Docker", Icon: Container },
   { kind: "settings", name: "Settings", Icon: Settings },
 ] as const;
 

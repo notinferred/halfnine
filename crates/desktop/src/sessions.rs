@@ -36,6 +36,21 @@ impl Sessions {
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "This connection was closed. Open it again."))
     }
 
+    /// Closes every session on a connection, as before its database is deleted.
+    pub async fn close_connection(&self, connection_id: &str) {
+        let ids: Vec<String> = self
+            .open
+            .read()
+            .await
+            .iter()
+            .filter(|(_, s)| s.connection.id == connection_id)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            self.close(&id).await;
+        }
+    }
+
     pub async fn close(&self, id: &str) {
         let removed = self.open.write().await.remove(id);
         if let Some(session) = removed {
