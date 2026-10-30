@@ -7,7 +7,7 @@ pub mod commands;
 pub mod dumps;
 pub mod make;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -78,6 +78,8 @@ pub struct Docker {
     problem: Mutex<Option<String>>,
     watcher: Mutex<Option<JoinHandle<()>>>,
     jobs: Mutex<HashMap<String, make::Running>>,
+    /// Ports jobs picked for containers Docker doesn't list yet, so two jobs never pick the same one.
+    ports: Mutex<HashSet<u16>>,
     last_progress: Mutex<Option<std::time::Instant>>,
     /// Files chosen in the open dialog, by the token the window holds.
     files: Mutex<HashMap<String, PathBuf>>,
@@ -101,6 +103,7 @@ impl Docker {
             problem: Mutex::new(None),
             watcher: Mutex::new(None),
             jobs: Mutex::new(HashMap::new()),
+            ports: Mutex::new(HashSet::new()),
             last_progress: Mutex::new(None),
             files: Mutex::new(HashMap::new()),
             changed: Box::new(changed),

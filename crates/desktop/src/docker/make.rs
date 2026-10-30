@@ -31,6 +31,15 @@ pub(super) struct Running {
     pub done: watch::Sender<Outcome>,
 }
 
+/// A port a job picked, released when the job is done with it.
+struct PortHold<'a>(u16, &'a Docker);
+
+impl Drop for PortHold<'_> {
+    fn drop(&mut self) {
+        lock(&self.1.ports).remove(&self.0);
+    }
+}
+
 /// How a new database comes to be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
@@ -178,9 +187,7 @@ impl Docker {
                 .await?;
         }
         self.progress(&new.name, "Starting…".into());
-        let taken: HashSet<u16> = engine.containers().await?.iter().filter_map(|c| c.port).collect();
-        let port = pick_port(&taken, |p| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok())
-            .ok_or_else(|| Error::new(ErrorKind::Docker, "Every port from 5433 to 5532 is taken."))?;
+        let port = self.hold_port(&engine).await?;
         let password = uuid::Uuid::new_v4().simple().to_string();
         let id = uuid::Uuid::new_v4().simple().to_string();
         let mut labels = HashMap::from([
@@ -204,7 +211,7 @@ impl Docker {
                 name: new.name.clone(),
                 image,
                 major: new.major,
-                port,
+                port: port.0,
                 user: new.user.clone().unwrap_or_else(|| "postgres".into()),
                 password: password.clone(),
                 database: database.clone(),
@@ -226,6 +233,18 @@ impl Docker {
             load(&engine, &new.name, file, &spec).await?;
         }
         Ok(spec)
+    }
+
+    /// Picks a port for a new container and keeps it from other jobs until the hold is dropped, by which time Docker
+    /// lists the container publishing it.
+    async fn hold_port(&self, engine: &Engine) -> Result<PortHold<'_>, Error> {
+        let published: HashSet<u16> = engine.containers().await?.iter().filter_map(|c| c.port).collect();
+        let mut held = lock(&self.ports);
+        let taken: HashSet<u16> = published.union(&held).copied().collect();
+        let port = pick_port(&taken, |p| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok())
+            .ok_or_else(|| Error::new(ErrorKind::Docker, "Every port from 5433 to 5532 is taken."))?;
+        held.insert(port);
+        Ok(PortHold(port, self))
     }
 
     /// Copies a Docker database into a new container: the same image, user and databases, restored from a fresh dump
