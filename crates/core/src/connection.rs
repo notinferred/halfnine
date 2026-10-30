@@ -1,4 +1,4 @@
-use percent_encoding::percent_decode_str;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use url::Url;
@@ -220,9 +220,52 @@ pub fn parse_url(input: &str) -> Result<UrlParts, Error> {
     })
 }
 
+/// What a URL's user, password and database leave as they are; everything else is percent-encoded.
+const URL_PART: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
+
+/// The URL a client connects to `spec` with, the password written in, as [`parse_url`] reads it back.
+pub fn url(spec: &ConnectionSpec, password: Option<&str>) -> String {
+    let part = |text: &str| utf8_percent_encode(text, URL_PART).to_string();
+    let secret = password.map(|p| format!(":{}", part(p))).unwrap_or_default();
+    format!(
+        "postgres://{}{secret}@{}:{}/{}",
+        part(&spec.user),
+        spec.host,
+        spec.port,
+        part(&spec.database)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writes_a_url_that_reads_back_the_same() {
+        let spec = ConnectionSpec {
+            id: "docker:db".into(),
+            name: "db".into(),
+            host: "127.0.0.1".into(),
+            port: 5433,
+            user: "app user".into(),
+            database: "my_db".into(),
+            tls: TlsMode::Disable,
+            label: Label::None,
+            read_only: false,
+            ssh: None,
+            save_password: false,
+            agent_access: None,
+            hidden_columns: Vec::new(),
+            source: Source::Saved,
+        };
+        let written = url(&spec, Some("s@c:ret/"));
+        assert_eq!(written, "postgres://app%20user:s%40c%3Aret%2F@127.0.0.1:5433/my_db");
+        let parts = parse_url(&written).unwrap();
+        assert_eq!(
+            (parts.user.as_str(), parts.password.as_deref(), parts.database.as_str()),
+            ("app user", Some("s@c:ret/"), "my_db")
+        );
+    }
 
     #[test]
     fn parses_a_full_url() {

@@ -14,7 +14,7 @@ pub use backup::{
 };
 pub use changes::{CellChange, Changes, Choice, Committed, NewColumn, RowUpdate, StructureChange};
 pub use connection::{
-    AgentAccess, AgentMark, ConnectionSpec, HiddenColumn, Label, Made, MadeHow, Source, SshAuth, SshSpec, TlsMode, UrlParts, parse_url,
+    AgentAccess, AgentMark, ConnectionSpec, HiddenColumn, Label, Made, MadeHow, Source, SshAuth, SshSpec, TlsMode, UrlParts, parse_url, url,
 };
 pub use data::{
     Activity, Cell, ColumnInfo, ColumnRef, ColumnValue, Constraint, CutCell, EnumType, ExportSource, Filter, ForeignKey, IncomingKey, Index, Page,

@@ -51,6 +51,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             agents::commands::undo_change,
             agents::commands::forget_undo,
             agents::commands::set_column_hidden,
+            agents::commands::answer_deletion,
             agents::commands::get_settings,
             docker::commands::docker_state,
             docker::commands::set_docker_enabled,

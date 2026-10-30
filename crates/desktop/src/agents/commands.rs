@@ -101,6 +101,14 @@ pub async fn set_column_hidden(
     state.directory.set_hidden(&connection_id, column, hidden)
 }
 
+/// The person's answer to an agent asking to delete a Docker database. Yes deletes it, backed up first while backups
+/// are on, and gives what was done.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_deletion(state: State<'_, AppState>, id: String, yes: bool) -> Result<Option<crate::backups::DeleteDone>, Error> {
+    state.agents.answer_deletion(&id, yes).await
+}
+
 /// The app's few choices, for the Settings page and the first-launch setup.
 #[tauri::command]
 #[specta::specta]

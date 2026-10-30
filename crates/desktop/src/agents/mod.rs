@@ -4,6 +4,7 @@
 
 pub mod activity;
 pub mod commands;
+pub mod databases;
 pub mod desk;
 pub mod listen;
 mod results;
@@ -26,6 +27,7 @@ use serde::Serialize;
 use specta::Type;
 use tokio::sync::watch;
 
+use crate::backups::Backups;
 use crate::commands::{SessionInfo, now_ms, open_with};
 use crate::connections::Directory;
 use crate::sessions::{Session, Sessions};
@@ -81,6 +83,14 @@ pub enum Ask {
     Write {
         drops: bool,
     },
+    /// The connection's URL, password included, which reaches the database past every check here.
+    Credentials,
+    /// Starting a stopped Docker database.
+    StartDatabase,
+    /// Deleting a Docker database, and whether an agent of the same name made it.
+    DeleteDatabase {
+        own: bool,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -94,9 +104,22 @@ pub enum Verdict {
 pub fn verdict(spec: &ConnectionSpec, ask: Ask, allowed: bool) -> Verdict {
     let name = &spec.name;
     let change = "The person you're working with can change that in Halfnine, in the connection's settings.";
+    let instead = "Use query, change_rows and run_sql for it instead.";
     match (spec.agent_access(), ask) {
         (AgentAccess::Off, _) => Verdict::Refuse(format!("Agents are off for {name}. {change}")),
-        (_, Ask::Read) => Verdict::Run,
+        (_, Ask::Read | Ask::StartDatabase) => Verdict::Run,
+        (_, Ask::DeleteDatabase { own: true }) => Verdict::Run,
+        (_, Ask::DeleteDatabase { own: false }) => Verdict::Propose,
+        (_, Ask::Credentials) if !spec.made_by_halfnine() => {
+            Verdict::Refuse(format!("Halfnine gives out the URL only of databases it made. {instead}"))
+        }
+        (access, Ask::Credentials) if access != AgentAccess::Full || spec.read_only => Verdict::Refuse(format!(
+            "Agents may not change everything in {name}, and a URL would get past that. {instead}"
+        )),
+        (_, Ask::Credentials) if !spec.hidden_columns.is_empty() => {
+            Verdict::Refuse(format!("{name} hides columns from agents, and a URL would get past that. {instead}"))
+        }
+        (_, Ask::Credentials) => Verdict::Run,
         (_, Ask::Write { .. }) if spec.read_only => Verdict::Refuse(format!("{name} is a read-only connection, so agents can only read it.")),
         (AgentAccess::Read, Ask::Write { .. }) => Verdict::Refuse(format!("Agents may read {name} but not change it. {change}")),
         (AgentAccess::ApprovedWrites, Ask::Write { drops }) if allowed && !drops => Verdict::Run,
@@ -217,6 +240,7 @@ pub struct AgentState {
     pub clients: Vec<ClientView>,
     pub proposals: Vec<ProposalView>,
     pub passwords: Vec<PasswordRequestView>,
+    pub deletions: Vec<databases::DeletionRequestView>,
 }
 
 pub struct Agents {
@@ -234,6 +258,9 @@ pub struct Agents {
     clients: Mutex<HashMap<String, Client>>,
     /// Password requests by connection id, one at a time for each.
     asked: Mutex<HashMap<String, PasswordRequest>>,
+    /// Requests to delete a Docker database, by its connection's name, one at a time for each.
+    deletions: Mutex<HashMap<String, databases::DeletionRequest>>,
+    backups: Arc<Backups>,
     wait: Duration,
 }
 
@@ -246,7 +273,14 @@ fn new_id(prefix: &str) -> String {
 }
 
 impl Agents {
-    pub fn new(dir: &Path, directory: Arc<Directory>, settings: Arc<Settings>, sessions: Arc<Sessions>, desk: Arc<dyn Desk>) -> Self {
+    pub fn new(
+        dir: &Path,
+        directory: Arc<Directory>,
+        settings: Arc<Settings>,
+        sessions: Arc<Sessions>,
+        backups: Arc<Backups>,
+        desk: Arc<dyn Desk>,
+    ) -> Self {
         Self {
             directory,
             sessions,
@@ -259,6 +293,8 @@ impl Agents {
             allowed: Mutex::new(HashSet::new()),
             clients: Mutex::new(HashMap::new()),
             asked: Mutex::new(HashMap::new()),
+            deletions: Mutex::new(HashMap::new()),
+            backups,
             wait: WAIT,
         }
     }
@@ -278,6 +314,7 @@ impl Agents {
         self.settings.change(|choices| choices.agents_paused = paused)?;
         if paused {
             self.withdraw_where(|_| true, "The person paused agents in Halfnine.");
+            self.withdraw_deletions(|_| true, "The person paused agents in Halfnine.");
             for request in lock(&self.asked).drain().map(|(_, r)| r) {
                 request.answered.send_replace(Some(false));
             }
@@ -304,6 +341,7 @@ impl Agents {
     pub fn disconnected(&self, mcp_session: &str) {
         lock(&self.clients).remove(mcp_session);
         self.withdraw_where(|p| p.mcp_session == mcp_session, "The agent disconnected.");
+        self.withdraw_deletions(|asker| asker == mcp_session, "The agent disconnected.");
         self.desk.changed();
     }
 
@@ -772,6 +810,7 @@ impl Agents {
                     connection: r.connection.clone(),
                 })
                 .collect(),
+            deletions: self.deletion_views(),
         }
     }
 

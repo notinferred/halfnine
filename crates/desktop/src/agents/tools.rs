@@ -106,6 +106,29 @@ pub struct RunSqlInput {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct CreateDatabaseInput {
+    /// A name for the database and its container: letters, digits, -, _ and . only. Leave it out for scratch,
+    /// scratch-2 and so on.
+    pub name: Option<String>,
+    /// The PostgreSQL version, 14 to 18; 18 unless given.
+    pub version: Option<u16>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct CopyDatabaseInput {
+    /// The Docker database to copy, by its connection's name as list_connections shows it.
+    pub connection: String,
+    /// A name for the copy; <connection>-copy unless given.
+    pub name: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct DatabaseInput {
+    /// The Docker database, by its connection's name as list_connections shows it.
+    pub connection: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct WaitInput {
     /// The proposal's id, as a WAITING result gave it.
     pub proposal: String,

@@ -74,7 +74,14 @@ fn main() {
             docker.watch();
             let backups = Arc::new(backups::Backups::open(&dir)?);
             let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone(), docker.clone()));
-            let agents = Arc::new(agents::Agents::new(&dir, directory.clone(), settings.clone(), sessions.clone(), desk));
+            let agents = Arc::new(agents::Agents::new(
+                &dir,
+                directory.clone(),
+                settings.clone(),
+                sessions.clone(),
+                backups.clone(),
+                desk,
+            ));
             tauri::async_runtime::spawn(agents::listen::listen(agents.clone(), dir.clone()));
             app.manage(AppState {
                 store,

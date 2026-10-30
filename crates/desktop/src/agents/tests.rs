@@ -87,7 +87,9 @@ fn world(url: Option<&str>) -> World {
     let settings = Arc::new(crate::settings::Settings::open(&dir).unwrap());
     let docker = Arc::new(crate::docker::Docker::new(&dir, settings.clone(), || {}));
     let directory = Arc::new(crate::connections::Directory::new(store, passwords, docker));
-    let agents = Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), desk.clone()).waiting_at_most(Duration::from_millis(300));
+    let backups = Arc::new(crate::backups::Backups::open(&dir).unwrap());
+    let agents =
+        Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), backups, desk.clone()).waiting_at_most(Duration::from_millis(300));
     World {
         agents: Arc::new(agents),
         desk,
@@ -143,6 +145,59 @@ fn the_access_rule() {
     assert_eq!(verdict(&at(AgentAccess::Full, true), Ask::Read, false), Verdict::Run);
     let red = spec("x", None, Label::Red, false, None);
     assert!(matches!(verdict(&red, Ask::Read, false), Verdict::Refuse(_)));
+}
+
+#[test]
+fn the_access_rule_for_docker_databases() {
+    let docker = |how: Option<hn_core::MadeHow>| ConnectionSpec {
+        source: hn_core::Source::Docker {
+            container: "db".into(),
+            made: how.map(|how| hn_core::Made { how, agent: None }),
+        },
+        ..spec("db", None, Label::None, false, None)
+    };
+    let made = docker(Some(hn_core::MadeHow::New));
+    assert_eq!(
+        verdict(&made, Ask::Credentials, false),
+        Verdict::Run,
+        "Halfnine made it, so agents start at Full"
+    );
+    assert_eq!(verdict(&docker(Some(hn_core::MadeHow::Copy)), Ask::Credentials, false), Verdict::Run);
+    for refused in [
+        docker(None),
+        docker(Some(hn_core::MadeHow::Restored)),
+        ConnectionSpec {
+            read_only: true,
+            ..made.clone()
+        },
+        ConnectionSpec {
+            agent_access: Some(AgentAccess::ApprovedWrites),
+            ..made.clone()
+        },
+        ConnectionSpec {
+            hidden_columns: vec![hn_core::HiddenColumn {
+                database: "db".into(),
+                schema: "public".into(),
+                table: "people".into(),
+                column: "email".into(),
+            }],
+            ..made.clone()
+        },
+    ] {
+        assert!(matches!(verdict(&refused, Ask::Credentials, false), Verdict::Refuse(_)), "{refused:?}");
+    }
+
+    let theirs = docker(None);
+    assert_eq!(verdict(&theirs, Ask::StartDatabase, false), Verdict::Run, "any level but Off");
+    assert_eq!(verdict(&theirs, Ask::DeleteDatabase { own: false }, false), Verdict::Propose);
+    assert_eq!(verdict(&made, Ask::DeleteDatabase { own: true }, false), Verdict::Run);
+    let off = ConnectionSpec {
+        agent_access: Some(AgentAccess::Off),
+        ..made
+    };
+    for ask in [Ask::StartDatabase, Ask::DeleteDatabase { own: true }, Ask::Credentials] {
+        assert!(matches!(verdict(&off, ask, false), Verdict::Refuse(_)));
+    }
 }
 
 #[test]
@@ -494,4 +549,58 @@ async fn keeps_the_reverse_of_a_row_change_to_undo() {
     )
     .await;
     assert!(rows.contains("[\"1\",\"one\"]\n[\"2\",\"two\"]\n</rows>"), "{rows}");
+}
+
+#[tokio::test]
+async fn an_agent_makes_and_deletes_its_own_database_and_asks_to_delete_another() {
+    if std::env::var("HN_TEST_DOCKER").as_deref() != Ok("1") {
+        eprintln!("skipped: HN_TEST_DOCKER is not 1");
+        return;
+    }
+    let world = world(None);
+    world.agents.settings.change(|c| c.docker = true).unwrap();
+    let docker = world.agents.directory.docker.clone();
+    docker.attach().await.expect("CI has a Docker engine");
+    let name = format!("hn-agent-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let work = {
+        let (agents, name) = (world.agents.clone(), name.clone());
+        tokio::spawn(async move {
+            let claude = client(&agents, "claude-code").await;
+            let (made, _) = call(&claude, "create_database", json!({ "name": name })).await;
+            assert!(
+                made.starts_with("OK ") && made.contains("URL, for a program you run: postgres://"),
+                "{made}"
+            );
+            let (again, _) = call(&claude, "create_database", json!({ "name": name })).await;
+            assert!(again.starts_with("OK "), "asking again gives the same one: {again}");
+            let (listed, _) = call(&claude, "list_connections", json!({})).await;
+            assert!(
+                listed.contains(&format!("{name} · ")) && listed.contains("made for Claude Code"),
+                "{listed}"
+            );
+
+            let cursor = client(&agents, "cursor").await;
+            let (asked, _) = call(&cursor, "delete_database", json!({ "connection": name })).await;
+            assert!(asked.starts_with("WAITING "), "another agent's delete asks: {asked}");
+            let request = agents.state().deletions.into_iter().next().expect("the window shows it");
+            assert!(request.backed_up);
+            assert_eq!(agents.answer_deletion(&request.id, false).await.unwrap().map(|d| d.kept_volume), None);
+            let (declined, _) = call(&cursor, "delete_database", json!({ "connection": name })).await;
+            assert!(declined.starts_with("DECLINED "), "{declined}");
+
+            let (deleted, _) = call(&claude, "delete_database", json!({ "connection": name })).await;
+            assert!(deleted.starts_with("OK Deleted") && deleted.contains("backed it up first"), "{deleted}");
+            assert!(agents.directory.docker.container(&name).is_none());
+            assert_eq!(agents.backups.list().len(), 1);
+        })
+    };
+    let outcome = work.await;
+    if let Ok(engine) = docker.engine().await
+        && let Ok(c) = engine.container(&name).await
+    {
+        let _ = engine.remove(&name, c.volume.as_deref()).await;
+    }
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic.into_panic());
+    }
 }

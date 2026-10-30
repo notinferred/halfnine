@@ -7,7 +7,7 @@ import { describe } from "../../ipc/errors.ts";
  * The window comes forward when an agent asks, possibly while the person is still typing elsewhere, so no choice
  * works until the window has had focus for a second, and losing focus disarms them again.
  */
-function useArmed(delay = 1000) {
+export function useArmed(delay = 1000) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     let timer: number | undefined;
@@ -31,7 +31,7 @@ function useArmed(delay = 1000) {
   return armed;
 }
 
-const isTyping = (target: EventTarget | null) =>
+export const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable);
 
 /**

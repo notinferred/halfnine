@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hn_core::{AgentAccess, ColumnRef, Database, RelationKind, Structure, TableRef};
+use hn_core::{AgentAccess, ColumnRef, Database, Made, MadeHow, RelationKind, Source, Structure, TableRef};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Implementation, ProgressNotificationParam, ServerCapabilities, ServerConfig};
 use rmcp::service::RequestContext;
@@ -13,7 +13,9 @@ use rmcp::{RoleServer, ServerHandler, tool, tool_handler, tool_router};
 
 use super::results::{Reply, Status, TEXT_LIMIT, plural, rows};
 use super::staging::{Asked, Request};
-use super::tools::{ChangeRowsInput, ChangeStructureInput, DescribeInput, QueryInput, RunSqlInput, WaitInput};
+use super::tools::{
+    ChangeRowsInput, ChangeStructureInput, CopyDatabaseInput, CreateDatabaseInput, DatabaseInput, DescribeInput, QueryInput, RunSqlInput, WaitInput,
+};
 use super::{Agent, Agents, Ask, Verdict, label_name, paused, verdict};
 
 const INSTRUCTIONS: &str = "Halfnine is the person's PostgreSQL client, and this is how you use their databases through it. \
@@ -68,10 +70,13 @@ impl Server {
                 return paused();
             }
             let connections = self.agents.directory.list();
-            if connections.is_empty() {
-                return Reply::new(Status::Ok, "Halfnine has no connections yet. The person adds them in Halfnine.");
-            }
-            let mut text = format!("{}:", plural(connections.len(), "connection"));
+            let docker = &self.agents.directory.docker;
+            let state = docker.state();
+            let mut text = if connections.is_empty() {
+                "Halfnine has no connections yet. The person adds them in Halfnine.".to_string()
+            } else {
+                format!("{}:", plural(connections.len(), "connection"))
+            };
             for c in &connections {
                 let access = match c.agent_access() {
                     AgentAccess::Off => "Off: agents can't use it, unless the person changes that in Halfnine",
@@ -81,6 +86,31 @@ impl Server {
                 };
                 let read_only = if c.read_only { " · read-only" } else { "" };
                 let _ = write!(text, "\n- {} · {} · {access}{read_only}", c.name, label_name(c.label));
+                let Source::Docker { container, made } = &c.source else { continue };
+                let running = state.databases.iter().any(|d| d.connection.id == c.id && d.running);
+                text.push_str(if running {
+                    " · Docker, running"
+                } else {
+                    " · Docker, stopped: start_database starts it"
+                });
+                text.push_str(&match made {
+                    Some(Made { agent: Some(agent), .. }) => format!(" · made for {}", agent.title),
+                    Some(Made { how: MadeHow::Copy, .. }) => " · a copy made in Halfnine".to_string(),
+                    Some(Made { how: MadeHow::Restored, .. }) => " · restored in Halfnine".to_string(),
+                    Some(Made { how: MadeHow::New, .. }) => " · made in Halfnine".to_string(),
+                    None => String::new(),
+                });
+                if running
+                    && verdict(c, Ask::Credentials, false) == Verdict::Run
+                    && let Ok(secrets) = docker.secrets(container).await
+                {
+                    let _ = write!(text, " · URL {}", hn_core::url(c, secrets.password.as_deref()));
+                }
+            }
+            if !state.on {
+                text.push_str("\n\nDocker databases are off in Halfnine's Settings, so no containers are listed or made.");
+            } else if let Some(problem) = &state.problem {
+                let _ = write!(text, "\n\nDocker databases: {problem}");
             }
             Reply::new(Status::Ok, text)
         });
@@ -236,6 +266,97 @@ impl Server {
             work: Asked::Statements(input.statements),
         };
         self.write("run_sql", request, &context).await
+    }
+
+    #[tool(
+        name = "create_database",
+        description = "Makes a new, empty PostgreSQL database in Docker on this computer for you to work in. It is made for you, you may read and change everything in it, and Halfnine shows it marked with your name. Answers with its connection name, and a URL for programs you run. The first one of a version downloads PostgreSQL, which can take a minute: if it answers WAITING, call it again with the same name.",
+        annotations(
+            title = "Make a database",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn create_database(&self, Parameters(input): Parameters<CreateDatabaseInput>, context: RequestContext<RoleServer>) -> CallToolResult {
+        let agent = self.agent(&context);
+        let reply = self.agents.logged(&agent, "create_database", None, None, || async {
+            if self.agents.paused() {
+                return paused();
+            }
+            self.agents.create_database(&agent, input.name, input.version).await
+        });
+        reply.await.into_result()
+    }
+
+    #[tool(
+        name = "copy_database",
+        description = "Copies a Docker database into a new one made for you, with every database, table and row in it, so you can try risky work on the copy. Columns hidden from agents stay hidden in the copy. Answers like create_database, and WAITING the same way.",
+        annotations(
+            title = "Copy a database",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn copy_database(&self, Parameters(input): Parameters<CopyDatabaseInput>, context: RequestContext<RoleServer>) -> CallToolResult {
+        let agent = self.agent(&context);
+        let spec = self.agents.connection(&input.connection).ok();
+        let reply = self.agents.logged(&agent, "copy_database", spec.as_ref(), None, || async {
+            if self.agents.paused() {
+                return paused();
+            }
+            self.agents.copy_database(&agent, &input.connection, input.name).await
+        });
+        reply.await.into_result()
+    }
+
+    #[tool(
+        name = "start_database",
+        description = "Starts a stopped Docker database, as list_connections marks it.",
+        annotations(
+            title = "Start a database",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn start_database(&self, Parameters(input): Parameters<DatabaseInput>, context: RequestContext<RoleServer>) -> CallToolResult {
+        let agent = self.agent(&context);
+        let spec = self.agents.connection(&input.connection).ok();
+        let reply = self.agents.logged(&agent, "start_database", spec.as_ref(), None, || async {
+            if self.agents.paused() {
+                return paused();
+            }
+            self.agents.start_database(&input.connection).await
+        });
+        reply.await.into_result()
+    }
+
+    #[tool(
+        name = "delete_database",
+        description = "Deletes a Docker database. One made for an agent of your name is deleted at once; any other only if the person says yes in Halfnine, and the call waits for their answer. While backups are on, Halfnine backs it up first, so the person can put it back.",
+        annotations(
+            title = "Delete a database",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_database(&self, Parameters(input): Parameters<DatabaseInput>, context: RequestContext<RoleServer>) -> CallToolResult {
+        let agent = self.agent(&context);
+        let spec = self.agents.connection(&input.connection).ok();
+        let reply = self.agents.logged(&agent, "delete_database", spec.as_ref(), None, || async {
+            if self.agents.paused() {
+                return paused();
+            }
+            self.agents.delete_database(&agent, &self.session, &input.connection).await
+        });
+        reply.await.into_result()
     }
 
     #[tool(

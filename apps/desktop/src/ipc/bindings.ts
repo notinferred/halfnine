@@ -90,6 +90,15 @@ export const commands = {
 	forgetUndo: (call: string) => __TAURI_INVOKE<null>("forget_undo", { call }),
 	/**  Hides a column from agents, or shows it to them again. It applies from their next call. */
 	setColumnHidden: (connectionId: string, database: string, table: TableRef, column: string, hidden: boolean) => __TAURI_INVOKE<ConnectionSpec>("set_column_hidden", { connectionId, database, table, column, hidden }),
+	/**
+	 *  The person's answer to an agent asking to delete a Docker database. Yes deletes it, backed up first while backups
+	 *  are on, and gives what was done.
+	 */
+	answerDeletion: (id: string, yes: boolean) => __TAURI_INVOKE<{
+	/**  Its data volume was kept, because Halfnine didn't make it. */
+	keptVolume: boolean,
+	backup: Backup | null,
+} | null>("answer_deletion", { id, yes }),
 	/**  The app's few choices, for the Settings page and the first-launch setup. */
 	getSettings: () => __TAURI_INVOKE<Choices>("get_settings"),
 	dockerState: () => __TAURI_INVOKE<DockerState>("docker_state"),
@@ -197,6 +206,7 @@ export type AgentState = {
 	clients: ClientView[],
 	proposals: ProposalView[],
 	passwords: PasswordRequestView[],
+	deletions: DeletionRequestView[],
 };
 
 /**  The window should fetch `agent_state` again. It carries nothing, so a missed one loses nothing. */
@@ -373,6 +383,19 @@ export type DeleteDone = {
 	keptVolume: boolean,
 	backup: Backup | null,
 };
+
+/**  A request to delete a database as the window asks it, with only Yes and No: "don't ask again" never covers a delete. */
+export type DeletionRequestView = {
+	id: string,
+	agent: string,
+	connection: ConnectionSpec,
+	/**  Whether Halfnine backs it up first, so it can be put back. */
+	backedUp: boolean,
+	state: DeletionState,
+};
+
+/**  Where an agent's request to delete a Docker database it didn't make stands. */
+export type DeletionState = { kind: "pending" } | { kind: "deleting" } | { kind: "deleted"; backedUp: boolean; keptVolume: boolean } | { kind: "declined" } | { kind: "failed"; error: Error } | { kind: "withdrawn"; why: string };
 
 /**  The window should fetch `docker_state` again. It carries nothing, so a missed one loses nothing. */
 export type DockerChanged = null;
