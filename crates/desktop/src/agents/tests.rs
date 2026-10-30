@@ -570,7 +570,14 @@ async fn an_agent_makes_and_deletes_its_own_database_and_asks_to_delete_another(
         return;
     }
     let world = world(None);
-    world.agents.settings.change(|c| c.docker = true).unwrap();
+    world
+        .agents
+        .settings
+        .change(|c| {
+            c.docker = true;
+            c.backups = true;
+        })
+        .unwrap();
     let docker = world.agents.directory.docker.clone();
     docker.attach().await.expect("CI has a Docker engine");
     let name = format!("hn-agent-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);

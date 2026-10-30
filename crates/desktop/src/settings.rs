@@ -93,7 +93,10 @@ impl Settings {
 #[tauri::command]
 #[specta::specta]
 pub async fn find_docker() -> Result<Option<String>, Error> {
-    Ok(hn_docker::Engine::find(&hn_docker::discover::here()).await.ok().map(|engine| engine.found.by))
+    Ok(hn_docker::Engine::find(&hn_docker::discover::here())
+        .await
+        .ok()
+        .map(|engine| engine.found.by))
 }
 
 /// The person's two choices in the first-launch setup, which then doesn't show again.

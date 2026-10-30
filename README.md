@@ -13,6 +13,12 @@ Download the installer from [Releases](https://github.com/notinferred/halfnine/r
 
 When a connection saves its password, macOS asks once before Halfnine first reads it, and again after each update until the app is signed. Choose Always Allow.
 
+## Docker databases and backups
+
+Turn on Docker databases in Settings, or at the first launch, and the Postgres containers on this computer show under Docker on the connections screen. Double-click one to connect; Halfnine reads its user and password from the container. The Docker page makes new ones (PostgreSQL 14 to 18, optionally from a dump or an SQL file), copies, starts, stops and deletes them. It works with Docker Desktop, OrbStack, Colima and Rancher Desktop.
+
+With backups on, as they are unless you turn them off in Settings, dropping or emptying a table, dropping a column, or deleting a Docker database backs it up first and acts at once, with Undo at the foot of the window. Backups stay on the Docker page until you delete them. A table bigger than the limit in Settings, or one Halfnine can't back up, asks for its name instead.
+
 ## Use with AI agents
 
 Halfnine is also an MCP server, so Claude Code, Codex, Cursor, VS Code and Claude Desktop can use your connections through it. Open Agents, at the foot of the sidebar or the connections screen, choose Connect next to your tool, and Halfnine shows what it will change before it adds itself. Or add it by hand; on macOS:
@@ -25,6 +31,8 @@ codex mcp add halfnine -- /Applications/Halfnine.app/Contents/MacOS/halfnine mcp
 For Claude Desktop, install Halfnine first, then open the `.mcpb` file from the same release to add it as an extension. It is also listed in the official MCP Registry as `io.github.notinferred/halfnine`.
 
 Each connection sets what agents may do there, under Agents in its settings: Off, Read, Read with approved writes, or Full. Red-labelled connections start at Off and every other at Read. At Read with approved writes, an agent's change opens in Halfnine as staged rows or SQL and waits for your answer. Everything agents do is listed on the Agents page, where one switch pauses them all. What an agent reads goes to its AI provider.
+
+With Docker databases on, an agent can make its own databases, or copy one before risky work. Those start at Full and are marked with the agent's name, and it gets their URL for programs it runs. It deletes one made for it without asking; deleting any other asks you. While backups are on, what an agent drops or empties is backed up first, and `run_sql` won't drop tables, schemas or databases.
 
 ## Develop
 
@@ -41,7 +49,7 @@ You need Node 24 or later, pnpm (the version in `package.json` is fetched automa
 | `pnpm icons` | Renders every app icon size from `assets/brand/app-icon.svg` |
 | `pnpm tauri build` | Builds the installer for the machine it runs on |
 | `git tag v0.2.0 && git push origin v0.2.0` | Builds the macOS and Windows installers and the Claude Desktop extension in GitHub Actions into a draft release, to check and publish. Publishing it lists that version in the MCP Registry |
-| `cargo test --workspace` | Runs the Rust tests. The Postgres tests skip themselves unless `HN_TEST_DATABASE_URL` names a database loaded with `crates/pg/tests/fixture.sql` |
+| `cargo test --workspace` | Runs the Rust tests. The Postgres tests skip themselves unless `HN_TEST_DATABASE_URL` names a database loaded with `crates/pg/tests/fixture.sql`, and the Docker tests unless `HN_TEST_DOCKER=1` and a Docker engine with `postgres:18` pulled is running. They label what they make, and CI removes anything they leave |
 
 To check the app or run the Postgres tests on a Mac without a database, start a throwaway one in Docker. It deletes itself when stopped:
 
@@ -57,6 +65,7 @@ docker stop halfnine-check
 
 - `apps/desktop`: the UI, in React and Vite. Design tokens are in `src/ui/tokens.css`.
 - `crates/desktop`: the Tauri app that hosts the UI, with its window, permissions and icons.
+- `crates/core`, `crates/pg` and `crates/docker`: the types every crate shares, the Postgres adapter, and the Docker engine adapter.
 - `docs/`: [architecture](docs/architecture.md), [decisions](docs/decisions.md) and [brand](docs/brand.md).
 
 ## License

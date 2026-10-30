@@ -2,12 +2,9 @@
 
 ## Where things stand (2026-10-30)
 
-M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry:
+M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry.
 
-- Agents such as Claude Code reach Halfnine over MCP through `halfnine mcp`, read through read-only transactions, and propose changes Dan approves in the table itself. Hidden columns reach them only as `[hidden]`, and their row changes can be undone.
-- CI passed: lint, types, the build, and all 97 Rust tests, the agent tests against Postgres 18 included.
-- The installers are 4.1 MB for macOS and 3.7 MB for Windows, beside a Claude Desktop extension. The code is licensed under PolyForm Shield 1.0.0 from the first commit.
-- Next in M5: Docker databases, agents creating their own, working on a copy, and migrations as files. Then the M1 and M2 leftovers.
+The next step of M5 is built on the branch `m5-docker`, not yet merged or released: Docker databases, copies, backups with Undo, agents making and deleting their own databases, and a short first-launch setup. CI passed the Postgres and Docker tests for it. It waits for Dan's check, then a release. Migrations as files, and the M1 and M2 leftovers, come after.
 
 ## M0: Foundation
 
@@ -156,25 +153,30 @@ Dan chose to release sooner: this step, then v0.2.0 with agents, then the rest o
 - [ ] **mcp.so and Smithery:** submitted by Dan through their sites, with the text Claude wrote.
 - [x] **A Claude Desktop extension** (`.mcpb`), built with each release; the MCP Registry lists it.
 
+### Docker databases, copies and backups (built 2026-10-30, on `m5-docker`)
+
+Dan's decisions are in `docs/decisions.md` under 2026-10-30.
+
+- [x] **Docker connections:** with Docker databases on, the Postgres containers on this computer are listed under Docker on the connections screen, live, and connect with a double-click, starting a stopped one first. Credentials come from the container each time and are never saved. Halfnine finds Docker Desktop, OrbStack, Colima and Rancher Desktop, and only an engine on this computer.
+- [x] **The Docker page:** New database (PostgreSQL 14 to 18, 18 by default, optionally loading a dump or an SQL file), with download progress; Start, Stop, Copy and Delete. Deleting removes the data volume only if Halfnine made it, and says so when it keeps one.
+- [x] **Copies:** a fresh dump of every database, restored into a new container from the same image. A copy keeps the source's hidden columns.
+- [x] **Backups, with Undo instead of asking:** dropping or emptying a table, dropping a column, and deleting a Docker database back it up first and act at once, with Undo in a note at the foot of the window. A table is backed up in the drop's own transaction. One over the size limit (1 GB unless changed in Settings), one a backup can't make again, or a backup that fails asks for the name, with the reason. The Docker page's Backups list puts one back, showing what it runs first, or deletes it.
+- [x] **Agents:** `list_connections` shows Docker databases, running or stopped, and who they were made for. `create_database`, `copy_database`, `start_database` and `delete_database` are new; making and copying answer WAITING past 45 seconds and rejoin by name. An agent may have 10 databases made for it. It gets a URL only for one Halfnine made, at Full, not read-only and hiding no columns. It deletes one made for it at once; any other asks Dan with only Yes and No. Its drops through `change_structure` are backed up, and the Agents page offers Restore for them. While backups are on, `run_sql` refuses the drops that lose data.
+- [x] **Settings and first launch:** a Settings page (Docker databases, backups and their limit, Pause agents) and a setup shown once, with Docker on when Docker is found.
+- [x] **Fixed on the way:** CSV exports write empty text apart from NULL; the Structure view shows PostgreSQL 18's virtual generated columns; two databases made at once no longer pick the same port.
+- [ ] **Dan's check,** the M3 way, with his OK at the time:
+  1. The first launch shows the setup.
+  2. Docker Desktop's containers are listed under Docker and connect with a double-click.
+  3. Make one on 18 with an SQL file, copy it, delete it, then Undo.
+  4. Drop a table: the note appears, and Undo brings it back with its rows.
+  5. In a new Claude Code session, ask for a fresh database: it appears marked with Claude Code's name, and the agent uses it and deletes it.
+- [ ] **Windows,** from a release build: the engine's named pipe, making a database, a dump.
+- [ ] **The installer measured again,** from the release build: it must stay under 15 MB.
+
 ### Next in M5
+
 - **Migrations, not direct DDL:** when the agent's project has migrations (Drizzle, Prisma, sqlx and others, found through the project folder the agent shares by MCP roots), a schema change becomes a migration file in that project rather than a direct change to the database. Direct DDL is only for databases nothing owns, such as a scratch Docker database.
-- **Work on a copy:** clone a database before risky work. On a local server this is `CREATE DATABASE … TEMPLATE`; for Docker, a cloned container. The agent works on the copy, and Dan keeps it or discards it.
-- **Credentials:** an agent may receive the URL of a Docker database Halfnine created, because those credentials are local and throwaway. Every other connection's credentials never leave the app.
-- **Agents create, copy and delete local databases,** with Docker below. Databases Halfnine created in Docker start at Full.
-
-### Docker
-
-- **See and connect:** it lists the Postgres containers on this machine and connects in a click, reading the user, password and database from the container's environment. It works with any Docker engine socket: Docker Desktop, OrbStack or Colima.
-- **Start, stop and delete:** deleting a container offers to delete its data volume too, after a confirmation.
-- **Create:**
-  - Choose a Postgres version and a name. The port is picked automatically.
-  - Optionally load a dump or an SQL file.
-  - Each database gets its own volume, and Halfnine labels its containers so it knows which are its own.
-- **Agents create their own:** an agent can ask for a fresh database and get one without asking Dan. It shows in the sidebar marked with the agent's name.
-
-### Candidates
-
-The Docker Engine API client `bollard`, which passes the same adoption test as every other dependency, with the same two-week age rule. The MCP SDK, `rmcp`, is in use.
+- **Copies on other servers,** with `CREATE DATABASE … TEMPLATE`; copies are for Docker databases for now, by Dan's choice.
 
 ## Next, in the order Dan chooses
 
