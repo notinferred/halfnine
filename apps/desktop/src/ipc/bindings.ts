@@ -47,8 +47,12 @@ export const commands = {
 	stopSession: (sessionId: string, pid: number, terminate: boolean) => __TAURI_INVOKE<boolean>("stop_session", { sessionId, pid, terminate }),
 	/**  The SQL that staged changes would run, to read before committing them. */
 	reviewChanges: (sessionId: string, changes: Changes) => __TAURI_INVOKE<string[]>("review_changes", { sessionId, changes }),
-	/**  Commits staged changes in one transaction, and adds what ran to the history. */
-	commitChanges: (sessionId: string, changes: Changes) => __TAURI_INVOKE<Committed>("commit_changes", { sessionId, changes }),
+	/**
+	 *  Commits staged changes in one transaction, and adds what ran to the history. A change that drops or empties a
+	 *  table, or drops a column, is backed up first, and refused with `NoBackup` when it can't be, unless
+	 *  `without_backup` says someone confirmed going ahead without one.
+	 */
+	commitChanges: (sessionId: string, changes: Changes, withoutBackup: boolean) => __TAURI_INVOKE<CommitDone>("commit_changes", { sessionId, changes, withoutBackup }),
 	/**  Values to pick for a foreign key that points at `column` of `table`. */
 	choices: (sessionId: string, table: TableRef, column: string, search: string) => __TAURI_INVOKE<Choice[]>("choices", { sessionId, table, column, search }),
 	/**  Asks which CSV file to import and previews its first rows. `None` when the dialog was dismissed. */
@@ -110,6 +114,15 @@ export const commands = {
 	dismissDockerJob: (name: string) => __TAURI_INVOKE<null>("dismiss_docker_job", { name }),
 	/**  Starts copying a Docker database into a new one. It returns at once; its progress shows on the Docker page. */
 	copyDockerDatabase: (source: string, name: string) => __TAURI_INVOKE<null>("copy_docker_database", { source, name }),
+	listBackups: () => __TAURI_INVOKE<BackupsState>("list_backups"),
+	/**  What putting a backup back would run, to read first. */
+	reviewRestore: (sessionId: string, id: string) => __TAURI_INVOKE<string[]>("review_restore", { sessionId, id }),
+	/**  Puts a table backup back in one transaction, adds what ran to the history, and gives how many rows went back. */
+	restoreBackup: (sessionId: string, id: string) => __TAURI_INVOKE<number | null>("restore_backup", { sessionId, id }),
+	deleteBackup: (id: string) => __TAURI_INVOKE<null>("delete_backup", { id }),
+	setBackupsEnabled: (on: boolean) => __TAURI_INVOKE<Choices>("set_backups_enabled", { on }),
+	/**  The biggest table backed up before a drop, in bytes, or `None` for no limit. */
+	setBackupLimit: (bytes: number | null) => __TAURI_INVOKE<Choices>("set_backup_limit", { bytes }),
 	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
 	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
 	/**  Does what `plan_client` showed. Returns what to do next, if anything. */
@@ -183,6 +196,27 @@ export type AgentState = {
 /**  The window should fetch `agent_state` again. It carries nothing, so a missed one loses nothing. */
 export type AgentsChanged = null;
 
+export type Backup = {
+	id: string,
+	madeAtMs: number | null,
+	holds: Holds,
+	/**  The agent whose change it was, or `None` for the person's own. */
+	agent: AgentMark | null,
+	/**  The size of its files. */
+	bytes: number | null,
+	/**  What it couldn't keep, in words, such as grants. */
+	notKept: string[],
+	/**  When it was last put back. */
+	restoredAtMs: number | null,
+};
+
+export type BackupsState = {
+	/**  Newest first. */
+	backups: Backup[],
+	/**  Their size together. */
+	bytes: number | null,
+};
+
 export type CellChange = {
 	column: string,
 	/**  The value as it was loaded. If the row holds something else by the time of the commit, nothing is written. */
@@ -255,6 +289,12 @@ export type ColumnInfo = {
 export type ColumnValue = {
 	column: string,
 	value: string | null,
+};
+
+/**  A commit, and the backup made before it, if one was. */
+export type CommitDone = {
+	committed: Committed,
+	backup: Backup | null,
 };
 
 export type Committed = {
@@ -371,7 +411,9 @@ export type ErrorKind = "network" | "timeout" | "auth" |
 /**  A row changed after it was loaded, so a commit wrote nothing. */
 "conflict" | "notFound" | "invalid" | "storage" | "keychain" | 
 /**  The Docker engine on this computer couldn't be reached, or refused. */
-"docker";
+"docker" | 
+/**  Nothing was dropped, emptied or deleted, because Halfnine couldn't back it up first. The message says why. */
+"noBackup";
 
 export type ExportDone = {
 	rows: number | null,
@@ -417,6 +459,10 @@ export type HistoryEntry = {
 	elapsedMs: number,
 	ok: boolean,
 };
+
+export type Holds = { kind: "table"; connectionId: string; connectionName: string; database: string; table: TableRef; 
+/**  How it goes back, which also says what was done to it. */
+into: RestoreInto; rows: number | null };
 
 export type ImportPreview = {
 	token: string,
@@ -534,6 +580,15 @@ export type Relation = {
 };
 
 export type RelationKind = "table" | "partitionedTable" | "view" | "materializedView" | "foreignTable";
+
+/**  What a restore puts back. */
+export type RestoreInto = 
+/**  The table was dropped: it is made again, with its rows. */
+{ kind: "recreate" } | 
+/**  The table was emptied: its rows go back in. */
+{ kind: "refill" } | 
+/**  Columns were dropped: they are added again, and each row gets its values back by primary key. */
+{ kind: "columns"; names: string[] };
 
 export type RowUpdate = {
 	/**  The row's primary key, as it was loaded. */

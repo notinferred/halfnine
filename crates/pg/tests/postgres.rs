@@ -982,7 +982,7 @@ async fn puts_a_dropped_table_back_as_it_was() {
     let Some(db) = connect(false).await else { return };
     let t = keepsake(&db, "scratch_backup_drop").await;
     let (rows, before) = (every_row(&db, &t).await, db.structure(&t).await.unwrap());
-    assert!(db.backup_size(&t).await.unwrap() > 0.0);
+    assert!(db.backup_size(&t, &hn_core::RestoreInto::Recreate).await.unwrap() > 0.0);
 
     let mut kept = Kept::default();
     db.commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept)
@@ -1041,26 +1041,35 @@ async fn refills_an_emptied_table_without_firing_its_triggers() {
 }
 
 #[tokio::test]
-async fn puts_a_dropped_column_back_with_its_index_and_check() {
+async fn puts_dropped_columns_back_with_their_index_check_and_foreign_key() {
     let Some(db) = connect(false).await else { return };
     let t = keepsake(&db, "scratch_backup_column").await;
     let (rows, before) = (every_row(&db, &t).await, db.structure(&t).await.unwrap());
 
     let mut kept = Kept::default();
-    let drop = StructureChange::DropColumn { column: "note".into() };
-    db.commit_with_backup(&structure(&t, vec![drop]), &t, &mut kept).await.unwrap();
+    let drops = ["note", "code"].map(|c| StructureChange::DropColumn { column: c.into() });
+    db.commit_with_backup(&structure(&t, drops.to_vec()), &t, &mut kept).await.unwrap();
     let definition = kept.definition.unwrap();
-    let into = hn_core::RestoreInto::Column { name: "note".into() };
+    let into = hn_core::RestoreInto::Columns {
+        names: vec!["note".into(), "code".into()],
+    };
+    assert!(db.backup_size(&t, &into).await.is_ok());
+    let key = hn_core::RestoreInto::Columns { names: vec!["id".into()] };
+    assert_eq!(db.backup_size(&t, &key).await.unwrap_err().kind, ErrorKind::Invalid);
     assert_eq!(db.restore(&definition, &into, &mut Pieces::of(&kept.csv)).await.unwrap(), 4.0);
 
     let after = db.structure(&t).await.unwrap();
-    let note = |s: &hn_core::Structure| format!("{:?}", s.columns.iter().find(|c| c.name == "note"));
-    assert_eq!(note(&after), note(&before));
+    let now = every_row(&db, &t).await;
+    for name in ["note", "code"] {
+        let column = |s: &hn_core::Structure| format!("{:?}", s.columns.iter().find(|c| c.name == name));
+        assert_eq!(column(&after), column(&before));
+        let at = |s: &hn_core::Structure| s.columns.iter().position(|c| c.name == name).unwrap();
+        let values = |rows: &[Vec<Cell>], at: usize| rows.iter().map(|r| r[at].clone()).collect::<Vec<_>>();
+        assert_eq!(values(&now, at(&after)), values(&rows, at(&before)), "{name}");
+    }
     assert_eq!(format!("{:?}", after.indexes), format!("{:?}", before.indexes));
     assert_eq!(format!("{:?}", after.constraints), format!("{:?}", before.constraints));
-    let at = |s: &hn_core::Structure| s.columns.iter().position(|c| c.name == "note").unwrap();
-    let notes = |rows: &[Vec<Cell>], at: usize| rows.iter().map(|r| r[at].clone()).collect::<Vec<_>>();
-    assert_eq!(notes(&every_row(&db, &t).await, at(&after)), notes(&rows, at(&before)));
+    assert_eq!(format!("{:?}", after.foreign_keys), format!("{:?}", before.foreign_keys));
 }
 
 #[tokio::test]
@@ -1075,10 +1084,11 @@ async fn a_backup_that_fails_leaves_the_table_untouched() {
         .commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept)
         .await
         .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::NoBackup);
     assert!(error.message.starts_with("The backup failed, so nothing changed"), "{}", error.message);
     assert_eq!(every_row(&db, &t).await.len(), 4);
 
-    let partitioned = db.backup_size(&table("events")).await.unwrap_err();
+    let partitioned = db.backup_size(&table("events"), &hn_core::RestoreInto::Recreate).await.unwrap_err();
     assert_eq!(partitioned.kind, ErrorKind::Invalid);
     assert!(partitioned.message.contains("partitioned"), "{}", partitioned.message);
 }

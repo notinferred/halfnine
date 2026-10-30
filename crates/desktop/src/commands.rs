@@ -3,8 +3,8 @@
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use hn_core::{
-    Activity, AgentAccess, Changes, Choice, Committed, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest,
-    RunOutcome, SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
+    Activity, AgentAccess, Changes, Choice, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome,
+    SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
 use hn_pg::{PgDatabase, Secrets};
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::AppState;
+use crate::backups::CommitDone;
 use crate::export::{ExportDone, ExportFormat, Sink};
 use crate::files::storage;
 use crate::import::{FileSource, ImportPreview};
@@ -343,29 +344,44 @@ pub async fn review_changes(state: State<'_, AppState>, session_id: String, chan
     state.sessions.get(&session_id).await?.db.review(&changes).await
 }
 
-/// Commits staged changes in one transaction, and adds what ran to the history.
+/// Commits staged changes in one transaction, and adds what ran to the history. A change that drops or empties a
+/// table, or drops a column, is backed up first, and refused with `NoBackup` when it can't be, unless
+/// `without_backup` says someone confirmed going ahead without one.
 #[tauri::command]
 #[specta::specta]
-pub async fn commit_changes(state: State<'_, AppState>, session_id: String, changes: Changes) -> Result<Committed, Error> {
+pub async fn commit_changes(state: State<'_, AppState>, session_id: String, changes: Changes, without_backup: bool) -> Result<CommitDone, Error> {
     let session = state.sessions.get(&session_id).await?;
     let shown = session.db.review(&changes).await?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let committed = session.db.commit(&changes).await;
+    let done = state
+        .backups
+        .commit(&state.settings.get(), &session, &changes, None, without_backup)
+        .await;
     log::info!(
-        "commit {id}: {} statements{}",
+        "commit: {} statements{}",
         shown.len(),
-        if committed.is_err() { ", then an error" } else { "" }
+        match &done {
+            Ok(CommitDone { backup: Some(_), .. }) => ", backed up first",
+            Ok(_) => "",
+            Err(_) => ", then an error",
+        }
     );
+    if !matches!(&done, Err(e) if e.kind == ErrorKind::NoBackup) {
+        record(&state, &session, shown, done.as_ref().map_or(0, |d| d.committed.elapsed_ms), done.is_ok())?;
+    }
+    done
+}
+
+/// Adds statements that ran on a session to the history.
+pub fn record(state: &AppState, session: &Session, shown: Vec<String>, elapsed_ms: u32, ok: bool) -> Result<(), Error> {
     state.queries.record(HistoryEntry {
-        id,
+        id: uuid::Uuid::new_v4().to_string(),
         sql: shown.join("\n"),
         connection_id: session.connection.id.clone(),
         database: session.database.clone(),
         ran_at_ms: now_ms(),
-        elapsed_ms: committed.as_ref().map_or(0, |c| c.elapsed_ms),
-        ok: committed.is_ok(),
-    })?;
-    committed
+        elapsed_ms,
+        ok,
+    })
 }
 
 /// Values to pick for a foreign key that points at `column` of `table`.

@@ -94,8 +94,8 @@ pub enum RestoreInto {
     Recreate,
     /// The table was emptied: its rows go back in.
     Refill,
-    /// A column was dropped: it is added again, and each row gets its value back by primary key.
-    Column { name: String },
+    /// Columns were dropped: they are added again, and each row gets its values back by primary key.
+    Columns { names: Vec<String> },
 }
 
 /// Where a backup goes as it is taken: the definition first, then its columns and every row, then the end.

@@ -15,7 +15,7 @@ const FILE: &str = "settings.json";
 const VERSION: u32 = 1;
 /// Tables bigger than this aren't backed up before a drop unless someone raises it, so a drop never holds writers up
 /// for long.
-pub const BACKUP_LIMIT: f64 = 1024.0 * 1024.0 * 1024.0;
+pub const BACKUP_LIMIT: f64 = 1_000_000_000.0;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
 #[serde(default, rename_all = "camelCase")]

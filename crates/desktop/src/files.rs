@@ -16,8 +16,13 @@ struct Versioned<T> {
 
 /// Reads `path`, or gives the default when it doesn't exist yet. A file from a newer version is refused, never guessed at.
 pub fn load<T: DeserializeOwned + Default>(path: &Path, version: u32, what: &str) -> Result<T, Error> {
+    Ok(read(path, version, what)?.unwrap_or_default())
+}
+
+/// As [`load`], giving `None` when the file doesn't exist.
+pub fn read<T: DeserializeOwned>(path: &Path, version: u32, what: &str) -> Result<Option<T>, Error> {
     match fs::read(path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(storage(&format!("Couldn't read {what}"), e)),
         Ok(bytes) => {
             let file: Versioned<T> = serde_json::from_slice(&bytes).map_err(|e| storage(&format!("Couldn't read {what}"), e))?;
@@ -27,7 +32,7 @@ pub fn load<T: DeserializeOwned + Default>(path: &Path, version: u32, what: &str
                     format!("A newer Halfnine wrote {what}, so this one won't change them."),
                 ));
             }
-            Ok(file.body)
+            Ok(Some(file.body))
         }
     }
 }

@@ -526,11 +526,11 @@ impl Database for PgDatabase {
         settle(tx, done, statements, started).await
     }
 
-    async fn backup_size(&self, table: &TableRef) -> Result<f64, Error> {
+    async fn backup_size(&self, table: &TableRef, into: &RestoreInto) -> Result<f64, Error> {
         let mut tx = self.reading().await?;
-        let facts = backup::facts(&mut tx, table).await;
+        let size = backup::size(&mut tx, table, into).await;
         let _ = tx.rollback().await;
-        Ok(facts?.size)
+        size
     }
 
     async fn commit_with_backup(&self, changes: &Changes, table: &TableRef, sink: &mut dyn TableSink) -> Result<Committed, Error> {
@@ -542,6 +542,7 @@ impl Database for PgDatabase {
         let done = match self.back_up(&mut tx, table, sink).await {
             Ok(()) => self.run_steps(&mut tx, steps).await,
             Err(error) => Err(Error {
+                kind: ErrorKind::NoBackup,
                 message: format!("The backup failed, so nothing changed: {}", error.message),
                 ..error
             }),

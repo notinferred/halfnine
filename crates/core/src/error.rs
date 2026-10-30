@@ -32,6 +32,8 @@ pub enum ErrorKind {
     Keychain,
     /// The Docker engine on this computer couldn't be reached, or refused.
     Docker,
+    /// Nothing was dropped, emptied or deleted, because Halfnine couldn't back it up first. The message says why.
+    NoBackup,
 }
 
 impl Error {

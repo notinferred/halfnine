@@ -36,9 +36,9 @@ export function ChangesBar(props: {
     setCommitting(true);
     setError(null);
     try {
-      const done = await commands.commitChanges(id, props.changes);
+      const done = await commands.commitChanges(id, props.changes, false);
       setReviewing(false);
-      props.onCommitted(done);
+      props.onCommitted(done.committed);
     } catch (e) {
       setError(describe(e));
     } finally {

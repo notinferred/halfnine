@@ -58,9 +58,9 @@ pub trait Database: Send + Sync {
     /// Every foreign key between the database's own tables.
     fn references(&self) -> impl Future<Output = Result<Vec<Reference>, Error>> + Send;
 
-    /// How big a table is, in bytes, so a backup that would take long can be skipped. Refuses a table a backup can't
-    /// make again, such as a partitioned one, saying why.
-    fn backup_size(&self, table: &TableRef) -> impl Future<Output = Result<f64, Error>> + Send;
+    /// How big a table is, in bytes, so a backup that would take long can be skipped. Refuses, saying why, when a
+    /// backup couldn't be put back as `into` would: a partitioned table, or columns without a primary key to match by.
+    fn backup_size(&self, table: &TableRef, into: &RestoreInto) -> impl Future<Output = Result<f64, Error>> + Send;
     /// Commits `changes` after backing `table` up into `sink` in the same transaction, so the rows backed up are the
     /// rows changed, and a backup that fails stops the commit.
     fn commit_with_backup(

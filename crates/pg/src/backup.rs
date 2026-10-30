@@ -133,6 +133,19 @@ pub(crate) async fn facts(conn: &mut PgConnection, table: &TableRef) -> Result<F
     })
 }
 
+pub(crate) async fn size(conn: &mut PgConnection, table: &TableRef, into: &RestoreInto) -> Result<f64, Error> {
+    let facts = facts(conn, table).await?;
+    if let RestoreInto::Columns { names } = into {
+        let key = sqlx::query_scalar::<_, Vec<String>>(crate::catalog::PRIMARY_KEY)
+            .bind(facts.oid)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(from_sqlx)?;
+        keyed(table, &key.unwrap_or_default(), names)?;
+    }
+    Ok(facts.size)
+}
+
 async fn fetch(conn: &mut PgConnection, sql: &'static str, oid: i64) -> Result<Vec<PgRow>, Error> {
     sqlx::query(sql).bind(oid).fetch_all(&mut *conn).await.map_err(from_sqlx)
 }
@@ -282,18 +295,20 @@ pub(crate) async fn present(
                 ));
             }
         }
-        RestoreInto::Column { name } => {
-            let found: bool = sqlx::query_scalar(HAS_COLUMN)
-                .bind(oid)
-                .bind(name)
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(from_sqlx)?;
-            if found {
-                return Err(Error::new(
-                    ErrorKind::Invalid,
-                    format!("{} has a column named {name} again. Rename or drop it first.", table.name),
-                ));
+        RestoreInto::Columns { names } => {
+            for name in names {
+                let found: bool = sqlx::query_scalar(HAS_COLUMN)
+                    .bind(oid)
+                    .bind(name)
+                    .fetch_one(&mut *conn)
+                    .await
+                    .map_err(from_sqlx)?;
+                if found {
+                    return Err(Error::new(
+                        ErrorKind::Invalid,
+                        format!("{} has a column named {name} again. Rename or drop it first.", table.name),
+                    ));
+                }
             }
         }
     }
@@ -363,12 +378,28 @@ fn column_sql(w: &mut Writer, c: &ColumnDefinition, adding: bool) {
     }
 }
 
+/// Refuses to put columns back when Halfnine can't tell which row each value belongs to: the table has no primary
+/// key, or a column being put back is part of it.
+pub(crate) fn keyed(table: &TableRef, primary_key: &[String], names: &[String]) -> Result<(), Error> {
+    let why = if primary_key.is_empty() {
+        format!("{} has no primary key", table.name)
+    } else if let Some(name) = names.iter().find(|n| primary_key.contains(n)) {
+        format!("{name} is part of {}'s primary key", table.name)
+    } else {
+        return Ok(());
+    };
+    Err(Error::new(
+        ErrorKind::Invalid,
+        format!("{why}, so Halfnine can't tell which row each value belongs to."),
+    ))
+}
+
 /// The plan for putting `definition` back as `into` asks, given what the table has now.
 pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &Present) -> Result<Plan, Error> {
     let table = &definition.table;
     let restoring = |c: &str| match into {
         RestoreInto::Recreate | RestoreInto::Refill => true,
-        RestoreInto::Column { name } => c == name,
+        RestoreInto::Columns { names } => names.iter().any(|n| n == c),
     };
     let remaking = !matches!(into, RestoreInto::Refill);
     let sequences: Vec<&SequenceDefinition> = definition.sequences.iter().filter(|s| restoring(&s.column)).collect();
@@ -382,7 +413,9 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
             before.push(w.step(format!("Making the sequence {}", s.name), None));
         }
     }
-    let column = match into {
+    // The columns added again, each with its place in the backup's rows.
+    let mut added: Vec<(usize, &ColumnDefinition)> = Vec::new();
+    match into {
         RestoreInto::Recreate => {
             let mut w = Writer::default();
             w.text(if definition.unlogged {
@@ -398,37 +431,32 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
             }
             w.text("\n)");
             before.push(w.step(format!("Making the table {}", table.name), None));
-            None
         }
-        RestoreInto::Refill => None,
-        RestoreInto::Column { name } => {
-            let at = definition
-                .columns
-                .iter()
-                .position(|c| &c.name == name)
-                .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("The backup has no column named {name}.")))?;
-            if definition.primary_key.is_empty() || definition.primary_key.contains(name) {
-                return Err(Error::new(
-                    ErrorKind::Invalid,
-                    format!(
-                        "Halfnine puts a column back by the primary key, and {} has none apart from {name}. Restore the whole table instead.",
-                        table.name
-                    ),
-                ));
+        RestoreInto::Refill => {}
+        RestoreInto::Columns { names } => {
+            keyed(table, &definition.primary_key, names)?;
+            for name in names {
+                let at = definition
+                    .columns
+                    .iter()
+                    .position(|c| &c.name == name)
+                    .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("The backup has no column named {name}.")))?;
+                let mut w = alter(table);
+                w.text("ADD COLUMN ");
+                column_sql(&mut w, &definition.columns[at], true);
+                before.push(w.step(format!("Adding the column {name} again"), None));
+                added.push((at, &definition.columns[at]));
             }
-            let mut w = alter(table);
-            w.text("ADD COLUMN ");
-            column_sql(&mut w, &definition.columns[at], true);
-            before.push(w.step(format!("Adding the column {name} again"), None));
-            Some((at, &definition.columns[at]))
         }
-    };
+    }
+    // Postgres computes a generated column's values again by itself.
+    let updated: Vec<(usize, &ColumnDefinition)> = added.iter().copied().filter(|(_, c)| c.generated.is_none()).collect();
+    let writes_rows = !matches!(into, RestoreInto::Columns { .. }) || !updated.is_empty();
     // Rows go back into a table that keeps its triggers, which would otherwise fire as if the rows were new.
-    let computed = column.is_some_and(|(_, c)| c.generated.is_some());
-    let pausing: Vec<&String> = match into {
-        RestoreInto::Recreate => Vec::new(),
-        _ if computed => Vec::new(),
-        _ => present.firing.iter().collect(),
+    let pausing: Vec<&String> = if matches!(into, RestoreInto::Recreate) || !writes_rows {
+        Vec::new()
+    } else {
+        present.firing.iter().collect()
     };
     for trigger in &pausing {
         let mut w = alter(table);
@@ -444,53 +472,52 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
             .join(", ")
     );
     let copy = "COPY hn_restore FROM STDIN WITH (FORMAT csv, HEADER true)".to_string();
-    let rows = match column {
-        Some(_) if computed => None,
-        Some((at, c)) => {
-            let mut w = Writer::default();
-            w.text("UPDATE ")
-                .table(table)
-                .text(" AS t SET ")
-                .name(&c.name)
-                .text(&format!(" = h.c{}::", at + 1))
-                .typed(&c.type_name)
-                .text(" FROM hn_restore h WHERE ");
-            for (i, key) in definition.primary_key.iter().enumerate() {
-                let k = definition.columns.iter().position(|c| &c.name == key).unwrap_or_default();
-                if i > 0 {
-                    w.text(" AND ");
-                }
-                w.text("t.")
-                    .name(key)
-                    .text(&format!(" = h.c{}::", k + 1))
-                    .typed(&definition.columns[k].type_name);
+    let rows = if !writes_rows {
+        None
+    } else if let RestoreInto::Columns { names } = into {
+        let mut w = Writer::default();
+        w.text("UPDATE ").table(table).text(" AS t SET ");
+        for (n, (at, c)) in updated.iter().enumerate() {
+            if n > 0 {
+                w.text(", ");
             }
-            Some(w.step(format!("Putting back the values of {}", c.name), None))
+            w.name(&c.name).text(&format!(" = h.c{}::", at + 1)).typed(&c.type_name);
         }
-        None => {
-            let written: Vec<(usize, &ColumnDefinition)> = definition.columns.iter().enumerate().filter(|(_, c)| c.generated.is_none()).collect();
-            let mut w = Writer::default();
-            w.text("INSERT INTO ").table(table).text(" (");
-            for (n, (_, c)) in written.iter().enumerate() {
-                if n > 0 {
-                    w.text(", ");
-                }
-                w.name(&c.name);
+        w.text(" FROM hn_restore h WHERE ");
+        for (i, key) in definition.primary_key.iter().enumerate() {
+            let k = definition.columns.iter().position(|c| &c.name == key).unwrap_or_default();
+            if i > 0 {
+                w.text(" AND ");
             }
-            w.text(")");
-            if written.iter().any(|(_, c)| c.identity.as_ref().is_some_and(|i| i.always)) {
-                w.text(" OVERRIDING SYSTEM VALUE");
-            }
-            w.text(" SELECT ");
-            for (n, (i, c)) in written.iter().enumerate() {
-                if n > 0 {
-                    w.text(", ");
-                }
-                w.text(&format!("c{}::", i + 1)).typed(&c.type_name);
-            }
-            w.text(" FROM hn_restore");
-            Some(w.step(format!("Putting back the rows of {}", table.name), None))
+            w.text("t.")
+                .name(key)
+                .text(&format!(" = h.c{}::", k + 1))
+                .typed(&definition.columns[k].type_name);
         }
+        Some(w.step(format!("Putting back the values of {}", names.join(", ")), None))
+    } else {
+        let written: Vec<(usize, &ColumnDefinition)> = definition.columns.iter().enumerate().filter(|(_, c)| c.generated.is_none()).collect();
+        let mut w = Writer::default();
+        w.text("INSERT INTO ").table(table).text(" (");
+        for (n, (_, c)) in written.iter().enumerate() {
+            if n > 0 {
+                w.text(", ");
+            }
+            w.name(&c.name);
+        }
+        w.text(")");
+        if written.iter().any(|(_, c)| c.identity.as_ref().is_some_and(|i| i.always)) {
+            w.text(" OVERRIDING SYSTEM VALUE");
+        }
+        w.text(" SELECT ");
+        for (n, (i, c)) in written.iter().enumerate() {
+            if n > 0 {
+                w.text(", ");
+            }
+            w.text(&format!("c{}::", i + 1)).typed(&c.type_name);
+        }
+        w.text(" FROM hn_restore");
+        Some(w.step(format!("Putting back the rows of {}", table.name), None))
     };
 
     for trigger in &pausing {
@@ -498,7 +525,7 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
         w.text("ENABLE TRIGGER ").name(trigger);
         after.push(w.step(format!("Turning the trigger {trigger} back on"), None));
     }
-    if let Some((_, c)) = column {
+    for (_, c) in &added {
         if c.identity.as_ref().is_some_and(|i| i.always) {
             let mut w = alter(table);
             w.text("ALTER COLUMN ").name(&c.name).text(" SET GENERATED ALWAYS");
@@ -548,10 +575,8 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
         }
     }
     if remaking {
-        let lost = |d: &&NamedDefinition| match into {
-            RestoreInto::Column { name } => d.columns.contains(name),
-            _ => true,
-        };
+        // Dropping a column takes the constraints and indexes that use it, and only those.
+        let lost = |d: &&NamedDefinition| d.columns.iter().any(|c| restoring(c));
         for k in definition.constraints.iter().filter(lost) {
             let mut w = alter(table);
             w.text("ADD CONSTRAINT ").name(&k.name).text(" ").typed(&k.definition);
@@ -713,7 +738,7 @@ mod tests {
     #[test]
     fn puts_a_dropped_column_back_by_key_with_what_it_lost() {
         let present = Present::default();
-        let into = RestoreInto::Column { name: "body".into() };
+        let into = RestoreInto::Columns { names: vec!["body".into()] };
         assert_eq!(
             plan(&definition(), &into, &present).unwrap().shown(),
             [
@@ -726,12 +751,12 @@ mod tests {
                 "COMMENT ON COLUMN public.notes.body IS 'it''s the body';",
             ]
         );
-        let generated = RestoreInto::Column { name: "size".into() };
+        let generated = RestoreInto::Columns { names: vec!["size".into()] };
         assert_eq!(
             plan(&definition(), &generated, &present).unwrap().shown(),
             ["ALTER TABLE public.notes ADD COLUMN size integer GENERATED ALWAYS AS (length(body)) STORED;"]
         );
-        let key = RestoreInto::Column { name: "id".into() };
+        let key = RestoreInto::Columns { names: vec!["id".into()] };
         assert_eq!(plan(&definition(), &key, &present).err().map(|e| e.kind), Some(ErrorKind::Invalid));
     }
 }

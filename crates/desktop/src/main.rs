@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agents;
+mod backups;
 mod bindings;
 mod commands;
 mod connections;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub settings: Arc<settings::Settings>,
     pub docker: Arc<docker::Docker>,
     pub agents: Arc<agents::Agents>,
+    pub backups: Arc<backups::Backups>,
 }
 
 fn main() {
@@ -70,6 +72,7 @@ fn main() {
                 let _ = tauri_specta::Event::emit(&docker::commands::DockerChanged, &handle);
             }));
             docker.watch();
+            let backups = Arc::new(backups::Backups::open(&dir)?);
             let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone(), docker.clone()));
             let agents = Arc::new(agents::Agents::new(&dir, directory.clone(), settings.clone(), sessions.clone(), desk));
             tauri::async_runtime::spawn(agents::listen::listen(agents.clone(), dir.clone()));
@@ -83,6 +86,7 @@ fn main() {
                 settings,
                 docker,
                 agents,
+                backups,
             });
             Ok(())
         })

@@ -36,7 +36,7 @@ export function ConfirmByName(props: {
     setBusy(true);
     setError(null);
     try {
-      await commands.commitChanges(id, changes);
+      await commands.commitChanges(id, changes, true);
       props.onDone();
     } catch (e) {
       setError(describe(e));
