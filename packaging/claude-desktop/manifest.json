@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "halfnine",
   "display_name": "Halfnine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Your PostgreSQL connections in Halfnine, for Claude: describe and query them, and propose changes you approve in Halfnine.",
   "long_description": "Halfnine is a small PostgreSQL client for macOS and Windows. This extension lets Claude use the connections you saved in it. Each connection sets what agents may do there: Off, Read, Read with approved writes, or Full. Queries always run read-only. A change at Read with approved writes opens in Halfnine as staged rows or SQL, and waits for you to answer. Columns you hide never reach Claude. With Docker databases on, Claude can make its own databases to work in, and Halfnine backs up what it drops or deletes first. Install Halfnine first, from its releases page.",
   "author": {

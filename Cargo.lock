@@ -2180,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "hn-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "percent-encoding",
  "schemars 1.2.3",
@@ -2193,7 +2193,7 @@ dependencies = [
 
 [[package]]
 name = "hn-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "hn-docker"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bollard",
  "bytes",
@@ -2244,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "hn-pg"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "hn-core",
