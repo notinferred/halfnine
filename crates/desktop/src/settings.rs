@@ -13,8 +13,8 @@ use crate::files;
 
 const FILE: &str = "settings.json";
 const VERSION: u32 = 1;
-/// Tables bigger than this aren't backed up before a drop unless someone raises it, so a drop never holds writers up
-/// for long.
+/// Tables and Docker databases bigger than this aren't backed up before a drop or delete unless someone raises it, so
+/// a drop never holds writers up for long and a delete never waits minutes on a dump. They ask for the name instead.
 pub const BACKUP_LIMIT: f64 = 1_000_000_000.0;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
@@ -23,7 +23,8 @@ pub struct Choices {
     pub setup_seen: bool,
     pub docker: bool,
     pub backups: bool,
-    /// The biggest table backed up before it is dropped or emptied, in bytes. `None` is no limit.
+    /// The biggest table or Docker database backed up before it is dropped, emptied or deleted, in bytes. `None` is no
+    /// limit.
     pub backup_limit_bytes: Option<f64>,
     pub agents_paused: bool,
 }

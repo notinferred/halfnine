@@ -194,7 +194,7 @@ impl Backups {
     }
 
     /// Backs up a Docker database before it is deleted, as `choices` allow, and refuses with
-    /// [`ErrorKind::NoBackup`], saying why, when it can't be, unless `without_backup` says someone confirmed going
+    /// [`ErrorKind::NoBackup`], saying why, when it can't be or is over the size limit, unless `without_backup` says someone confirmed going
     /// ahead without one. `delete` runs once the backup is listed.
     pub async fn delete_database(
         &self,
@@ -216,14 +216,17 @@ impl Backups {
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let folder = self.dir.join(&id);
-        let kept = match docker.back_up(name, &folder).await {
+        let kept = match docker.back_up(name, &folder, choices.backup_limit_bytes).await {
             Ok(kept) => kept,
             Err(error) => {
                 let _ = fs::remove_dir_all(&folder);
-                return Err(Error {
-                    kind: ErrorKind::NoBackup,
-                    message: format!("The backup failed, so nothing was deleted: {}", error.message),
-                    ..error
+                return Err(match error.kind {
+                    ErrorKind::NoBackup => error,
+                    _ => Error {
+                        kind: ErrorKind::NoBackup,
+                        message: format!("The backup failed, so nothing was deleted: {}", error.message),
+                        ..error
+                    },
                 });
             }
         };

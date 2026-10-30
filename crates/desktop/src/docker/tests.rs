@@ -178,6 +178,18 @@ async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
             let refused = backups.delete_database(&off, &docker, &name, None, false, delete).await;
             assert_eq!(refused.unwrap_err().kind, ErrorKind::NoBackup);
             assert!(docker.container(&name).is_some(), "nothing was deleted");
+            let small = crate::settings::Choices {
+                backup_limit_bytes: Some(1.0),
+                ..Default::default()
+            };
+            let delete = async || docker.delete(&name).await;
+            let refused = backups.delete_database(&small, &docker, &name, None, false, delete).await.unwrap_err();
+            assert!(
+                refused.message.contains("Settings can raise that"),
+                "a big database asks: {}",
+                refused.message
+            );
+            assert!(docker.container(&name).is_some() && backups.list().is_empty());
 
             let delete = async || docker.delete(&name).await;
             let done = backups

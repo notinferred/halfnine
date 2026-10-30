@@ -42,6 +42,20 @@ async fn create(path: &Path) -> Result<tokio::fs::File, Error> {
     options.open(path).await.map_err(write_failed)
 }
 
+/// How big every database in a running container is together, in bytes.
+pub async fn size(engine: &Engine, container: &str, user: &str) -> Result<f64, Error> {
+    accepting(engine, container, user).await?;
+    let sum = "SELECT coalesce(sum(pg_database_size(datname)), 0) FROM pg_database WHERE datallowconn AND NOT datistemplate";
+    let (ran, out) = engine.run(container, &["psql", "-U", user, "-d", "postgres", "-tAc", sum]).await?;
+    if !ran.succeeded() {
+        return Err(failed("Halfnine couldn't measure the databases", &ran.stderr));
+    }
+    String::from_utf8_lossy(&out)
+        .trim()
+        .parse()
+        .map_err(|_| Error::new(ErrorKind::Docker, "Halfnine couldn't measure the databases."))
+}
+
 /// Waits until Postgres in a running container accepts connections, which it doesn't at once after starting.
 async fn accepting(engine: &Engine, container: &str, user: &str) -> Result<(), Error> {
     let started = Instant::now();

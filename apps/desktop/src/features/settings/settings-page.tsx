@@ -75,7 +75,7 @@ export function SettingsPage() {
                 Back up first
               </span>
               <span className="field-note">
-                Before a table is dropped or emptied, or a column dropped, so it can be undone.
+                Before a table is dropped or emptied, a column dropped, or a Docker database deleted, so it can be undone.
                 {backups.data && backups.data.backups.length > 0 && ` Backups take ${sizeInWords(backups.data.bytes ?? 0)}.`}
               </span>
               <button
@@ -89,9 +89,11 @@ export function SettingsPage() {
             {choices.backups && (
               <div className="row">
                 <label htmlFor="settings-limit" className="row-label">
-                  Tables up to
+                  Size limit
                 </label>
-                <span className="field-note">A bigger table asks for its name instead, so a drop never holds others up for long.</span>
+                <span className="field-note">
+                  A bigger table or Docker database asks for its name instead, so dropping or deleting it never waits long.
+                </span>
                 <select
                   id="settings-limit"
                   value={String(choices.backupLimitBytes ?? "none")}

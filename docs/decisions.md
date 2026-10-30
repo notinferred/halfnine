@@ -111,3 +111,5 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Dropping a column.** **Chose:** "Yes, like dropping a table": a column drop backs the table up first. **Not chosen:** tables only.
 - **The plan** for Docker databases, copies and backups, with the rules added to keep the decisions consistent (copies keep hidden columns; no URL for a database with hidden columns; a restored database keeps its origin; Pause shown on Settings and Agents; at most 10 databases per agent). **Accepted.**
 
+- **Big Docker databases, views and other edge cases.** **Dan:** "for larger or edge things ask". A Docker database over the backup size limit asks for its name before it is deleted, as a big table does; dropping a view still asks.
+- **The old app opening on its own.** **Dan:** "the fucking old app keeps popping up wtf man i told you to clean up locally". Claude Code was connected to the installed v0.2.0 at user scope, so each session opened it. Claude disconnected it and quit the app; the new version is connected again from its Agents page once it's installed.

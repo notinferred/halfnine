@@ -15,6 +15,7 @@ use tokio::sync::watch;
 
 use super::dumps::{self, Dumped};
 use super::{Docker, Overrides, lock, made};
+use crate::backups::size_in_words;
 
 /// What a Docker database job is doing, for the window to show beside its row.
 #[derive(Clone, Debug, Serialize, Type)]
@@ -286,15 +287,30 @@ impl Docker {
     }
 
     /// Dumps a container's databases and roles into `folder`, starting it for that if it's stopped, and says what a
-    /// backup keeps of it to make it again. A container started for this is stopped again if the dump fails.
-    pub async fn back_up(&self, name: &str, folder: &std::path::Path) -> Result<KeptContainer, Error> {
+    /// backup keeps of it to make it again. Refuses with [`ErrorKind::NoBackup`] when its databases together are
+    /// bigger than `limit`. A container started for this is stopped again if it isn't dumped.
+    pub async fn back_up(&self, name: &str, folder: &std::path::Path, limit: Option<f64>) -> Result<KeptContainer, Error> {
         let engine = self.engine().await?;
         let container = engine.container(name).await?;
         if !container.running {
             engine.start(name).await?;
         }
         let user = &container.credentials.user;
-        let dumped = match dumps::dump(&engine, name, user, folder).await {
+        let dumped = async {
+            let size = dumps::size(&engine, name, user).await?;
+            if let Some(limit) = limit.filter(|limit| size > *limit) {
+                return Err(Error::new(
+                    ErrorKind::NoBackup,
+                    format!(
+                        "{name} takes {}, more than the {} Halfnine backs up. Settings can raise that.",
+                        size_in_words(size),
+                        size_in_words(limit)
+                    ),
+                ));
+            }
+            dumps::dump(&engine, name, user, folder).await
+        };
+        let dumped = match dumped.await {
             Ok(dumped) => dumped,
             Err(error) => {
                 if !container.running {
