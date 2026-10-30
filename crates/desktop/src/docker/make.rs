@@ -62,6 +62,9 @@ pub struct NewDatabase {
     pub copy_of: Option<String>,
     /// The agent that asked for it, if one did.
     pub agent: Option<AgentMark>,
+    /// The user and database its container is made with; `postgres`, and one named after it, unless given.
+    pub user: Option<String>,
+    pub database: Option<String>,
 }
 
 /// How long a new database may take to accept connections, past downloading its image.
@@ -195,14 +198,14 @@ impl Docker {
         if cfg!(test) {
             labels.insert(label::TEST.into(), "true".into());
         }
-        let database = new.name.replace(['-', '.'], "_");
+        let database = new.database.clone().unwrap_or_else(|| new.name.replace(['-', '.'], "_"));
         engine
             .create(&NewContainer {
                 name: new.name.clone(),
                 image,
                 major: new.major,
                 port,
-                user: "postgres".into(),
+                user: new.user.clone().unwrap_or_else(|| "postgres".into()),
                 password: password.clone(),
                 database: database.clone(),
                 volume: format!("halfnine-{}", &id[..12]),
@@ -223,6 +226,43 @@ impl Docker {
             load(&engine, &new.name, file, &spec).await?;
         }
         Ok(spec)
+    }
+
+    /// Copies a Docker database into a new container: the same image, user and databases, restored from a fresh dump
+    /// of every database in it. The copy hides the same columns from agents as the source.
+    pub async fn copy(&self, source: &str, new: NewDatabase) -> Result<ConnectionSpec, Error> {
+        let engine = self.engine().await?;
+        let from = engine.container(source).await?;
+        if !from.running {
+            self.progress(&new.name, format!("Starting {source}…"));
+            engine.start(source).await?;
+        }
+        self.progress(&new.name, format!("Saving {source}…"));
+        let dir = std::env::temp_dir().join(format!("halfnine-copy-{}", uuid::Uuid::new_v4().simple()));
+        let copied = async {
+            let user = &from.credentials.user;
+            let dumped = super::dumps::dump(&engine, source, user, &dir).await?;
+            let spec = self
+                .make(NewDatabase {
+                    image: Some(from.image_id.clone()),
+                    major: from.major.unwrap_or(18),
+                    origin: Origin::Copy,
+                    copy_of: Some(source.to_string()),
+                    user: Some(user.clone()),
+                    database: Some(from.credentials.database.clone()),
+                    load: None,
+                    ..new.clone()
+                })
+                .await?;
+            self.progress(&new.name, format!("Restoring {source} into {}…", new.name));
+            super::dumps::restore(&engine, &new.name, &dir, &dumped).await?;
+            let hidden = self.overrides(source).hidden_columns;
+            self.set_overrides(&new.name, |overrides| overrides.hidden_columns = hidden)?;
+            Ok(spec)
+        }
+        .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        copied
     }
 
     /// Removes a container, and its volume when Halfnine made that volume; anyone else's volume is kept. Returns

@@ -83,6 +83,7 @@ export function DockerPage() {
               onStart={() => void act(() => commands.startDockerDatabase(d.connection.name))}
               onStop={() => void act(() => commands.stopDockerDatabase(d.connection.name))}
               onDelete={() => void remove(d)}
+              onCopy={(name) => void act(() => commands.copyDockerDatabase(d.connection.name, name))}
               onDismiss={() => void act(() => commands.dismissDockerJob(d.connection.name))}
             />
           ))}
@@ -124,12 +125,14 @@ function DatabaseRow(props: {
   onStart: () => void;
   onStop: () => void;
   onDelete: () => void;
+  onCopy: (name: string) => void;
   onDismiss: () => void;
 }) {
   const { database, job } = props;
   const name = database.connection.name;
   const [confirming, setConfirming] = useState(false);
   const [typed, setTyped] = useState("");
+  const [copying, setCopying] = useState<string | null>(null);
   const made = madeBy(database);
   const detail = [
     database.running ? "Running" : "Stopped",
@@ -149,7 +152,27 @@ function DatabaseRow(props: {
         <button type="button" className="btn btn-quiet" onClick={props.onDismiss}>
           Close
         </button>
-      ) : job ? null : confirming ? (
+      ) : job ? null : copying !== null ? (
+        <form
+          className="docker-confirm"
+          onSubmit={(e) => {
+            e.preventDefault();
+            props.onCopy(copying.trim());
+            setCopying(null);
+          }}
+        >
+          <label htmlFor={`copy-${name}`} className="visually-hidden">
+            Name the copy of {name}
+          </label>
+          <input id={`copy-${name}`} className="input" spellCheck={false} value={copying} onChange={(e) => setCopying(e.target.value)} />
+          <button type="button" className="btn btn-quiet" onClick={() => setCopying(null)}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={copying.trim() === ""}>
+            Copy
+          </button>
+        </form>
+      ) : confirming ? (
         <form
           className="docker-confirm"
           onSubmit={(e) => {
@@ -185,6 +208,9 @@ function DatabaseRow(props: {
               Start
             </button>
           )}
+          <button type="button" className="btn btn-quiet" title="Copy it before risky work" onClick={() => setCopying(`${name}-copy`)}>
+            Copy
+          </button>
           <button type="button" className="btn btn-quiet" onClick={() => setConfirming(true)}>
             Delete
           </button>

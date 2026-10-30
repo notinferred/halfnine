@@ -33,6 +33,8 @@ fn new_database(name: &str) -> NewDatabase {
         origin: Origin::New,
         copy_of: None,
         agent: None,
+        user: None,
+        database: None,
     }
 }
 
@@ -70,6 +72,73 @@ async fn makes_a_database_that_connects_with_its_own_credentials_then_deletes_it
     let outcome = work.await;
     if let Ok(engine) = docker.engine().await {
         let _ = engine.remove(&name, None).await;
+    }
+    let _ = std::fs::remove_dir_all(dir);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic.into_panic());
+    }
+}
+
+#[tokio::test]
+async fn a_copy_has_the_same_rows_and_hides_the_same_columns() {
+    let Some((docker, dir)) = docker().await else { return };
+    let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let (source, copy) = (format!("hn-source-{suffix}"), format!("hn-copy-{suffix}"));
+    let sql = dir.join("load.sql");
+    std::fs::write(
+        &sql,
+        "CREATE TABLE people (email text); INSERT INTO people VALUES ('a@example.com'), ('b@example.com');",
+    )
+    .unwrap();
+    let work = {
+        let (docker, source, copy) = (docker.clone(), source.clone(), copy.clone());
+        tokio::spawn(async move {
+            let made = docker
+                .make(NewDatabase {
+                    load: Some(sql),
+                    ..new_database(&source)
+                })
+                .await
+                .unwrap();
+            let hidden = hn_core::HiddenColumn {
+                database: made.database.clone(),
+                schema: "public".into(),
+                table: "people".into(),
+                column: "email".into(),
+            };
+            docker.set_overrides(&source, |o| o.hidden_columns.push(hidden.clone())).unwrap();
+            let copied = docker
+                .copy(
+                    &source,
+                    NewDatabase {
+                        origin: Origin::Copy,
+                        ..new_database(&copy)
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                (copied.user.as_str(), copied.database.as_str()),
+                (made.user.as_str(), made.database.as_str())
+            );
+            assert_eq!(docker.overrides(&copy).hidden_columns, [hidden]);
+            let Source::Docker { made: Some(how), .. } = &copied.source else {
+                panic!("Halfnine made the copy")
+            };
+            assert_eq!(how.how, MadeHow::Copy);
+            let db = PgDatabase::connect(&copied, None, &docker.secrets(&copy).await.unwrap()).await.unwrap();
+            let rows = db.read("SELECT count(*) FROM people", 5, &[]).await.unwrap();
+            assert_eq!(rows.rows, [[Some("2".to_string())]]);
+            db.close().await;
+        })
+    };
+    let outcome = work.await;
+    if let Ok(engine) = docker.engine().await {
+        for name in [&source, &copy] {
+            if let Ok(c) = engine.container(name).await {
+                let _ = engine.remove(name, c.volume.as_deref()).await;
+            }
+        }
     }
     let _ = std::fs::remove_dir_all(dir);
     if let Err(panic) = outcome {

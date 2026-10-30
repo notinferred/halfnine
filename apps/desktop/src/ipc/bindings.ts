@@ -108,6 +108,8 @@ export const commands = {
 	 */
 	deleteDockerDatabase: (name: string) => __TAURI_INVOKE<boolean>("delete_docker_database", { name }),
 	dismissDockerJob: (name: string) => __TAURI_INVOKE<null>("dismiss_docker_job", { name }),
+	/**  Starts copying a Docker database into a new one. It returns at once; its progress shows on the Docker page. */
+	copyDockerDatabase: (source: string, name: string) => __TAURI_INVOKE<null>("copy_docker_database", { source, name }),
 	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
 	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
 	/**  Does what `plan_client` showed. Returns what to do next, if anything. */

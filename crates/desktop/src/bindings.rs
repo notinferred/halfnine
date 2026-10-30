@@ -61,6 +61,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             docker::commands::create_docker_database,
             docker::commands::delete_docker_database,
             docker::commands::dismiss_docker_job,
+            docker::commands::copy_docker_database,
             setup::client_setups,
             setup::plan_client,
             setup::connect_client,

@@ -4,6 +4,7 @@
 //! container name, and holds no credentials.
 
 pub mod commands;
+pub mod dumps;
 pub mod make;
 
 use std::collections::HashMap;

@@ -112,6 +112,8 @@ pub async fn create_docker_database(state: State<'_, AppState>, name: String, ve
         origin: Origin::New,
         copy_of: None,
         agent: None,
+        user: None,
+        database: None,
     };
     let docker = state.docker.clone();
     let _ = state.docker.job(&name, "Starting…", async move { docker.make(new).await });
@@ -133,5 +135,28 @@ pub async fn delete_docker_database(state: State<'_, AppState>, name: String) ->
 #[specta::specta]
 pub async fn dismiss_docker_job(state: State<'_, AppState>, name: String) -> Result<(), Error> {
     state.docker.dismiss(&name);
+    Ok(())
+}
+
+/// Starts copying a Docker database into a new one. It returns at once; its progress shows on the Docker page.
+#[tauri::command]
+#[specta::specta]
+pub async fn copy_docker_database(state: State<'_, AppState>, source: String, name: String) -> Result<(), Error> {
+    hn_docker::valid_name(&name)?;
+    let new = NewDatabase {
+        name: name.clone(),
+        major: 18,
+        image: None,
+        load: None,
+        origin: Origin::Copy,
+        copy_of: Some(source.clone()),
+        agent: None,
+        user: None,
+        database: None,
+    };
+    let docker = state.docker.clone();
+    let _ = state
+        .docker
+        .job(&name, &format!("Copying {source}…"), async move { docker.copy(&source, new).await });
     Ok(())
 }
