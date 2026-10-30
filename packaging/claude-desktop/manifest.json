@@ -28,8 +28,14 @@
     { "name": "list_connections", "description": "The saved PostgreSQL connections, with what agents may do on each." },
     { "name": "describe", "description": "A database's schemas, tables, columns and foreign keys, or one table in full." },
     { "name": "query", "description": "Runs one statement that reads, in a read-only transaction." },
-    { "name": "change_rows", "description": "Inserts, updates or deletes rows by primary key, approved in Halfnine where the connection asks for it." },
-    { "name": "change_structure", "description": "Changes a table's structure in one transaction, approved in Halfnine where the connection asks for it." },
+    {
+      "name": "change_rows",
+      "description": "Inserts, updates or deletes rows by primary key, approved in Halfnine where the connection asks for it."
+    },
+    {
+      "name": "change_structure",
+      "description": "Changes a table's structure in one transaction, approved in Halfnine where the connection asks for it."
+    },
     { "name": "run_sql", "description": "Runs statements that write in one transaction, approved in Halfnine where the connection asks for it." },
     { "name": "wait_for_approval", "description": "Keeps waiting for the person's answer to a staged change." }
   ],
