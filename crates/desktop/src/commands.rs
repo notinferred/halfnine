@@ -147,7 +147,7 @@ pub async fn open_session(
     database: Option<String>,
     typed: Option<Typed>,
 ) -> Result<SessionInfo, Error> {
-    let connection = state.directory.get(&connection_id)?;
+    let connection = state.directory.ready(state.directory.get(&connection_id)?).await?;
     let typed = typed.map(|typed| Secrets {
         password: typed.password.filter(|p| !p.is_empty()),
         ssh: typed.ssh_secret.filter(|p| !p.is_empty()),
@@ -156,8 +156,33 @@ pub async fn open_session(
     let opened = open_with(&state.sessions, connection.clone(), database.as_deref(), secrets).await;
     if opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
         state.directory.refused(&connection);
+        // The container's password changed since it was made, so the person types the one it has now.
+        if matches!(connection.source, hn_core::Source::Docker { .. }) {
+            return Err(Error::new(
+                ErrorKind::PasswordNeeded,
+                format!(
+                    "{} refused the password its container was made with. Type the one it has now.",
+                    connection.name
+                ),
+            ));
+        }
     }
     opened
+}
+
+/// Connects, waiting up to 20 seconds for a Docker database that has only just started: Docker accepts connections
+/// for it before Postgres inside is listening, and Postgres refuses them while it starts up.
+async fn connect(connection: &ConnectionSpec, database: Option<&str>, secrets: &Secrets) -> Result<PgDatabase, Error> {
+    let docker = matches!(connection.source, hn_core::Source::Docker { .. });
+    let started = Instant::now();
+    loop {
+        match PgDatabase::connect(connection, database, secrets).await {
+            Err(e) if docker && started.elapsed().as_secs() < 20 && (e.kind == ErrorKind::Network || e.code.as_deref() == Some("57P03")) => {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            done => return done,
+        }
+    }
 }
 
 /// Opens the same connection on another database, with the secrets it already holds, then closes the old session.
@@ -171,7 +196,7 @@ pub async fn switch_database(state: State<'_, AppState>, session_id: String, dat
 }
 
 pub async fn open_with(sessions: &Sessions, connection: ConnectionSpec, database: Option<&str>, secrets: Secrets) -> Result<SessionInfo, Error> {
-    let db = PgDatabase::connect(&connection, database, &secrets).await?;
+    let db = connect(&connection, database, &secrets).await?;
     let server = db.server().await?;
     let session_id = sessions
         .insert(Session {

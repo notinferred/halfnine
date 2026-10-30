@@ -88,6 +88,13 @@ export const commands = {
 	setColumnHidden: (connectionId: string, database: string, table: TableRef, column: string, hidden: boolean) => __TAURI_INVOKE<ConnectionSpec>("set_column_hidden", { connectionId, database, table, column, hidden }),
 	/**  The app's few choices, for the Settings page and the first-launch setup. */
 	getSettings: () => __TAURI_INVOKE<Choices>("get_settings"),
+	dockerState: () => __TAURI_INVOKE<DockerState>("docker_state"),
+	/**  Turns Docker databases on or off in Settings. Off, Halfnine stops talking to the engine. */
+	setDockerEnabled: (on: boolean) => __TAURI_INVOKE<null>("set_docker_enabled", { on }),
+	startDockerDatabase: (name: string) => __TAURI_INVOKE<null>("start_docker_database", { name }),
+	/**  Stops a container, closing what the window and agents have open on it first. */
+	stopDockerDatabase: (name: string) => __TAURI_INVOKE<null>("stop_docker_database", { name }),
+	setDockerSettings: (name: string, settings: DockerSettings) => __TAURI_INVOKE<ConnectionSpec>("set_docker_settings", { name, settings }),
 	clientSetups: () => __TAURI_INVOKE<ClientSetup[]>("client_setups"),
 	planClient: (client: Client) => __TAURI_INVOKE<SetupPlan>("plan_client", { client }),
 	/**  Does what `plan_client` showed. Returns what to do next, if anything. */
@@ -98,6 +105,7 @@ export const commands = {
 export const events = {
 	agentActivityAdded: makeEvent<AgentActivityAdded>("agent-activity-added"),
 	agentsChanged: makeEvent<AgentsChanged>("agents-changed"),
+	dockerChanged: makeEvent<DockerChanged>("docker-changed"),
 };
 
 /* Types */
@@ -290,6 +298,35 @@ export type Constraint = {
 export type CutCell = {
 	row: number,
 	column: number,
+};
+
+/**  The window should fetch `docker_state` again. It carries nothing, so a missed one loses nothing. */
+export type DockerChanged = null;
+
+/**  One Docker database as the window lists it. */
+export type DockerDatabase = {
+	connection: ConnectionSpec,
+	running: boolean,
+	image: string,
+	major: number | null,
+	/**  The port on this computer, or `None` when it publishes none and can't be connected to. */
+	port: number | null,
+};
+
+/**  What someone sets for a Docker database, as the connection form does for a saved one. */
+export type DockerSettings = {
+	label: Label,
+	readOnly: boolean,
+	agentAccess: AgentAccess | null,
+};
+
+export type DockerState = {
+	on: boolean,
+	/**  Which engine Halfnine found, such as "the desktop-linux context". */
+	engine: string | null,
+	/**  Why there is no engine, when Docker databases are on. */
+	problem: string | null,
+	databases: DockerDatabase[],
 };
 
 export type EnumType = {

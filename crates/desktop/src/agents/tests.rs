@@ -84,8 +84,9 @@ fn world(url: Option<&str>) -> World {
         store.save(connection).unwrap();
     }
     let desk = Arc::new(TestDesk::default());
-    let directory = Arc::new(crate::connections::Directory::new(store, passwords));
     let settings = Arc::new(crate::settings::Settings::open(&dir).unwrap());
+    let docker = Arc::new(crate::docker::Docker::new(&dir, settings.clone(), || {}));
+    let directory = Arc::new(crate::connections::Directory::new(store, passwords, docker));
     let agents = Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), desk.clone()).waiting_at_most(Duration::from_millis(300));
     World {
         agents: Arc::new(agents),

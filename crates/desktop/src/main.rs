@@ -5,6 +5,7 @@ mod agents;
 mod bindings;
 mod commands;
 mod connections;
+mod docker;
 mod export;
 mod files;
 mod import;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub passwords: Arc<secrets::Passwords>,
     pub directory: Arc<connections::Directory>,
     pub settings: Arc<settings::Settings>,
+    pub docker: Arc<docker::Docker>,
     pub agents: Arc<agents::Agents>,
 }
 
@@ -62,8 +64,13 @@ fn main() {
             let sessions = Arc::new(sessions::Sessions::default());
             let passwords = Arc::new(secrets::Passwords::default());
             let desk = Arc::new(agents::desk::WindowDesk(app.handle().clone()));
-            let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone()));
             let settings = Arc::new(settings::Settings::open(&dir)?);
+            let handle = app.handle().clone();
+            let docker = Arc::new(docker::Docker::new(&dir, settings.clone(), move || {
+                let _ = tauri_specta::Event::emit(&docker::commands::DockerChanged, &handle);
+            }));
+            docker.watch();
+            let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone(), docker.clone()));
             let agents = Arc::new(agents::Agents::new(&dir, directory.clone(), settings.clone(), sessions.clone(), desk));
             tauri::async_runtime::spawn(agents::listen::listen(agents.clone(), dir.clone()));
             app.manage(AppState {
@@ -74,6 +81,7 @@ fn main() {
                 passwords,
                 directory,
                 settings,
+                docker,
                 agents,
             });
             Ok(())

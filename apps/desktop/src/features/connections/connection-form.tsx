@@ -40,14 +40,14 @@ type Form = {
 
 type Status = { kind: "idle" } | { kind: "busy"; text: string } | { kind: "ok"; text: string } | { kind: "error"; text: string };
 
-const LABELS: { value: Label; name: string }[] = [
+export const LABELS: { value: Label; name: string }[] = [
   { value: "none", name: "No label" },
   { value: "green", name: "Green label" },
   { value: "amber", name: "Amber label" },
   { value: "red", name: "Red label" },
 ];
 
-const AGENT_ACCESS: { value: AgentAccess; name: string }[] = [
+export const AGENT_ACCESS: { value: AgentAccess; name: string }[] = [
   { value: "off", name: "Off" },
   { value: "read", name: "Read" },
   { value: "approvedWrites", name: "Read with approved writes" },

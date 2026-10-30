@@ -45,6 +45,16 @@
   padding: 0 var(--space-2);
 }
 
+.connections-heading-docker {
+  padding-top: var(--space-3);
+}
+
+.connection-row-chip {
+  height: 18px;
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+}
+
 .connections-empty {
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);

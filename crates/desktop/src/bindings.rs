@@ -3,7 +3,8 @@
 use tauri_specta::{Builder, ErrorHandlingMode, collect_commands, collect_events};
 
 use crate::agents::desk::{AgentActivityAdded, AgentsChanged};
-use crate::{agents, commands, setup};
+use crate::docker::commands::DockerChanged;
+use crate::{agents, commands, docker, setup};
 
 #[cfg(any(debug_assertions, test))]
 const OUTPUT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/desktop/src/ipc/bindings.ts");
@@ -51,11 +52,16 @@ pub fn builder() -> Builder<tauri::Wry> {
             agents::commands::forget_undo,
             agents::commands::set_column_hidden,
             agents::commands::get_settings,
+            docker::commands::docker_state,
+            docker::commands::set_docker_enabled,
+            docker::commands::start_docker_database,
+            docker::commands::stop_docker_database,
+            docker::commands::set_docker_settings,
             setup::client_setups,
             setup::plan_client,
             setup::connect_client,
         ])
-        .events(collect_events![AgentsChanged, AgentActivityAdded])
+        .events(collect_events![AgentsChanged, AgentActivityAdded, DockerChanged])
 }
 
 /// Writes `apps/desktop/src/ipc/bindings.ts`. A debug build does it on start and the tests do it in CI, where a

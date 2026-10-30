@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Lock, Plus, Search, Settings } from "lucide-react";
 import { useState } from "react";
-import { type ConnectionSpec, commands, type Typed } from "../../ipc/bindings.ts";
+import { type ConnectionSpec, commands, type DockerDatabase, type Typed } from "../../ipc/bindings.ts";
 import { describe, needsPassword } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { AgentsPage } from "../agents/agents-page.tsx";
+import { DockerDetail, madeBy } from "../docker/docker-detail.tsx";
 import { SettingsPage } from "../settings/settings-page.tsx";
 import { ConnectionForm } from "./connection-form.tsx";
 import { PasswordSheet } from "./password-sheet.tsx";
@@ -21,10 +22,15 @@ export function ConnectionsScreen() {
   const [asking, setAsking] = useState<ConnectionSpec | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
 
-  const connections = list.data ?? [];
+  const docker = useQuery({ queryKey: ["docker"], queryFn: commands.dockerState });
+  // Docker databases come from the engine, listed in their own section below the saved ones.
+  const connections = (list.data ?? []).filter((c) => (c.source?.kind ?? "saved") === "saved");
   const selectedId = chosen ?? connections[0]?.id ?? "new";
   const selected = connections.find((c) => c.id === selectedId) ?? null;
-  const visible = connections.filter((c) => `${c.name} ${c.host} ${c.database}`.toLowerCase().includes(search.toLowerCase()));
+  const matches = (text: string) => text.toLowerCase().includes(search.toLowerCase());
+  const visible = connections.filter((c) => matches(`${c.name} ${c.host} ${c.database}`));
+  const dockerVisible = (docker.data?.databases ?? []).filter((d) => matches(`${d.connection.name} ${d.image}`));
+  const dockerSelected = docker.data?.databases.find((d) => d.connection.id === chosen) ?? null;
 
   // A connection that asks for its password each time, with none typed yet this launch, asks before it opens.
   const open = async (connection: ConnectionSpec, typed: Typed | null) => {
@@ -85,6 +91,26 @@ export function ConnectionsScreen() {
           ))}
           {list.isSuccess && connections.length === 0 && <p className="connections-empty muted">No connections yet.</p>}
           {list.isError && <p className="connections-empty status-error">{describe(list.error)}</p>}
+          {docker.data?.on && (
+            <>
+              <div className="connections-heading connections-heading-docker">Docker</div>
+              {dockerVisible.map((d) => (
+                <DockerRow
+                  key={d.connection.id}
+                  database={d}
+                  current={d.connection.id === chosen}
+                  busy={opening === d.connection.id}
+                  onSelect={() => setChosen(d.connection.id)}
+                  onOpen={() => openFromList(d.connection)}
+                />
+              ))}
+              {docker.data.problem ? (
+                <p className="connections-empty muted">{docker.data.problem}</p>
+              ) : (
+                docker.data.databases.length === 0 && <p className="connections-empty muted">No Postgres containers.</p>
+              )}
+            </>
+          )}
         </div>
         <div className="connections-new">
           <button type="button" className="btn" onClick={() => setChosen("new")}>
@@ -105,7 +131,15 @@ export function ConnectionsScreen() {
       </nav>
       <main className="connections-detail">
         <div className="traffic-lights-space" data-tauri-drag-region />
-        {chosen === "settings" ? (
+        {dockerSelected ? (
+          <DockerDetail
+            key={dockerSelected.connection.id}
+            database={dockerSelected}
+            opening={opening === dockerSelected.connection.id}
+            openError={openError}
+            onOpen={() => openFromList(dockerSelected.connection)}
+          />
+        ) : chosen === "settings" ? (
           <SettingsPage />
         ) : chosen === "agents" ? (
           <AgentsPage />
@@ -155,6 +189,38 @@ function ConnectionRow(props: { connection: ConnectionSpec; current: boolean; bu
           {props.busy ? "Connecting…" : `${spec.host}${spec.port === 5432 ? "" : `:${spec.port}`} · ${spec.database}`}
         </span>
       </span>
+      {spec.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
+    </button>
+  );
+}
+
+/** A Docker database in the list: its state in words, never a coloured dot, since dots are labels. */
+function DockerRow(props: { database: DockerDatabase; current: boolean; busy: boolean; onSelect: () => void; onOpen: () => void }) {
+  const { database } = props;
+  const spec = database.connection;
+  const made = madeBy(database);
+  const detail = [
+    database.running ? "Running" : "Stopped",
+    database.major === null ? null : String(database.major),
+    database.port === null ? null : `:${database.port}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      className="connection-row"
+      aria-current={props.current || undefined}
+      onClick={props.onSelect}
+      onDoubleClick={props.onOpen}
+      title={database.running ? "Double-click to connect" : "Double-click to start and connect"}
+    >
+      <span className="dot" data-label={spec.label} aria-hidden="true" />
+      <span className="connection-row-text">
+        <span className="connection-row-name">{spec.name}</span>
+        <span className="connection-row-detail">{props.busy ? "Connecting…" : detail}</span>
+      </span>
+      {made && made !== "made by Halfnine" && <span className="chip connection-row-chip">{made.replace("made by ", "")}</span>}
       {spec.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
     </button>
   );

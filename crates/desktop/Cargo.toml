@@ -16,6 +16,8 @@ tauri-build.workspace = true
 [dependencies]
 hn-core.workspace = true
 hn-pg.workspace = true
+hn-docker.workspace = true
+futures-util.workspace = true
 tauri.workspace = true
 tauri-plugin-window-state.workspace = true
 tauri-plugin-single-instance.workspace = true

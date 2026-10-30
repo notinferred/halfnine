@@ -26,9 +26,14 @@ export function AgentLayer() {
       void queries.invalidateQueries({ queryKey: ["settings"] });
     });
     const logged = events.agentActivityAdded.listen(() => void queries.invalidateQueries({ queryKey: ["agentActivity"] }));
+    const docker = events.dockerChanged.listen(() => {
+      void queries.invalidateQueries({ queryKey: ["docker"] });
+      void queries.invalidateQueries({ queryKey: ["connections"] });
+    });
     return () => {
       void changed.then((stop) => stop());
       void logged.then((stop) => stop());
+      void docker.then((stop) => stop());
     };
   }, [queries]);
 
