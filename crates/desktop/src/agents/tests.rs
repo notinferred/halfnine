@@ -693,6 +693,13 @@ async fn an_agents_change_that_breaks_a_rule_never_commits() {
         })
     };
 
+    let described = json!({"connection": "full", "schema": "hn_fixture", "table": "agent_ruled"});
+    let (text, _) = call(&client, "describe", described).await;
+    assert!(
+        text.contains("Rules the person set") && text.contains("body is one of one, two and three."),
+        "{text}"
+    );
+
     let (text, _) = call(&client, "change_rows", insert("full", "nope")).await;
     assert!(text.starts_with("REFUSED Nothing was written"), "{text}");
     assert!(text.contains("body is one of one, two and three") && text.contains("id = 3"), "{text}");
