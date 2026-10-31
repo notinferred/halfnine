@@ -4,9 +4,10 @@
 //! before it commits, and only a difference means the change touched a table.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use hn_core::{Checks, ColumnRef, Error, ErrorKind, Rule, RuleCheck, TableRef};
+use hn_core::{Checks, ColumnRef, Error, ErrorKind, Rule, RuleCheck, RuleTried, TableRef};
+use sqlx::postgres::PgRow;
 use sqlx::{PgConnection, Row};
 
 use crate::PgDatabase;
@@ -197,17 +198,7 @@ async fn check<'a>(
         match db.query(built).persistent(false).fetch_all(&mut *conn).await {
             Ok(found) if found.is_empty() => {}
             Ok(found) => {
-                let named: Vec<String> = found
-                    .iter()
-                    .map(|row| {
-                        keys.iter()
-                            .enumerate()
-                            .map(|(i, k)| format!("{k} = {}", row.try_get::<Option<String>, _>(i).ok().flatten().unwrap_or_default()))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .filter(|n| !n.is_empty())
-                    .collect();
+                let named = named(&found, &keys);
                 let detail = if named.is_empty() {
                     "some rows break it".to_string()
                 } else {
@@ -233,6 +224,89 @@ async fn check<'a>(
         .await
         .map_err(from_sqlx)?;
     Ok(broken)
+}
+
+/// Each row found by its key, as "id = 1042", or none when the rows were found without one.
+fn named(found: &[PgRow], keys: &[String]) -> Vec<String> {
+    found
+        .iter()
+        .map(|row| {
+            keys.iter()
+                .enumerate()
+                .map(|(i, k)| format!("{k} = {}", row.try_get::<Option<String>, _>(i).ok().flatten().unwrap_or_default()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+/// Tries a rule on the data as it is, before it's added: the rows that break it already, how long it takes, and for
+/// custom SQL, which must be one statement that reads, the tables its plan reads.
+pub(crate) async fn try_now(conn: &mut PgConnection, rule: &Rule, db: &PgDatabase) -> Result<RuleTried, Error> {
+    let reads = match &rule.check {
+        RuleCheck::Custom { sql, .. } => {
+            let word = crate::editor::first_word(sql);
+            if !["SELECT", "WITH", "VALUES", "TABLE"].contains(&word.as_str()) {
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    "A custom rule is one query that reads, starting with SELECT, WITH, VALUES or TABLE.",
+                ));
+            }
+            // Postgres describes it first, which refuses a second statement, so the plan is of this one only.
+            crate::editor::describe(conn, sql).await?;
+            relations(&crate::plan(conn, sql).await?)
+        }
+        _ => Vec::new(),
+    };
+    if matches!(rule.check, RuleCheck::OnlyGrows) {
+        return Ok(RuleTried {
+            breaking: Vec::new(),
+            elapsed_ms: 0,
+            reads,
+        });
+    }
+    let columns = crate::table_columns(&mut *conn, &rule.table).await?;
+    let keys = keys(&columns, &rule.table, &[]);
+    let built = query(rule, &columns, &keys).map_err(|why| Error::new(ErrorKind::Invalid, why))?;
+    let started = Instant::now();
+    let found = db.query(built).persistent(false).fetch_all(&mut *conn).await.map_err(from_sqlx)?;
+    let mut breaking = named(&found, &keys);
+    if breaking.is_empty() && !found.is_empty() {
+        breaking.push("some rows".into());
+    }
+    Ok(RuleTried {
+        breaking,
+        elapsed_ms: hn_core::millis(started.elapsed()),
+        reads,
+    })
+}
+
+/// Every table a plan reads, as Postgres names it in each node.
+fn relations(plan: &serde_json::Value) -> Vec<TableRef> {
+    let mut found = Vec::new();
+    let mut stack = vec![plan];
+    while let Some(node) = stack.pop() {
+        match node {
+            serde_json::Value::Object(map) => {
+                if let (Some(serde_json::Value::String(schema)), Some(serde_json::Value::String(name))) =
+                    (map.get("Schema"), map.get("Relation Name"))
+                {
+                    let table = TableRef {
+                        schema: schema.clone(),
+                        name: name.clone(),
+                    };
+                    if !found.contains(&table) {
+                        found.push(table);
+                    }
+                }
+                stack.extend(map.values());
+            }
+            serde_json::Value::Array(items) => stack.extend(items),
+            _ => {}
+        }
+    }
+    found
 }
 
 /// The primary key columns a report names rows by, unless one is hidden from the reader, when it names none.
@@ -444,6 +518,18 @@ mod tests {
     fn refuses_a_rule_whose_column_the_change_removed() {
         let filled = rule(RuleCheck::AlwaysFilled { column: "gone".into() });
         assert_eq!(query(&filled, &columns(), &[]).unwrap_err(), "it removes gone, which the rule checks");
+    }
+
+    #[test]
+    fn finds_every_table_a_plan_reads_once() {
+        let plan = serde_json::json!([{"Plan": {"Node Type": "Hash Join", "Plans": [
+            {"Node Type": "Seq Scan", "Schema": "public", "Relation Name": "invoices"},
+            {"Node Type": "Hash", "Plans": [{"Node Type": "Seq Scan", "Schema": "public", "Relation Name": "customers"}]},
+            {"Node Type": "Seq Scan", "Schema": "public", "Relation Name": "invoices"}
+        ]}}]);
+        let mut names: Vec<String> = relations(&plan).into_iter().map(|t| t.name).collect();
+        names.sort();
+        assert_eq!(names, ["customers", "invoices"]);
     }
 
     #[test]

@@ -101,6 +101,14 @@ export const commands = {
 } | null>("answer_deletion", { id, yes }),
 	/**  The app's few choices, for the Settings page and the first-launch setup. */
 	getSettings: () => __TAURI_INVOKE<Choices>("get_settings"),
+	/**  The rules of the database a session is on. */
+	listRules: (sessionId: string) => __TAURI_INVOKE<Rule[]>("list_rules", { sessionId }),
+	/**
+	 *  Adds a rule after trying it on the data as it is: one that rows already break is refused, naming them. A custom
+	 *  rule takes the person's own `words`; any other is put in words by Halfnine. `evidence` marks one Halfnine suggested.
+	 */
+	addRule: (sessionId: string, table: TableRef, check: RuleCheck, words: string | null, evidence: string | null) => __TAURI_INVOKE<RuleAdded>("add_rule", { sessionId, table, check, words, evidence }),
+	deleteRule: (sessionId: string, id: string) => __TAURI_INVOKE<null>("delete_rule", { sessionId, id }),
 	/**
 	 *  Which Docker engine is on this computer, for the first-launch setup to suggest turning Docker databases on. It
 	 *  looks once and keeps nothing.
@@ -681,6 +689,50 @@ export type RowUpdate = {
 	key: ColumnValue[],
 	cells: CellChange[],
 };
+
+/**  What correct data is in one table, as the person set it. An agent's change that breaks a rule doesn't commit. */
+export type Rule = {
+	id: string,
+	table: TableRef,
+	check: RuleCheck,
+	/**  The rule in words, as the person wrote it or Halfnine put it. */
+	words: string,
+	source: RuleSource,
+	addedMs: number | null,
+};
+
+/**
+ *  A rule just added, and whether it takes long enough to check that changes to its table may wait for it, or be
+ *  refused for time.
+ */
+export type RuleAdded = {
+	rule: Rule,
+	slow: boolean,
+};
+
+/**  What a rule checks, and so what breaks it. */
+export type RuleCheck = 
+/**  Never NULL, and never empty text. */
+{ kind: "alwaysFilled"; column: string } | { kind: "oneOf"; column: string; values: string[] } | 
+/**  At least one bound is given; each is read with the column's own type. */
+{ kind: "between"; column: string; atLeast: string | null; atMost: string | null } | 
+/**
+ *  Every value has a row in `target` with the same value in `target_column`, as a foreign key the schema doesn't
+ *  declare would.
+ */
+{ kind: "hasMatch"; column: string; target: TableRef; targetColumn: string } | 
+/**  Rows are added, never changed or removed. */
+{ kind: "onlyGrows" } | 
+/**  A read-only query the person wrote, which returns the rows that break the rule. */
+{ kind: "custom"; sql: string; 
+/**  The tables it reads, found from its plan when it was added, so a change to any of them checks it. */
+reads: TableRef[] };
+
+export type RuleSource = 
+/**  The person wrote it. */
+{ kind: "written" } | 
+/**  Halfnine suggested it from patterns in the data, and the person accepted it. */
+{ kind: "suggested"; evidence: string };
 
 export type RunFailure = {
 	/**  Which statement of the run failed, counting from 0. */

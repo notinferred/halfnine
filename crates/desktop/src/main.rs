@@ -12,6 +12,7 @@ mod files;
 mod import;
 mod mcp;
 mod queries;
+mod rules;
 mod secrets;
 mod sessions;
 mod settings;
@@ -33,6 +34,7 @@ pub struct AppState {
     pub docker: Arc<docker::Docker>,
     pub agents: Arc<agents::Agents>,
     pub backups: Arc<backups::Backups>,
+    pub rules: Arc<rules::Rules>,
 }
 
 fn main() {
@@ -73,6 +75,7 @@ fn main() {
             }));
             docker.watch();
             let backups = Arc::new(backups::Backups::open(&dir, passwords.clone())?);
+            let rules = Arc::new(rules::Rules::open(&dir)?);
             let directory = Arc::new(connections::Directory::new(store.clone(), passwords.clone(), docker.clone()));
             let agents = Arc::new(agents::Agents::new(
                 &dir,
@@ -94,6 +97,7 @@ fn main() {
                 docker,
                 agents,
                 backups,
+                rules,
             });
             Ok(())
         })

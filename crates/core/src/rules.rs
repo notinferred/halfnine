@@ -70,6 +70,18 @@ pub struct Suggestion {
     pub evidence: String,
 }
 
+/// What trying a rule on the data as it is found, before the rule is added.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleTried {
+    /// Up to three rows that break it already, each named by its primary key.
+    pub breaking: Vec<String>,
+    /// How long checking it took, as a change to the table would wait for it.
+    pub elapsed_ms: u32,
+    /// For custom SQL, the tables it reads, from its plan.
+    pub reads: Vec<TableRef>,
+}
+
 /// The rules a change must keep, as the transaction that makes it checks them.
 #[derive(Clone, Debug, Default)]
 pub struct Checks {

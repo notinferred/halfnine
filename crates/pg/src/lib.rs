@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 use futures_util::TryStreamExt;
 use hn_core::{
     Activity, ByteSource, Changes, Checks, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind,
-    ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, RunOutcome, SchemaNode, ServerInfo,
-    StatementResult, Structure, StructureChange, TableDefinition, TableRef, TableSink, TlsMode,
+    ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, Rule, RuleTried, RunOutcome, SchemaNode,
+    ServerInfo, StatementResult, Structure, StructureChange, TableDefinition, TableRef, TableSink, TlsMode,
 };
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
@@ -668,6 +668,13 @@ impl Database for PgDatabase {
         // Closed rather than returned to a pool, so nothing the statements set reaches anything else.
         let _ = sqlx::Connection::close(connection.conn).await;
         executed
+    }
+
+    async fn try_rule(&self, rule: &Rule) -> Result<RuleTried, Error> {
+        let mut tx = self.reading().await?;
+        let tried = rules::try_now(&mut tx, rule, self).await;
+        let _ = tx.rollback().await;
+        tried
     }
 
     async fn references(&self) -> Result<Vec<Reference>, Error> {
