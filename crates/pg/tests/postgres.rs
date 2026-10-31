@@ -1314,7 +1314,7 @@ async fn a_rules_own_query_writes_nothing_and_stops_in_time() {
         )
     };
     let add = vec![format!("INSERT INTO hn_fixture.{p}_ledger VALUES (4, 'four')")];
-    let writing = checks(vec![custom("SELECT nextval('hn_fixture.rule_counter') WHERE false")]);
+    let writing = checks(vec![custom("SELECT nextval('hn_fixture.rule_counter')")]);
     let error = db.execute(&add, &[], &writing).await.unwrap_err();
     assert!(error.message.contains("couldn't check it"), "a rule can't write: {}", error.message);
     let slow = checks(vec![custom("SELECT 1 FROM pg_sleep(6)")]);
@@ -1322,4 +1322,46 @@ async fn a_rules_own_query_writes_nothing_and_stops_in_time() {
     assert!(error.message.contains("within 5 seconds"), "{}", error.message);
     let holds = checks(vec![custom("SELECT 1 WHERE false")]);
     db.execute(&add, &[], &holds).await.unwrap();
+}
+
+#[tokio::test]
+async fn suggests_rules_from_the_data_with_or_without_statistics() {
+    let Some(db) = connect(false).await else { return };
+    let made = db
+        .run(&statements(&[
+            "DROP TABLE IF EXISTS hn_fixture.suggest_orders",
+            "CREATE TABLE hn_fixture.suggest_orders (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)",
+            "INSERT INTO hn_fixture.suggest_orders SELECT g, CASE WHEN g % 2 = 0 THEN 'open' ELSE 'closed' END, g * 1.5, 1 + g % 3 \
+             FROM generate_series(1, 40) g",
+        ]))
+        .await
+        .unwrap();
+    assert!(made.failed.is_none(), "{:?}", made.failed);
+    let orders = table("suggest_orders");
+    let words = |found: &[hn_core::Suggestion]| found.iter().map(|s| s.words.clone()).collect::<Vec<_>>().join(" | ");
+
+    let sampled = db.suggest_rules(&orders).await.unwrap();
+    let said = words(&sampled);
+    for expected in [
+        "status is always filled",
+        "amount is at least 0",
+        "every customer_id in suggest_orders has a row in customers with that id",
+    ] {
+        assert!(said.contains(expected), "{expected} in {said}");
+    }
+    assert!(
+        said.contains("status is one of") && said.contains("open") && said.contains("closed"),
+        "{said}"
+    );
+    assert!(sampled[0].evidence.starts_with("All 40 rows"), "{}", sampled[0].evidence);
+
+    let analyzed = db.run(&statements(&["ANALYZE hn_fixture.suggest_orders"])).await.unwrap();
+    assert!(analyzed.failed.is_none());
+    let from_statistics = db.suggest_rules(&orders).await.unwrap();
+    assert!(words(&from_statistics).contains("status is one of"), "{}", words(&from_statistics));
+    assert!(
+        from_statistics[0].evidence.contains("Postgres's statistics"),
+        "{}",
+        from_statistics[0].evidence
+    );
 }

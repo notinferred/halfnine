@@ -7,7 +7,7 @@ use crate::data::{
     Structure, TableRef,
 };
 use crate::error::Error;
-use crate::rules::{Checks, Rule, RuleTried};
+use crate::rules::{Checks, Rule, RuleTried, Suggestion};
 
 /// What the app needs from a database. Each adapter (Postgres today) implements it; the app depends only on this.
 pub trait Database: Send + Sync {
@@ -65,6 +65,8 @@ pub trait Database: Send + Sync {
     /// Checks a rule against the data as it is, read-only, to tell the person what already breaks it and how long it
     /// takes before they add it. A custom rule must be one statement that reads; its plan names the tables it reads.
     fn try_rule(&self, rule: &Rule) -> impl Future<Output = Result<RuleTried, Error>> + Send;
+    /// Rules the data of `table` suggests, each with what in the data suggests it, read-only and within a few seconds.
+    fn suggest_rules(&self, table: &TableRef) -> impl Future<Output = Result<Vec<Suggestion>, Error>> + Send;
     /// Every foreign key between the database's own tables.
     fn references(&self) -> impl Future<Output = Result<Vec<Reference>, Error>> + Send;
 

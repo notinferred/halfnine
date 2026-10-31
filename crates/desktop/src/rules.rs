@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use hn_core::{Checks, ColumnRef, Database, Error, ErrorKind, Rule, RuleCheck, RuleSource, TableRef};
+use hn_core::{Checks, ColumnRef, Database, Error, ErrorKind, Rule, RuleCheck, RuleSource, Suggestion, TableRef};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -176,6 +176,19 @@ pub async fn add_rule(
         rule,
         slow: tried.elapsed_ms > SLOW_MS,
     })
+}
+
+/// Rules a table's data suggests, leaving out any already set.
+#[tauri::command]
+#[specta::specta]
+pub async fn suggest_rules(state: State<'_, AppState>, session_id: String, table: TableRef) -> Result<Vec<Suggestion>, Error> {
+    let session = state.sessions.get(&session_id).await?;
+    let set = state.rules.in_database(&session.connection.id, &session.database);
+    let found = session.db.suggest_rules(&table).await?;
+    Ok(found
+        .into_iter()
+        .filter(|s| !set.iter().any(|r| r.table == table && r.check == s.check))
+        .collect())
 }
 
 #[tauri::command]

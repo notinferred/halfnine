@@ -109,6 +109,8 @@ export const commands = {
 	 */
 	addRule: (sessionId: string, table: TableRef, check: RuleCheck, words: string | null, evidence: string | null) => __TAURI_INVOKE<RuleAdded>("add_rule", { sessionId, table, check, words, evidence }),
 	deleteRule: (sessionId: string, id: string) => __TAURI_INVOKE<null>("delete_rule", { sessionId, id }),
+	/**  Rules a table's data suggests, leaving out any already set. */
+	suggestRules: (sessionId: string, table: TableRef) => __TAURI_INVOKE<Suggestion[]>("suggest_rules", { sessionId, table }),
 	/**
 	 *  Which Docker engine is on this computer, for the first-launch setup to suggest turning Docker databases on. It
 	 *  looks once and keeps nothing.
@@ -837,6 +839,14 @@ export type Structure = {
 
 /**  One change to a table's structure. Types and defaults are SQL someone typed, as Postgres would read them. */
 export type StructureChange = { kind: "createTable"; columns: NewColumn[] } | { kind: "addColumn"; column: NewColumn } | { kind: "renameColumn"; column: string; to: string } | { kind: "setType"; column: string; to: string } | { kind: "setNullable"; column: string; nullable: boolean } | { kind: "setDefault"; column: string; to: string | null } | { kind: "dropColumn"; column: string } | { kind: "createIndex"; columns: string[]; unique: boolean } | { kind: "dropIndex"; name: string } | { kind: "truncate" } | { kind: "drop" };
+
+/**  A rule Halfnine found in the data, for the person to accept or dismiss. */
+export type Suggestion = {
+	check: RuleCheck,
+	words: string,
+	/**  What in the data suggests it, such as "all 3,812 rows have one of these values". */
+	evidence: string,
+};
 
 export type TableRef = {
 	schema: string,

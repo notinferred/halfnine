@@ -56,6 +56,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             rules::list_rules,
             rules::add_rule,
             rules::delete_rule,
+            rules::suggest_rules,
             settings::find_docker,
             settings::finish_setup,
             docker::commands::docker_state,

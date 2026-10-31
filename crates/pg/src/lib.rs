@@ -8,6 +8,7 @@ mod errors;
 mod hidden;
 mod rules;
 mod sql;
+mod suggest;
 mod tunnel;
 
 use std::time::{Duration, Instant};
@@ -16,7 +17,7 @@ use futures_util::TryStreamExt;
 use hn_core::{
     Activity, ByteSource, Changes, Checks, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind,
     ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, Rule, RuleTried, RunOutcome, SchemaNode,
-    ServerInfo, StatementResult, Structure, StructureChange, TableDefinition, TableRef, TableSink, TlsMode,
+    ServerInfo, StatementResult, Structure, StructureChange, Suggestion, TableDefinition, TableRef, TableSink, TlsMode,
 };
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
@@ -670,6 +671,13 @@ impl Database for PgDatabase {
         executed
     }
 
+    async fn suggest_rules(&self, table: &TableRef) -> Result<Vec<Suggestion>, Error> {
+        let mut tx = self.reading().await?;
+        let found = suggest::suggest(&mut tx, table, self).await;
+        let _ = tx.rollback().await;
+        found
+    }
+
     async fn try_rule(&self, rule: &Rule) -> Result<RuleTried, Error> {
         let mut tx = self.reading().await?;
         let tried = rules::try_now(&mut tx, rule, self).await;
@@ -978,7 +986,7 @@ async fn table_columns<'e>(executor: impl sqlx::PgExecutor<'e>, table: &TableRef
         .map_err(from_sqlx)
 }
 
-fn not_found(table: &TableRef) -> Error {
+pub(crate) fn not_found(table: &TableRef) -> Error {
     Error::new(
         ErrorKind::NotFound,
         format!("There is no table or view named {}.{}.", table.schema, table.name),
