@@ -117,3 +117,11 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Seeing the new version.** **Chose:** "Beta built in GitHub": a beta tag builds the installers in GitHub Actions into a draft release, installed over the old app. **Not chosen:** building on this Mac; running the dev version.
 - **Having more than one database open.** **Dan:** "One thing that feels odd is i have to close a database to access another yk". **Chose:** "Several open, switch in sidebar": the connection at the top of the sidebar is a menu of the connections open in the window, with Open another (⌘O) and Close; each keeps its own tabs and staged changes, and switching closes nothing. **Not chosen:** a window per connection; one at a time with tabs remembered.
 - **A Docker database's credentials, for Dan's own apps.** **Dan:** "Where are the credentials for the docker one...". **Chose:** "Copy URL button": the database's panel and its row on the Docker page put `postgres://user:password@127.0.0.1:port/database` on the clipboard; the panel shows the user and database, and the password only as dots. **Not chosen:** showing the password behind an eye; keeping them in Docker only.
+
+## 2026-10-30: What comes after Docker
+
+- **Which features next.** **Chose:** agent work as a pull request, migrations as files, anonymized copies, and comparing two databases. **Dan:** "I dont know how valuable all of these are maybe they are not recommended".
+- **Data sampling for AI.** **Dan:** "Idk its a far fetched i dont think it will be used and it will bloat but good as a reference for an AI Using it yk so defer this idea | FOR AGENTS not for the user". Deferred.
+- **Labelling what fields hold.** **Dan:** "The agent doesn't need to see whats in it to have it labeled and search through it is labeled correctly with code and audited because of patterns in the data, then the AI can search with ease better if the user asks you know so add reference points"
+- **Boundaries.** **Dan:** "ACAD was an idea outside halfnine, we can def add a boundaries view but outside the connections"
+- **Order.** **Chose:** "Plan them all now". **Not chosen:** release 0.3.0 first, then plan one at a time; start the top feature now.
