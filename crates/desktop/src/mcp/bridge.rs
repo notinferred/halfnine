@@ -1,15 +1,18 @@
-//! `halfnine mcp`: what an AI agent starts to reach Halfnine. It holds no logic of its own. It finds the running app,
-//! opening it if it is closed, proves it is this person's own process, then copies bytes between the agent's stdio and
-//! the app, where the MCP server, the access levels, the approvals and the activity log all live. Standard output
-//! carries only the protocol, so everything else goes to standard error.
+//! `halfnine mcp`: what an AI agent starts to reach Halfnine. It finds the running app, proves it is this person's own
+//! process, then copies bytes between the agent's stdio and the app, where the MCP server, the access levels, the
+//! approvals and the activity log all live. When the app is closed, the lobby answers the session's opening and the
+//! list of tools, and the app is opened only when the agent first calls a tool. Standard output carries only the
+//! protocol, so everything else goes to standard error.
 
+use std::future::Future;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 use super::endpoint;
+use super::lobby::{self, Opening};
 
 /// How long the bridge waits for an app it opened to start listening.
 const LAUNCH_WAIT: Duration = Duration::from_secs(20);
@@ -32,28 +35,53 @@ fn fail(message: &str) -> i32 {
 
 async fn relay() -> Result<(), String> {
     let dir = endpoint::config_dir().ok_or("there is no config folder for this account")?;
-    let stream = match attach(&dir).await {
-        Ok(stream) => stream,
-        Err(_) => {
-            launch()?;
-            wait_for_app(&dir).await?
-        }
+    let running = attach(&dir).await.ok();
+    let dir = dir.as_path();
+    let open_app = move || async move {
+        launch()?;
+        wait_for_app(dir).await
     };
-    let (mut from_app, mut to_app) = tokio::io::split(stream);
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
+    carry(BufReader::new(tokio::io::stdin()), tokio::io::stdout(), running, open_app).await?;
+    // Leaving at once rather than waiting on the thread that reads standard input, which may never return.
+    std::process::exit(0)
+}
+
+/// One agent's session, until either end hangs up. With the app closed, the lobby answers until the agent first needs
+/// the app, and only then is `open_app` called.
+pub(crate) async fn carry<In, Out, App, Open, Opened>(
+    mut agent_in: In,
+    mut agent_out: Out,
+    running: Option<App>,
+    open_app: Open,
+) -> Result<(), String>
+where
+    In: AsyncBufRead + Unpin,
+    Out: AsyncWrite + Unpin,
+    App: AsyncRead + AsyncWrite,
+    Open: FnOnce() -> Opened,
+    Opened: Future<Output = Result<App, String>>,
+{
+    let (app, opening) = match running {
+        Some(app) => (app, Opening::default()),
+        None => match lobby::receive(&mut agent_in, &mut agent_out).await? {
+            Some(opening) => (open_app().await?, opening),
+            None => return Ok(()),
+        },
+    };
+    let (from_app, mut to_app) = tokio::io::split(app);
+    let mut from_app = BufReader::new(from_app);
+    opening.hand_over(&mut to_app, &mut from_app, &mut agent_out).await?;
     tokio::select! {
         // The agent closed its end: the app hears it as the end of the stream.
-        _ = tokio::io::copy(&mut stdin, &mut to_app) => {
+        _ = tokio::io::copy_buf(&mut agent_in, &mut to_app) => {
             let _ = to_app.shutdown().await;
         }
         // The app closed this session, or quit.
-        _ = tokio::io::copy(&mut from_app, &mut stdout) => {
-            let _ = stdout.flush().await;
+        _ = tokio::io::copy_buf(&mut from_app, &mut agent_out) => {
+            let _ = agent_out.flush().await;
         }
     }
-    // Leaving at once rather than waiting on the thread that reads standard input, which may never return.
-    std::process::exit(0)
+    Ok(())
 }
 
 async fn attach(dir: &Path) -> Result<endpoint::ClientStream, String> {

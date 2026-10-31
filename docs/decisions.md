@@ -148,3 +148,10 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Schema Diff.** **Chose:** "Keep it scrapped". **Not chosen:** bring it back in M6.
 - **Planning only.** **Dan:** "Right now we are just planning roadmap and next steps"
 - **The plan** for M6, M7 and M8 in the roadmap. **Accepted.**
+
+## 2026-10-31: The app opening with every agent session
+
+- **The complaint.** **Dan:** "This app feels like a virus it keeps popping up lets clean up and do housekeeping it shouldnt even be installed right now". Claude Code had Halfnine at user scope, and `halfnine mcp` opened the app as soon as any session started, before any tool was called.
+- **Halfnine's data on this Mac.** **Chose:** "Delete all of it": the app, its data and backups, its Keychain entry, and Claude Code's registration of it. **Not chosen:** keep backups and passwords; keep everything.
+- **The cause in the product.** **Chose:** "Fix it before 0.3.0": open the app only when an agent first calls a tool, and answer the tool list without it. **Not chosen:** put it on the roadmap; leave it.
+- **When the fix proved bigger** (both of the library's ways of opening a session have to be answered). **Chose:** "Do it, as designed". **Not chosen:** open the app hidden at session start, quitting when the last agent leaves; stop for now.
