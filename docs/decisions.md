@@ -134,3 +134,17 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Whose changes rules check.** **Chose:** "Agents enforced, you warned": an agent's change that breaks a rule never commits; the person's own commit shows the rule, with Commit anyway. **Not chosen:** agents only; everyone, no exceptions.
 - **Trying a change before asking.** **Chose:** "Only Halfnine's own changes": an agent's change_rows and change_structure are tried against the rules in a transaction that's rolled back, before the person is asked; run_sql never runs before approval and is checked at commit. **Not chosen:** never before approval; every change, run_sql too.
 - **The plan** for Rules (six kinds, checked in the change's own transaction, suggestions from the data, shown to agents in describe). **Accepted.**
+
+## 2026-10-31: After Rules
+
+- **The ask.** **Dan:** "Brainstorm features that are useful when i ask you anything database related | Think of types of requests i mean we have docker database creation and undos created for databases etc idk man help me out | We have relational databases covered think of all the types of databases and what can be useful to have on this applciation as features and idk what else"
+- **Picking the type of database.** Dan pasted a table of nine kinds of database (relational, document, key-value, wide-column, graph, search, time-series, analytical, vector). **Dan:** "What about selecting the type of db idk think of what apple would design for developers"
+  - **Asked:** how to pick a type when making a database. **Chose:** "By purpose". **Dan:** "Ok but what if it isnt for docker, people want an engine, we can steer for recommendations but idk howi t would be best if in the UI or in the request right". **Not chosen:** by engine; no picker, with one image carrying every extension.
+  - **Asked:** how picking should work in the window and for agents. **Chose:** "Engine tabs, purpose inside". **Dan:** "This assumes most people dont know what they want already... this will bloat the app wont it... maybe you are right... My question is not what should we put here is when or if we should at all and how". **Not chosen:** purpose first with an engine menu; engines only, with the agent steering.
+  - **Asked:** whether to have a picker at all, and when. **Chose:** "Only when needed": nothing until M7, when the Version menu grows to list the images with extensions, and later other engines. A loaded file that needs an extension picks an image that has it, and agents name what they need. This supersedes the two choices above. **Not chosen:** agents only; engine tabs with purposes; decide at M7.
+- **Which kinds of database.** **Chose:** all four: the PostgreSQL family, SQLite, Redis, and MongoDB and others.
+- **Which features.** **Chose:** Health, Agent import, Roles and RLS, Seed data. **Dan:** "We need to cover PGAdmin features for any database but having a design like Apple would do it"
+- **What comes first.** **Chose:** "M6 pgAdmin for Postgres". **Not chosen:** M7, purpose and the Postgres family; M8, other engines.
+- **Schema Diff.** **Chose:** "Keep it scrapped". **Not chosen:** bring it back in M6.
+- **Planning only.** **Dan:** "Right now we are just planning roadmap and next steps"
+- **The plan** for M6, M7 and M8 in the roadmap. **Accepted.**
