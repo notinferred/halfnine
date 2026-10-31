@@ -19,6 +19,10 @@ Turn on Docker databases in Settings, or at the first launch, and the Postgres c
 
 With backups on, as they are unless you turn them off in Settings, dropping or emptying a table, dropping a column, or deleting a Docker database backs it up first and acts at once, with Undo at the foot of the window. Backups stay on the Docker page until you delete them. A table bigger than the limit in Settings, or one Halfnine can't back up, asks for its name instead.
 
+## Rules
+
+A table's Structure view has a Rules section, where you say what correct data is: a column is always filled, is one of a few values, stays between bounds, or has a matching row in another table; the table only grows; or your own query finds the rows that break a rule. Halfnine suggests rules from patterns in the data, and tries each on the data before it's added. An agent's change that breaks a rule never commits, and the agent is told which rule. Your own commit that breaks one shows it, with Commit anyway.
+
 ## Use with AI agents
 
 Halfnine is also an MCP server, so Claude Code, Codex, Cursor, VS Code and Claude Desktop can use your connections through it. Open Agents, at the foot of the sidebar or the connections screen, choose Connect next to your tool, and Halfnine shows what it will change before it adds itself. Or add it by hand; on macOS:

@@ -1,10 +1,12 @@
 # Roadmap
 
-## Where things stand (2026-10-30)
+## Where things stand (2026-10-31)
 
 M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry.
 
-The next step of M5 is built on the branch `m5-docker`, not yet merged or released: Docker databases, copies, backups with Undo, agents making and deleting their own databases, and a short first-launch setup. CI passed the Postgres and Docker tests for it. It waits for Dan's check, then a release. Migrations as files, and the M1 and M2 leftovers, come after.
+- **0.3.0 is built on `m5-docker`** and waits for Dan's check of beta 3, then a release: Docker databases, copies, backups with Undo, agents making and deleting their own databases, several connections open at once, Copy URL, and a short first-launch setup. CI passed its Postgres and Docker tests.
+- **Rules are built on `rules`**, which starts from `m5-docker`: what correct data is, per table, which an agent's change must keep to commit. CI passed their Postgres and agent tests. They come after 0.3.0, once Dan has tried them in a beta.
+- The M1 and M2 leftovers come after.
 
 ## M0: Foundation
 
@@ -172,12 +174,19 @@ Dan's decisions are in `docs/decisions.md` under 2026-10-30.
   4. Drop a table: the note appears, and Undo brings it back with its rows.
   5. In a new Claude Code session, ask for a fresh database: it appears marked with Claude Code's name, and the agent uses it and deletes it.
 - [ ] **Windows,** from a release build: the engine's named pipe, making a database, a dump.
-- [ ] **The installer measured again,** from the release build: it must stay under 15 MB.
+- [x] **The installer measured again,** from the beta builds: 4.6 MB for macOS and 4.1 MB for Windows, under the 15 MB limit.
 
-### Next in M5
+### Rules that define right (built 2026-10-31, on `rules`)
 
-- **Migrations, not direct DDL:** when the agent's project has migrations (Drizzle, Prisma, sqlx and others, found through the project folder the agent shares by MCP roots), a schema change becomes a migration file in that project rather than a direct change to the database. Direct DDL is only for databases nothing owns, such as a scratch Docker database.
-- **Copies on other servers,** with `CREATE DATABASE … TEMPLATE`; copies are for Docker databases for now, by Dan's choice.
+Dan's thesis and choices are in `docs/decisions.md` under 2026-10-31. The features planned before them (agent work as a pull request, migrations as files, anonymized copies, comparing databases, field labels, a Boundaries page) were scrapped.
+
+- [x] **Six kinds of rule** per table: always filled, one of a set of values, between bounds, has a matching row, only grows, and the person's own query. Each in words, kept in `rules.json` by connection and database.
+- [x] **Checked in the change's own transaction,** only on the tables it touched, read-only, within five seconds. An agent's change that breaks one never commits; the person's own commit warns, with Commit anyway.
+- [x] **Tried before asking:** an agent's `change_rows` or `change_structure` that would wait for approval is first tried in a transaction that's rolled back; `run_sql` is only checked at commit.
+- [x] **Suggested from the data,** from Postgres's statistics or the first 10,000 rows, each with its evidence, and tried on the data before it's added.
+- [x] **Agents see the rules** in `describe`, with hidden columns' values left out.
+- [x] **Copies and restores keep their rules.**
+- [ ] **Dan's check,** in a beta: add a suggested rule, have Claude Code break it and see the refusal, then break it yourself and choose Commit anyway.
 
 ## Next, in the order Dan chooses
 
