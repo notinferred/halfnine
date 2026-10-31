@@ -141,3 +141,7 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Halfnine's data on this Mac.** **Chose:** "Delete all of it": the app, its data and backups, its Keychain entry, and Claude Code's registration of it. **Not chosen:** keep backups and passwords; keep everything.
 - **The cause in the product.** **Chose:** "Fix it before 0.3.0": open the app only when an agent first calls a tool, and answer the tool list without it. **Not chosen:** put it on the roadmap; leave it.
 - **When the fix proved bigger** (both of the library's ways of opening a session have to be answered). **Chose:** "Do it, as designed". **Not chosen:** open the app hidden at session start, quitting when the last agent leaves; stop for now.
+
+## 2026-10-31: Releasing 0.3.0
+
+- **Which release.** **Dan:** "Lets release new progress to git". **Chose:** "Publish 0.3.0 now": merge `m5-docker` into main, tag v0.3.0 and publish it once the builds pass, without his check of a beta. **Not chosen:** a beta 4 draft first; beta 4 plus a Rules beta.
