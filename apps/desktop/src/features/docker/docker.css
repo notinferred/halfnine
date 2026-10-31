@@ -71,3 +71,11 @@
   max-height: 240px;
   overflow: auto;
 }
+
+.docker-value {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -141,6 +141,27 @@ pub async fn delete_docker_database(state: State<'_, AppState>, name: String, wi
         .await
 }
 
+/// The URL a program connects to a Docker database with, its password written in, for the window to put on the
+/// clipboard when someone presses Copy URL. It is the only command that returns a password.
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_database_url(state: State<'_, AppState>, name: String) -> Result<String, Error> {
+    let spec = state
+        .docker
+        .connections()
+        .into_iter()
+        .find(|c| c.name == name)
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("Docker doesn't list {name} any more.")))?;
+    if state.docker.container(&name).and_then(|c| c.port).is_none() {
+        return Err(Error::new(
+            ErrorKind::Invalid,
+            format!("{name} publishes no port, so nothing on this computer can connect to it."),
+        ));
+    }
+    let secrets = state.docker.secrets(&name).await?;
+    Ok(hn_core::url(&spec, secrets.password.as_deref()))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn dismiss_docker_job(state: State<'_, AppState>, name: String) -> Result<(), Error> {

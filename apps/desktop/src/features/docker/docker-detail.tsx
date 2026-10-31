@@ -2,6 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type AgentAccess, commands, type DockerDatabase, type Label } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
+import { copy } from "../../ui/copy.ts";
+import { showNote } from "../../ui/note.tsx";
 import { AGENT_ACCESS, LABELS } from "../connections/connection-form.tsx";
 
 /** Who made a Docker database, in words, or `null` when Halfnine didn't. */
@@ -11,12 +13,22 @@ export function madeBy(database: DockerDatabase): string | null {
   return source.made.agent ? `made by ${source.made.agent.title}` : "made by Halfnine";
 }
 
+/** Puts a Docker database's URL, password included, on the clipboard, for an .env file or another client. */
+export async function copyUrl(name: string, onError: (message: string) => void) {
+  try {
+    await copy(await commands.dockerDatabaseUrl(name));
+    showNote({ text: `Copied the URL for ${name}, password included.` });
+  } catch (e) {
+    onError(describe(e));
+  }
+}
+
 /** What agents get on a Docker database until a level is picked, as `ConnectionSpec::agent_access` decides it. */
 const defaultAccess = (database: DockerDatabase): AgentAccess => (database.connection.label === "red" ? "off" : madeBy(database) ? "full" : "read");
 
 /**
  * A Docker database: what it runs and where, and what someone sets for it. Its credentials come from its container,
- * so there is nothing to type, and each change applies at once.
+ * so there is nothing to type; Copy URL puts them on the clipboard. Each change applies at once.
  */
 export function DockerDetail(props: { database: DockerDatabase; opening: boolean; openError: string | null; onOpen: () => void }) {
   const { database } = props;
@@ -66,10 +78,16 @@ export function DockerDetail(props: { database: DockerDatabase; opening: boolean
 
       <div className="group">
         <div className="row">
-          <span className="row-label">Sign in</span>
-          <span className="field-note">
-            {spec.user} on {spec.database}, with the password its container was made with.
-          </span>
+          <span className="row-label">User</span>
+          <span className="docker-value mono">{spec.user}</span>
+        </div>
+        <div className="row">
+          <span className="row-label">Database</span>
+          <span className="docker-value mono">{spec.database}</span>
+        </div>
+        <div className="row">
+          <span className="row-label">Password</span>
+          <span className="docker-value muted">•••••••• · in its container, never saved by Halfnine</span>
         </div>
       </div>
 
@@ -130,6 +148,9 @@ export function DockerDetail(props: { database: DockerDatabase; opening: boolean
         <p role="status" className={`connection-status ${status ? "status-error" : "muted"}`}>
           {status}
         </p>
+        <button type="button" className="btn" disabled={busy || database.port === null} onClick={() => void copyUrl(spec.name, setError)}>
+          Copy URL
+        </button>
         {database.running ? (
           <button type="button" className="btn" disabled={busy} onClick={() => void act(() => commands.stopDockerDatabase(spec.name))}>
             Stop

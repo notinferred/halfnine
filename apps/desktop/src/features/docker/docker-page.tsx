@@ -7,7 +7,7 @@ import { useWorkspace } from "../../state.ts";
 import { showNote } from "../../ui/note.tsx";
 import { noteUndo } from "../workspace/backup-note.ts";
 import { BackupsView } from "./backups-view.tsx";
-import { madeBy } from "./docker-detail.tsx";
+import { copyUrl, madeBy } from "./docker-detail.tsx";
 import { NewDatabaseSheet } from "./new-database.tsx";
 import "../queries/queries.css";
 import "./docker.css";
@@ -263,8 +263,17 @@ function DatabaseRow(props: {
               Start
             </button>
           )}
-          <button type="button" className="btn btn-quiet" title="Copy it before risky work" onClick={() => setCopying(`${name}-copy`)}>
+          <button type="button" className="btn btn-quiet" title="Make a copy before risky work" onClick={() => setCopying(`${name}-copy`)}>
             Copy
+          </button>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            disabled={database.port === null}
+            title="Copy its URL, password included"
+            onClick={() => void copyUrl(name, (message) => showNote({ text: message, error: true }))}
+          >
+            Copy URL
           </button>
           <button type="button" className="btn btn-quiet" onClick={() => void remove(false)}>
             {props.asks ? "Delete…" : "Delete"}

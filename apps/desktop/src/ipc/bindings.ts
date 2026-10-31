@@ -128,6 +128,11 @@ export const commands = {
 	 *  open on it is closed once the backup is made.
 	 */
 	deleteDockerDatabase: (name: string, withoutBackup: boolean) => __TAURI_INVOKE<DeleteDone>("delete_docker_database", { name, withoutBackup }),
+	/**
+	 *  The URL a program connects to a Docker database with, its password written in, for the window to put on the
+	 *  clipboard when someone presses Copy URL. It is the only command that returns a password.
+	 */
+	dockerDatabaseUrl: (name: string) => __TAURI_INVOKE<string>("docker_database_url", { name }),
 	dismissDockerJob: (name: string) => __TAURI_INVOKE<null>("dismiss_docker_job", { name }),
 	/**  Starts copying a Docker database into a new one. It returns at once; its progress shows on the Docker page. */
 	copyDockerDatabase: (source: string, name: string) => __TAURI_INVOKE<null>("copy_docker_database", { source, name }),
