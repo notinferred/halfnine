@@ -4,7 +4,7 @@
 
 M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry.
 
-- **0.3.0 is built on `m5-docker`** and waits for Dan's check of beta 3, then a release: Docker databases, copies, backups with Undo, agents making and deleting their own databases, several connections open at once, Copy URL, and a short first-launch setup. CI passed its Postgres and Docker tests.
+- **0.3.0 is built on `m5-docker`** and waits for a beta 4 and Dan's check of it, then a release. It has Docker databases, copies, backups with Undo, agents making and deleting their own databases, several connections open at once, Copy URL, and a short first-launch setup. Since beta 3, the app opens only when an agent calls a tool. CI passed its Postgres and Docker tests.
 - **Rules are built on `rules`**, which starts from `m5-docker`: what correct data is, per table, which an agent's change must keep to commit. CI passed their Postgres and agent tests. They come after 0.3.0, once Dan has tried them in a beta.
 - The M1 and M2 leftovers come after.
 - **Planned on 2026-10-31, after Rules, in this order:**
