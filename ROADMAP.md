@@ -1,10 +1,15 @@
 # Roadmap
 
-## Where things stand (2026-10-30)
+## Where things stand (2026-10-31)
 
-M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry.
+M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.3.0 is published and listed in the official MCP Registry. It has Docker databases, copies, backups with Undo, agents making and deleting their own databases, several connections open at once, Copy URL, a short first-launch setup, and the app opening only when an agent calls a tool. It shipped before Dan's check, by his choice.
 
-The next step of M5 is built on the branch `m5-docker`, not yet merged or released: Docker databases, copies, backups with Undo, agents making and deleting their own databases, and a short first-launch setup. CI passed the Postgres and Docker tests for it. It waits for Dan's check, then a release. Migrations as files, and the M1 and M2 leftovers, come after.
+- **Rules are built on `rules`**, which starts from 0.3.0: what correct data is, per table, which an agent's change must keep to commit. CI passed their Postgres and agent tests. They come next, once Dan has tried them in a beta.
+- The M1 and M2 leftovers come after.
+- **Planned on 2026-10-31, after Rules, in this order:**
+  - **M6:** what pgAdmin does for PostgreSQL, the Apple way.
+  - **M7:** the rest of the PostgreSQL family (vectors, time series, maps) and the hosts that speak Postgres.
+  - **M8:** other engines, one at a time.
 
 ## M0: Foundation
 
@@ -153,7 +158,7 @@ Dan chose to release sooner: this step, then v0.2.0 with agents, then the rest o
 - [ ] **mcp.so and Smithery:** submitted by Dan through their sites, with the text Claude wrote.
 - [x] **A Claude Desktop extension** (`.mcpb`), built with each release; the MCP Registry lists it.
 
-### Docker databases, copies and backups (built 2026-10-30, on `m5-docker`)
+### Docker databases, copies and backups (released in v0.3.0, 2026-10-31)
 
 Dan's decisions are in `docs/decisions.md` under 2026-10-30.
 
@@ -166,26 +171,88 @@ Dan's decisions are in `docs/decisions.md` under 2026-10-30.
 - [x] **Several connections open at once,** after Dan's first look at the beta: the connection at the top of the sidebar is a menu of those open in the window, with Open another (⌘O) and Close. Each keeps its tabs and staged changes, and the connections screen offers Back to the one before.
 - [x] **Fixed on the way:** CSV exports write empty text apart from NULL; the Structure view shows PostgreSQL 18's virtual generated columns; two databases made at once no longer pick the same port.
 - [x] **The app opens only when an agent calls a tool,** after Dan found it opening with every Claude Code session: while the app is closed, `halfnine mcp` answers the session's opening and the list of tools itself, from the app's own definitions, then opens the app and hands it the session.
-- [ ] **Dan's check,** the M3 way, with his OK at the time:
+- [ ] **Dan's check,** the M3 way, with his OK at the time. 0.3.0 was published before it, by Dan's choice ("Publish 0.3.0 now"):
   1. The first launch shows the setup.
   2. Docker Desktop's containers are listed under Docker and connect with a double-click.
   3. Make one on 18 with an SQL file, copy it, delete it, then Undo.
   4. Drop a table: the note appears, and Undo brings it back with its rows.
   5. In a new Claude Code session, ask for a fresh database: it appears marked with Claude Code's name, and the agent uses it and deletes it.
 - [ ] **Windows,** from a release build: the engine's named pipe, making a database, a dump.
-- [ ] **The installer measured again,** from the release build: it must stay under 15 MB.
+- [x] **The installer measured again,** from the v0.3.0 release: 4.7 MB for macOS and 4.2 MB for Windows, under the 15 MB limit.
+- [x] **v0.3.0 published** (2026-10-31). The official MCP Registry lists `io.github.notinferred/halfnine` 0.3.0 as its latest, published by `registry.yml` when the release was.
 
-### Next in M5
+### Rules that define right (built 2026-10-31, on `rules`)
 
-- **Migrations, not direct DDL:** when the agent's project has migrations (Drizzle, Prisma, sqlx and others, found through the project folder the agent shares by MCP roots), a schema change becomes a migration file in that project rather than a direct change to the database. Direct DDL is only for databases nothing owns, such as a scratch Docker database.
-- **Copies on other servers,** with `CREATE DATABASE … TEMPLATE`; copies are for Docker databases for now, by Dan's choice.
+Dan's thesis and choices are in `docs/decisions.md` under 2026-10-31. The features planned before them (agent work as a pull request, migrations as files, anonymized copies, comparing databases, field labels, a Boundaries page) were scrapped.
+
+- [x] **Six kinds of rule** per table: always filled, one of a set of values, between bounds, has a matching row, only grows, and the person's own query. Each in words, kept in `rules.json` by connection and database.
+- [x] **Checked in the change's own transaction,** only on the tables it touched, read-only, within five seconds. An agent's change that breaks one never commits; the person's own commit warns, with Commit anyway.
+- [x] **Tried before asking:** an agent's `change_rows` or `change_structure` that would wait for approval is first tried in a transaction that's rolled back; `run_sql` is only checked at commit.
+- [x] **Suggested from the data,** from Postgres's statistics or the first 10,000 rows, each with its evidence, and tried on the data before it's added.
+- [x] **Agents see the rules** in `describe`, with hidden columns' values left out.
+- [x] **Copies and restores keep their rules.**
+- [ ] **Dan's check,** in a beta: add a suggested rule, have Claude Code break it and see the refusal, then break it yourself and choose Commit anyway.
+
+## M6: What pgAdmin does for PostgreSQL, the Apple way
+
+Dan's choices are in `docs/decisions.md` under "2026-10-31: After Rules". M6 covers pgAdmin's jobs, not its dialogs:
+- A new kind of place becomes a page in the sidebar's footer.
+- Each action sits beside the evidence that calls for it.
+- Every change goes through the same staged Review SQL.
+
+- [ ] **Health,** a page and an agent tool, both read-only:
+  - The slowest statements, from pg_stat_statements when it's installed.
+  - Missing and unused indexes, bloat and cache hits.
+  - Lock waits, long transactions and sizes.
+  - VACUUM, ANALYZE and REINDEX are offered beside what calls for them.
+- [ ] **Access,** a page:
+  - Roles, membership, grants, default privileges and row-level security policies.
+  - Changes go through Review SQL.
+  - View as role runs a read-only query as that role, to show what it sees.
+- [ ] **Every object, not only tables:**
+  - Views, materialized views (with Refresh), functions, triggers, sequences, types, domains, constraints, extensions and schemas.
+  - Each shows its definition, and changes are staged.
+  - "What uses this" lists what depends on it.
+- [ ] **A schema diagram,** drawn from the foreign keys.
+- [ ] **Dump and restore for any server,** not only Docker databases.
+- [ ] **Server settings,** read-only, each with what it does.
+- [ ] **Agent import:** a CSV, JSON or Parquet file from the project goes into a new or existing table in one transaction, with the rules checked.
+- [ ] **Seed data:** an agent fills a table with realistic rows that keep its foreign keys and rules.
+- **Left out:**
+  - Schema Diff, since comparing two databases stays scrapped.
+  - The PL/pgSQL debugger and pgAgent jobs.
+
+## M7: The PostgreSQL family
+
+- [ ] **Docker images with extensions:** pgvector, TimescaleDB and PostGIS, besides the official image.
+- [ ] **No type picker until there's something to pick.**
+  - New database's Version menu grows to list PostgreSQL 18 down to 14, then each image with an extension. In M8 it lists the other engines too. There are no tabs and no templates.
+  - Loading a file that needs an extension picks an image that has it, without asking.
+  - An agent's `create_database` names the extension or engine it needs.
+- [ ] **Views that know the type:**
+  - Vectors: their dimensions, and a nearest-neighbour search.
+  - JSONB: a tree, and filtering by path.
+  - Geometry: shapes drawn without map tiles, which the content security policy forbids.
+  - Hypertables.
+- [ ] **Connect by recognising:** a pasted URL or a dropped file names its own engine.
+- [ ] **Hosts tested:** Supabase, Neon, RDS and Aurora, Cloud SQL and CockroachDB. The tests include poolers in transaction mode, against the prepared statements the editor relies on.
+
+## M8: Other engines, one at a time
+
+Each engine is an adapter for `Database` (`crates/core/src/database.rs`).
+
+- [ ] **One shape for every engine:** the same places (Data, Structure, Query, Sessions, Health, Access, Backups). Each engine fills what it has, and what it lacks isn't shown.
+- [ ] **Each engine's safety comes first.**
+  - Read-only, agents' access levels, hidden values, and backups before anything destructive are designed for that engine.
+  - Each is written into CLAUDE.md's guarantees before the engine ships, because most of today's guarantees are PostgreSQL mechanisms. For example, MySQL can't back a table up in its drop's own transaction, and Redis has no SQL.
+- [ ] **Engines, in the order Dan chooses when M8 starts:** SQLite (with Cloudflare D1), Redis, MongoDB, MySQL and MariaDB, then DuckDB and others.
+- [ ] **The budgets measured again after each engine:** an installer under 15 MB and a light idle footprint.
+- When a second engine ships, Dan decides whether Halfnine is still described as "a PostgreSQL client".
 
 ## Next, in the order Dan chooses
 
 - An auto-updater.
 - Multiple windows.
-- Dump and restore for remote servers.
-- MySQL and SQLite through `Database`.
 - Signing.
 - Homebrew and winget.
 - A website.
