@@ -30,6 +30,7 @@ use tokio::sync::watch;
 use crate::backups::{AgentCall, Backups, Holds};
 use crate::commands::{SessionInfo, now_ms, open_with};
 use crate::connections::Directory;
+use crate::rules::Rules;
 use crate::sessions::{Session, Sessions};
 use crate::settings::Settings;
 use activity::{ActivityEntry, ActivityLog, Call, Done, Outcome};
@@ -273,6 +274,8 @@ pub struct Agents {
     /// Requests to delete a Docker database, by its connection's name, one at a time for each.
     deletions: Mutex<HashMap<String, databases::DeletionRequest>>,
     backups: Arc<Backups>,
+    /// The rules each database's data must keep, which every agent write is checked against.
+    rules: Arc<Rules>,
     wait: Duration,
 }
 
@@ -291,9 +294,11 @@ impl Agents {
         settings: Arc<Settings>,
         sessions: Arc<Sessions>,
         backups: Arc<Backups>,
+        rules: Arc<Rules>,
         desk: Arc<dyn Desk>,
     ) -> Self {
         Self {
+            rules,
             directory,
             sessions,
             desk,
@@ -947,6 +952,27 @@ impl Agents {
                 }
             };
         }
+        // Halfnine's own changes are tried against the rules first, in a transaction that's rolled back, so one that
+        // breaks a rule is refused before the person is asked. Statements an agent wrote never run before approval.
+        if let Work::Changes(changes) = &staged.work
+            && let Some(table) = &staged.table
+        {
+            let rules = self.rules.in_database(&spec.id, &info.server.database);
+            if rules.iter().any(|r| r.check.tables(&r.table).contains(&table)) {
+                let checks = Checks {
+                    rules,
+                    hidden: spec.hidden_in(&info.server.database),
+                    dry_run: true,
+                };
+                if let Err(error) = session.db.commit(changes, &checks).await
+                    && error.kind == ErrorKind::BrokenRule
+                {
+                    let reply = Reply::from(for_agents(error, true));
+                    self.ended(&call, &reply);
+                    return reply;
+                }
+            }
+        }
         let id = match self.propose(agent, mcp_session, &call, info, staged) {
             Ok(id) => id,
             Err(reply) => {
@@ -959,6 +985,23 @@ impl Agents {
             self.end(&call, Outcome::Waiting, None, None, None, None);
         }
         reply
+    }
+}
+
+/// A broken rule as an agent reads it: what to do next, and when Halfnine found it by trying the change, that the
+/// person wasn't asked.
+fn for_agents(error: Error, tried: bool) -> Error {
+    if error.kind != ErrorKind::BrokenRule {
+        return error;
+    }
+    let tried = if tried {
+        " Halfnine tried it in a transaction it rolled back, so the person wasn't asked."
+    } else {
+        ""
+    };
+    Error {
+        message: format!("{}{tried} Change it so the rule holds, or ask the person about the rule.", error.message),
+        ..error
     }
 }
 
@@ -1004,6 +1047,22 @@ impl Agents {
     /// Runs work an agent may do: a commit of staged changes, backed up first when it drops or empties a table or
     /// drops a column and backups are on, or statements in one transaction, which may not read a hidden column.
     async fn run(&self, session: &Session, work: &Work, rows: usize, hidden: &[ColumnRef], agent: &Agent, call: &str) -> Result<Ran, Error> {
+        let checks = self.rules.checks(&session.connection.id, &session.database, hidden.to_vec(), false);
+        let ran = self.run_checked(session, work, rows, hidden, agent, call, &checks).await;
+        ran.map_err(|error| for_agents(error, false))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_checked(
+        &self,
+        session: &Session,
+        work: &Work,
+        rows: usize,
+        hidden: &[ColumnRef],
+        agent: &Agent,
+        call: &str,
+        checks: &Checks,
+    ) -> Result<Ran, Error> {
         match work {
             Work::Changes(changes) => {
                 let choices = self.settings.get();
@@ -1016,7 +1075,7 @@ impl Agents {
                 };
                 let done = self
                     .backups
-                    .commit(&choices, session, changes, Some(by), !choices.backups, &Checks::NONE)
+                    .commit(&choices, session, changes, Some(by), !choices.backups, checks)
                     .await
                     .map_err(|error| match error.kind {
                         ErrorKind::NoBackup => Error {
@@ -1041,7 +1100,7 @@ impl Agents {
             }
             Work::Statements(statements) => {
                 let started = Instant::now();
-                let results = session.db.execute(statements, hidden, &Checks::NONE).await?;
+                let results = session.db.execute(statements, hidden, checks).await?;
                 Ok(Ran {
                     statements: results.len() as u32,
                     rows: results.iter().map(|r| f64::from(r.rows_affected)).sum(),

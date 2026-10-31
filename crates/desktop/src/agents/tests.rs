@@ -91,8 +91,9 @@ fn world(url: Option<&str>) -> World {
     let directory = Arc::new(crate::connections::Directory::new(store, passwords.clone(), docker));
     crate::secrets::use_test_store();
     let backups = Arc::new(crate::backups::Backups::open(&dir, passwords.clone()).unwrap());
-    let agents =
-        Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), backups, desk.clone()).waiting_at_most(Duration::from_millis(300));
+    let rules = Arc::new(crate::rules::Rules::open(&dir).unwrap());
+    let agents = Agents::new(&dir, directory, settings, Arc::new(Sessions::default()), backups, rules, desk.clone())
+        .waiting_at_most(Duration::from_millis(300));
     World {
         agents: Arc::new(agents),
         desk,
@@ -656,4 +657,59 @@ async fn backups_come_before_an_agent_drops_or_empties_anything() {
         .find(|e| e.tool == "change_structure")
         .expect("the drop is in the activity list");
     assert_eq!(entry.backup.as_deref(), Some(backup.id.as_str()), "and offers to put it back");
+}
+
+#[tokio::test]
+async fn an_agents_change_that_breaks_a_rule_never_commits() {
+    let Some(url) = database_url() else { return };
+    let database = hn_core::parse_url(&url).unwrap().database;
+    let world = world(Some(&url));
+    let client = client(&world.agents, "claude-code").await;
+    scratch(&client, "agent_ruled").await;
+    let table = hn_core::TableRef {
+        schema: "hn_fixture".into(),
+        name: "agent_ruled".into(),
+    };
+    let check = hn_core::RuleCheck::OneOf {
+        column: "body".into(),
+        values: vec!["one".into(), "two".into(), "three".into()],
+    };
+    for connection in ["id-full", "id-approved"] {
+        let rule = hn_core::Rule {
+            id: format!("rule-{connection}"),
+            words: check.sentence(&table, true).unwrap(),
+            table: table.clone(),
+            check: check.clone(),
+            source: hn_core::RuleSource::Written,
+            added_ms: 0.0,
+        };
+        world.agents.rules.add(connection, &database, rule).unwrap();
+    }
+    let insert = |connection: &str, body: &str| {
+        json!({
+            "connection": connection,
+            "table": {"schema": "hn_fixture", "name": "agent_ruled"},
+            "insert": [{"id": 3, "body": body}],
+        })
+    };
+
+    let (text, _) = call(&client, "change_rows", insert("full", "nope")).await;
+    assert!(text.starts_with("REFUSED Nothing was written"), "{text}");
+    assert!(text.contains("body is one of one, two and three") && text.contains("id = 3"), "{text}");
+    assert!(text.contains("Change it so the rule holds"), "{text}");
+
+    let (text, _) = call(&client, "change_rows", insert("approved", "nope")).await;
+    assert!(text.starts_with("REFUSED") && text.contains("the person wasn't asked"), "{text}");
+    assert_eq!(world.desk.forward.load(Ordering::SeqCst), 0, "the window didn't come forward");
+    assert!(world.agents.state().proposals.is_empty());
+
+    // Statements an agent wrote never run before approval, so the rule stops them at commit.
+    let statements = json!({"connection": "approved", "statements": ["INSERT INTO hn_fixture.agent_ruled VALUES (4, 'nope')"]});
+    let (text, _) = call(&client, "run_sql", statements).await;
+    assert!(text.starts_with("WAITING"), "{text}");
+    let proposal = pending(&world.agents);
+    assert_eq!(world.agents.approve(&proposal.id, false).await.unwrap_err().kind, ErrorKind::BrokenRule);
+
+    let (text, _) = call(&client, "change_rows", insert("full", "three")).await;
+    assert!(text.starts_with("OK Committed"), "a change that keeps the rule commits: {text}");
 }

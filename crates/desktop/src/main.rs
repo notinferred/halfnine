@@ -83,6 +83,7 @@ fn main() {
                 settings.clone(),
                 sessions.clone(),
                 backups.clone(),
+                rules.clone(),
                 desk,
             ));
             tauri::async_runtime::spawn(agents::listen::listen(agents.clone(), dir.clone()));
