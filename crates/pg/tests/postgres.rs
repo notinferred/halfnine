@@ -1125,34 +1125,34 @@ fn checks(rules: Vec<hn_core::Rule>) -> Checks {
 }
 
 /// Invoices that must name a known customer, keep a known status and never go below zero.
-async fn ruled(db: &PgDatabase) {
+async fn ruled(db: &PgDatabase, p: &str) {
     let made = db
-        .run(&statements(&[
-            "DROP TABLE IF EXISTS hn_fixture.rule_invoices, hn_fixture.rule_customers, hn_fixture.rule_ledger",
-            "CREATE TABLE hn_fixture.rule_customers (id int PRIMARY KEY)",
-            "CREATE TABLE hn_fixture.rule_invoices (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)",
-            "CREATE TABLE hn_fixture.rule_ledger (id int PRIMARY KEY, note text)",
-            "INSERT INTO hn_fixture.rule_customers VALUES (1)",
-            "INSERT INTO hn_fixture.rule_invoices VALUES (1, 'draft', 10, 1)",
-            "INSERT INTO hn_fixture.rule_ledger VALUES (1, NULL)",
-        ]))
+        .run(&[
+            format!("DROP TABLE IF EXISTS hn_fixture.{p}_invoices, hn_fixture.{p}_customers, hn_fixture.{p}_ledger"),
+            format!("CREATE TABLE hn_fixture.{p}_customers (id int PRIMARY KEY)"),
+            format!("CREATE TABLE hn_fixture.{p}_invoices (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)"),
+            format!("CREATE TABLE hn_fixture.{p}_ledger (id int PRIMARY KEY, note text)"),
+            format!("INSERT INTO hn_fixture.{p}_customers VALUES (1)"),
+            format!("INSERT INTO hn_fixture.{p}_invoices VALUES (1, 'draft', 10, 1)"),
+            format!("INSERT INTO hn_fixture.{p}_ledger VALUES (1, NULL)"),
+        ])
         .await
         .unwrap();
     assert!(made.failed.is_none(), "{:?}", made.failed);
 }
 
-fn invoice_rules() -> Vec<hn_core::Rule> {
+fn invoice_rules(p: &str) -> Vec<hn_core::Rule> {
     use hn_core::RuleCheck;
     vec![
         rule(
-            "rule_invoices",
+            &format!("{p}_invoices"),
             RuleCheck::OneOf {
                 column: "status".into(),
                 values: vec!["draft".into(), "sent".into(), "paid".into()],
             },
         ),
         rule(
-            "rule_invoices",
+            &format!("{p}_invoices"),
             RuleCheck::Between {
                 column: "amount".into(),
                 at_least: Some("0".into()),
@@ -1160,34 +1160,35 @@ fn invoice_rules() -> Vec<hn_core::Rule> {
             },
         ),
         rule(
-            "rule_invoices",
+            &format!("{p}_invoices"),
             RuleCheck::HasMatch {
                 column: "customer_id".into(),
-                target: table("rule_customers"),
+                target: table(&format!("{p}_customers")),
                 target_column: "id".into(),
             },
         ),
     ]
 }
 
-async fn invoice_count(db: &PgDatabase) -> String {
-    let counted = db.read("SELECT count(*) FROM hn_fixture.rule_invoices", 1, &[]).await.unwrap();
+async fn invoice_count(db: &PgDatabase, p: &str) -> String {
+    let counted = db.read(&format!("SELECT count(*) FROM hn_fixture.{p}_invoices"), 1, &[]).await.unwrap();
     counted.rows[0][0].clone().unwrap_or_default()
 }
 
 #[tokio::test]
 async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
     let Some(db) = connect(false).await else { return };
-    ruled(&db).await;
-    let checks = checks(invoice_rules());
-    let insert = |values: &str| statements(&[&format!("INSERT INTO hn_fixture.rule_invoices VALUES {values}")]);
+    let p = "rule_refuse";
+    ruled(&db, p).await;
+    let checks = checks(invoice_rules(p));
+    let insert = |values: &str| vec![format!("INSERT INTO hn_fixture.{p}_invoices VALUES {values}")];
 
     for (values, words, row) in [
         ("(2, 'void', 5, 1)", "status is one of draft, sent and paid", "id = 2"),
         ("(3, 'sent', -1, 1)", "amount is at least 0", "id = 3"),
         (
             "(4, 'paid', 1, 99)",
-            "every customer_id in rule_invoices has a row in rule_customers",
+            "every customer_id in rule_refuse_invoices has a row in rule_refuse_customers",
             "id = 4",
         ),
     ] {
@@ -1195,16 +1196,16 @@ async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
         assert_eq!(error.kind, ErrorKind::BrokenRule, "{}", error.message);
         assert!(error.message.contains(words) && error.message.contains(row), "{}", error.message);
     }
-    assert_eq!(invoice_count(&db).await, "1", "nothing was written");
+    assert_eq!(invoice_count(&db, p).await, "1", "nothing was written");
     db.execute(&insert("(5, 'sent', 3, 1)"), &[], &checks).await.unwrap();
-    assert_eq!(invoice_count(&db).await, "2");
+    assert_eq!(invoice_count(&db, p).await, "2");
 
-    let orphaning = statements(&["DELETE FROM hn_fixture.rule_customers WHERE id = 1"]);
+    let orphaning = vec![format!("DELETE FROM hn_fixture.{p}_customers WHERE id = 1")];
     let error = db.execute(&orphaning, &[], &checks).await.unwrap_err();
     assert_eq!(error.kind, ErrorKind::BrokenRule, "removing the row a rule matches breaks it");
 
     let staged = Changes::Rows {
-        table: table("rule_invoices"),
+        table: table(&format!("{p}_invoices")),
         deletes: vec![],
         updates: vec![],
         inserts: vec![vec![
@@ -1220,7 +1221,7 @@ async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
         ..checks.clone()
     };
     let fine = Changes::Rows {
-        table: table("rule_invoices"),
+        table: table(&format!("{p}_invoices")),
         deletes: vec![],
         updates: vec![],
         inserts: vec![vec![
@@ -1231,19 +1232,20 @@ async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
         restores: vec![],
     };
     db.commit(&fine, &tried).await.unwrap();
-    assert_eq!(invoice_count(&db).await, "2", "a dry run writes nothing");
+    assert_eq!(invoice_count(&db, p).await, "2", "a dry run writes nothing");
 }
 
 #[tokio::test]
 async fn checks_only_the_rules_on_tables_a_change_touched() {
     let Some(db) = connect(false).await else { return };
-    ruled(&db).await;
-    let filled = rule("rule_ledger", hn_core::RuleCheck::AlwaysFilled { column: "note".into() });
+    let p = "rule_touch";
+    ruled(&db, p).await;
+    let filled = rule(&format!("{p}_ledger"), hn_core::RuleCheck::AlwaysFilled { column: "note".into() });
     let checks = checks(vec![filled]);
     // The ledger already breaks its rule, which a change to another table doesn't trip over.
-    let elsewhere = statements(&["INSERT INTO hn_fixture.rule_customers VALUES (2)"]);
+    let elsewhere = vec![format!("INSERT INTO hn_fixture.{p}_customers VALUES (2)")];
     db.execute(&elsewhere, &[], &checks).await.unwrap();
-    let here = statements(&["INSERT INTO hn_fixture.rule_ledger VALUES (2, 'kept')"]);
+    let here = vec![format!("INSERT INTO hn_fixture.{p}_ledger VALUES (2, 'kept')")];
     let error = db.execute(&here, &[], &checks).await.unwrap_err();
     assert!(
         error.message.contains("note is always filled") && error.message.contains("id = 1"),
@@ -1255,9 +1257,10 @@ async fn checks_only_the_rules_on_tables_a_change_touched() {
 #[tokio::test]
 async fn a_table_that_only_grows_refuses_changes_removals_and_emptying() {
     let Some(db) = connect(false).await else { return };
-    ruled(&db).await;
-    let checks = checks(vec![rule("rule_ledger", hn_core::RuleCheck::OnlyGrows)]);
-    let ledger = table("rule_ledger");
+    let p = "rule_grow";
+    ruled(&db, p).await;
+    let checks = checks(vec![rule(&format!("{p}_ledger"), hn_core::RuleCheck::OnlyGrows)]);
+    let ledger = table(&format!("{p}_ledger"));
     // A pooled connection may still hold the counts of the update before, which don't count against the insert after.
     let rows = |updates: Vec<RowUpdate>, inserts: Vec<Vec<ColumnValue>>| Changes::Rows {
         table: ledger.clone(),
@@ -1278,10 +1281,10 @@ async fn a_table_that_only_grows_refuses_changes_removals_and_emptying() {
     let insert = vec![value("id", Some("3")), value("note", Some("added"))];
     db.commit(&rows(vec![], vec![insert]), &checks).await.unwrap();
     for refused in [
-        "UPDATE hn_fixture.rule_ledger SET note = 'changed'",
-        "DELETE FROM hn_fixture.rule_ledger WHERE id = 3",
+        format!("UPDATE hn_fixture.{p}_ledger SET note = 'changed'"),
+        format!("DELETE FROM hn_fixture.{p}_ledger WHERE id = 3"),
     ] {
-        let error = db.execute(&statements(&[refused]), &[], &checks).await.unwrap_err();
+        let error = db.execute(std::slice::from_ref(&refused), &[], &checks).await.unwrap_err();
         assert_eq!(error.kind, ErrorKind::BrokenRule, "{refused}: {}", error.message);
     }
     for emptied in [vec![StructureChange::Truncate], vec![StructureChange::Drop]] {
@@ -1294,7 +1297,8 @@ async fn a_table_that_only_grows_refuses_changes_removals_and_emptying() {
 #[tokio::test]
 async fn a_rules_own_query_writes_nothing_and_stops_in_time() {
     let Some(db) = connect(false).await else { return };
-    ruled(&db).await;
+    let p = "rule_own";
+    ruled(&db, p).await;
     let made = db
         .run(&statements(&["CREATE SEQUENCE IF NOT EXISTS hn_fixture.rule_counter"]))
         .await
@@ -1302,14 +1306,14 @@ async fn a_rules_own_query_writes_nothing_and_stops_in_time() {
     assert!(made.failed.is_none());
     let custom = |sql: &str| {
         rule(
-            "rule_ledger",
+            &format!("{p}_ledger"),
             hn_core::RuleCheck::Custom {
                 sql: sql.into(),
                 reads: vec![],
             },
         )
     };
-    let add = statements(&["INSERT INTO hn_fixture.rule_ledger VALUES (4, 'four')"]);
+    let add = vec![format!("INSERT INTO hn_fixture.{p}_ledger VALUES (4, 'four')")];
     let writing = checks(vec![custom("SELECT nextval('hn_fixture.rule_counter') WHERE false")]);
     let error = db.execute(&add, &[], &writing).await.unwrap_err();
     assert!(error.message.contains("couldn't check it"), "a rule can't write: {}", error.message);

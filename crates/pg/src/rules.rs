@@ -20,14 +20,15 @@ pub(crate) const TIME: Duration = Duration::from_secs(5);
 /// How many rows that break a rule it names.
 const EXAMPLES: usize = 3;
 
-/// Each table's writes so far in this transaction, summed over its partitions, and the files that hold it.
+/// Each table's writes so far in this transaction, summed over the table and its partitions, and the files that hold
+/// them. `pg_partition_tree` lists nothing for a table that isn't partitioned, so the table itself is always added.
 const TABLES: &str = "SELECT t.schema, t.name, c.oid IS NOT NULL, \
      coalesce(sum(s.n_tup_ins + s.n_tup_upd + s.n_tup_del), 0)::int8, coalesce(sum(s.n_tup_upd + s.n_tup_del), 0)::int8, \
      coalesce(string_agg(p.relfilenode::text, ',' ORDER BY p.oid), '') \
      FROM unnest($1::text[], $2::text[]) AS t(schema, name) \
      LEFT JOIN pg_namespace n ON n.nspname = t.schema \
      LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = t.name \
-     LEFT JOIN LATERAL pg_partition_tree(c.oid) AS tree ON true \
+     LEFT JOIN LATERAL (SELECT c.oid AS relid UNION SELECT relid FROM pg_partition_tree(c.oid)) AS tree ON c.oid IS NOT NULL \
      LEFT JOIN pg_class p ON p.oid = tree.relid \
      LEFT JOIN pg_stat_xact_user_tables s ON s.relid = tree.relid \
      GROUP BY t.schema, t.name, c.oid";
