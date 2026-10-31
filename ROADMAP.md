@@ -2,10 +2,9 @@
 
 ## Where things stand (2026-10-31)
 
-M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.2.0 is published with the agent core and the safety step, and is listed in the official MCP Registry.
+M0 to M3 are done. M4 is done on macOS: the installed app opens in under half a second and idles at about 86 MB; Windows is still to be measured. v0.3.0 is published and listed in the official MCP Registry. It has Docker databases, copies, backups with Undo, agents making and deleting their own databases, several connections open at once, Copy URL, a short first-launch setup, and the app opening only when an agent calls a tool. It shipped before Dan's check, by his choice.
 
-- **0.3.0 is built on `m5-docker`** and waits for a beta 4 and Dan's check of it, then a release. It has Docker databases, copies, backups with Undo, agents making and deleting their own databases, several connections open at once, Copy URL, and a short first-launch setup. Since beta 3, the app opens only when an agent calls a tool. CI passed its Postgres and Docker tests.
-- **Rules are built on `rules`**, which starts from `m5-docker`: what correct data is, per table, which an agent's change must keep to commit. CI passed their Postgres and agent tests. They come after 0.3.0, once Dan has tried them in a beta.
+- **Rules are built on `rules`**, which starts from 0.3.0: what correct data is, per table, which an agent's change must keep to commit. CI passed their Postgres and agent tests. They come next, once Dan has tried them in a beta.
 - The M1 and M2 leftovers come after.
 - **Planned on 2026-10-31, after Rules, in this order:**
   - **M6:** what pgAdmin does for PostgreSQL, the Apple way.
@@ -159,7 +158,7 @@ Dan chose to release sooner: this step, then v0.2.0 with agents, then the rest o
 - [ ] **mcp.so and Smithery:** submitted by Dan through their sites, with the text Claude wrote.
 - [x] **A Claude Desktop extension** (`.mcpb`), built with each release; the MCP Registry lists it.
 
-### Docker databases, copies and backups (built 2026-10-30, on `m5-docker`)
+### Docker databases, copies and backups (released in v0.3.0, 2026-10-31)
 
 Dan's decisions are in `docs/decisions.md` under 2026-10-30.
 
@@ -172,14 +171,15 @@ Dan's decisions are in `docs/decisions.md` under 2026-10-30.
 - [x] **Several connections open at once,** after Dan's first look at the beta: the connection at the top of the sidebar is a menu of those open in the window, with Open another (⌘O) and Close. Each keeps its tabs and staged changes, and the connections screen offers Back to the one before.
 - [x] **Fixed on the way:** CSV exports write empty text apart from NULL; the Structure view shows PostgreSQL 18's virtual generated columns; two databases made at once no longer pick the same port.
 - [x] **The app opens only when an agent calls a tool,** after Dan found it opening with every Claude Code session: while the app is closed, `halfnine mcp` answers the session's opening and the list of tools itself, from the app's own definitions, then opens the app and hands it the session.
-- [ ] **Dan's check,** the M3 way, with his OK at the time:
+- [ ] **Dan's check,** the M3 way, with his OK at the time. 0.3.0 was published before it, by Dan's choice ("Publish 0.3.0 now"):
   1. The first launch shows the setup.
   2. Docker Desktop's containers are listed under Docker and connect with a double-click.
   3. Make one on 18 with an SQL file, copy it, delete it, then Undo.
   4. Drop a table: the note appears, and Undo brings it back with its rows.
   5. In a new Claude Code session, ask for a fresh database: it appears marked with Claude Code's name, and the agent uses it and deletes it.
 - [ ] **Windows,** from a release build: the engine's named pipe, making a database, a dump.
-- [x] **The installer measured again,** from the beta builds: 4.6 MB for macOS and 4.1 MB for Windows, under the 15 MB limit.
+- [x] **The installer measured again,** from the v0.3.0 release: 4.7 MB for macOS and 4.2 MB for Windows, under the 15 MB limit.
+- [x] **v0.3.0 published** (2026-10-31). The official MCP Registry lists `io.github.notinferred/halfnine` 0.3.0 as its latest, published by `registry.yml` when the release was.
 
 ### Rules that define right (built 2026-10-31, on `rules`)
 
