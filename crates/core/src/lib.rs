@@ -7,6 +7,7 @@ mod connection;
 mod data;
 mod database;
 mod error;
+mod rules;
 
 pub use backup::{
     ColumnDefinition, GeneratedDefinition, IdentityDefinition, NamedDefinition, RestoreInto, SequenceDefinition, TableDefinition, TableSink,
@@ -23,6 +24,7 @@ pub use data::{
 };
 pub use database::{ByteSource, Database, RowSink};
 pub use error::{Error, ErrorKind};
+pub use rules::{Checks, Rule, RuleCheck, RuleSource, Suggestion};
 
 /// One line of CSV as Postgres's own CSV reader reads it back: NULL as an empty field and empty text as `""`. A value is
 /// quoted when it must be, including `\.` alone, which Postgres would otherwise take for the end of the data.

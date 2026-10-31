@@ -34,6 +34,8 @@ pub enum ErrorKind {
     Docker,
     /// Nothing was dropped, emptied or deleted, because Halfnine couldn't back it up first. The message says why.
     NoBackup,
+    /// Nothing was written, because the change broke a rule the person set, or Halfnine couldn't check one in time.
+    BrokenRule,
 }
 
 impl Error {

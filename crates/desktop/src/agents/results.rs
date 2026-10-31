@@ -65,7 +65,7 @@ impl From<Error> for Reply {
         let status = match error.kind {
             ErrorKind::Conflict => Status::Conflict,
             // A rule Halfnine or Postgres keeps, such as one statement at a time or a hidden column.
-            ErrorKind::ReadOnly | ErrorKind::Invalid | ErrorKind::NoBackup => Status::Refused,
+            ErrorKind::ReadOnly | ErrorKind::Invalid | ErrorKind::NoBackup | ErrorKind::BrokenRule => Status::Refused,
             _ => Status::Error,
         };
         let code = error.code.map(|c| format!(" (SQLSTATE {c})")).unwrap_or_default();
