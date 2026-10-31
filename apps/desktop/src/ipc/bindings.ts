@@ -468,7 +468,9 @@ export type ErrorKind = "network" | "timeout" | "auth" |
 /**  The Docker engine on this computer couldn't be reached, or refused. */
 "docker" | 
 /**  Nothing was dropped, emptied or deleted, because Halfnine couldn't back it up first. The message says why. */
-"noBackup";
+"noBackup" | 
+/**  Nothing was written, because the change broke a rule the person set, or Halfnine couldn't check one in time. */
+"brokenRule";
 
 export type ExportDone = {
 	rows: number | null,

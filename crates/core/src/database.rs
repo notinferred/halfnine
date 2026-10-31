@@ -7,6 +7,7 @@ use crate::data::{
     Structure, TableRef,
 };
 use crate::error::Error;
+use crate::rules::Checks;
 
 /// What the app needs from a database. Each adapter (Postgres today) implements it; the app depends only on this.
 pub trait Database: Send + Sync {
@@ -33,8 +34,9 @@ pub trait Database: Send + Sync {
 
     /// The statements `changes` would run, written out for someone to read before committing them.
     fn review(&self, changes: &Changes) -> impl Future<Output = Result<Vec<String>, Error>> + Send;
-    /// Runs `changes` in one transaction. A row that changed after it was loaded rolls back everything, as does any error.
-    fn commit(&self, changes: &Changes) -> impl Future<Output = Result<Committed, Error>> + Send;
+    /// Runs `changes` in one transaction. A row that changed after it was loaded rolls back everything, as does any error,
+    /// and so does breaking one of the rules in `checks`, which are checked just before it commits.
+    fn commit(&self, changes: &Changes, checks: &Checks) -> impl Future<Output = Result<Committed, Error>> + Send;
     /// Up to 50 values of `column` in `table` that match `search`, to pick one for a foreign key.
     fn choices(&self, table: &TableRef, column: &str, search: &str) -> impl Future<Output = Result<Vec<Choice>, Error>> + Send;
     /// Adds every row of a CSV file to `table` in one transaction, and returns how many there were. The file's first
@@ -53,8 +55,13 @@ pub trait Database: Send + Sync {
     fn read(&self, statement: &str, limit: u32, hidden: &[ColumnRef]) -> impl Future<Output = Result<StatementResult, Error>> + Send;
     /// Statements an agent sent, each exactly one, in one transaction on a connection of their own that is closed
     /// afterwards, so nothing they set outlasts them. Any error rolls back all of them, and so does a statement that
-    /// reads a `hidden` column.
-    fn execute(&self, statements: &[String], hidden: &[ColumnRef]) -> impl Future<Output = Result<Vec<StatementResult>, Error>> + Send;
+    /// reads a `hidden` column, or breaks one of the rules in `checks`.
+    fn execute(
+        &self,
+        statements: &[String],
+        hidden: &[ColumnRef],
+        checks: &Checks,
+    ) -> impl Future<Output = Result<Vec<StatementResult>, Error>> + Send;
     /// Every foreign key between the database's own tables.
     fn references(&self) -> impl Future<Output = Result<Vec<Reference>, Error>> + Send;
 
@@ -68,6 +75,7 @@ pub trait Database: Send + Sync {
         changes: &Changes,
         table: &TableRef,
         sink: &mut dyn TableSink,
+        checks: &Checks,
     ) -> impl Future<Output = Result<Committed, Error>> + Send;
     /// The statements a restore runs, for someone to read first.
     fn review_restore(&self, definition: &TableDefinition, into: &RestoreInto) -> impl Future<Output = Result<Vec<String>, Error>> + Send;

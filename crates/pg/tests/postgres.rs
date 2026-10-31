@@ -2,8 +2,8 @@
 //! without that variable these tests report that they were skipped and pass, so a laptop never needs a database.
 
 use hn_core::{
-    ByteSource, Cell, CellChange, Changes, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, NewColumn, PageRequest,
-    RelationKind, RowSink, RowUpdate, Sort, StructureChange, TableRef, TlsMode,
+    ByteSource, Cell, CellChange, Changes, Checks, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, NewColumn,
+    PageRequest, RelationKind, RowSink, RowUpdate, Sort, StructureChange, TableRef, TlsMode,
 };
 use hn_pg::{PgDatabase, Secrets};
 
@@ -457,13 +457,13 @@ fn structure(table: &TableRef, changes: Vec<StructureChange>) -> Changes {
 /// A table of the test's own, so tests that write never touch what other tests read.
 async fn scratch(db: &PgDatabase, name: &str) -> TableRef {
     let scratch = table(name);
-    let _ = db.commit(&structure(&scratch, vec![StructureChange::Drop])).await;
+    let _ = db.commit(&structure(&scratch, vec![StructureChange::Drop]), &Checks::NONE).await;
     let columns = vec![
         new_column("id", "bigint", Some("generated always as identity"), true),
         new_column("body", "text", None, false),
         new_column("n", "integer", None, false),
     ];
-    db.commit(&structure(&scratch, vec![StructureChange::CreateTable { columns }]))
+    db.commit(&structure(&scratch, vec![StructureChange::CreateTable { columns }]), &Checks::NONE)
         .await
         .unwrap();
     scratch
@@ -495,7 +495,7 @@ async fn commits_staged_rows_and_refuses_a_row_that_moved_on() {
             vec![value("body", Some(""))],
         ],
     );
-    assert_eq!(db.commit(&insert).await.unwrap().statements, 3);
+    assert_eq!(db.commit(&insert, &Checks::NONE).await.unwrap().statements, 3);
     assert_eq!(bodies(&page().await.unwrap()), [Some("first".into()), None, Some(String::new())]);
 
     let update = |from: &str, to: &str| {
@@ -513,25 +513,31 @@ async fn commits_staged_rows_and_refuses_a_row_that_moved_on() {
             vec![],
         )
     };
-    db.commit(&update("first", "second")).await.unwrap();
+    db.commit(&update("first", "second"), &Checks::NONE).await.unwrap();
     // Loaded as "first", but it says "second" now, as if another session had changed it.
-    assert_eq!(db.commit(&update("first", "third")).await.unwrap_err().kind, ErrorKind::Conflict);
+    assert_eq!(
+        db.commit(&update("first", "third"), &Checks::NONE).await.unwrap_err().kind,
+        ErrorKind::Conflict
+    );
     assert_eq!(bodies(&page().await.unwrap())[0].as_deref(), Some("second"));
 
     let failing = rows(vec![vec![value("id", Some("2"))]], vec![], vec![vec![value("n", Some("many"))]]);
-    let error = db.commit(&failing).await.unwrap_err();
+    let error = db.commit(&failing, &Checks::NONE).await.unwrap_err();
     assert_eq!(error.code.as_deref(), Some("22P02"));
     assert!(error.message.starts_with("Adding new row 1 failed, so nothing was written"));
     assert_eq!(page().await.unwrap().rows.len(), 3, "the delete before it was rolled back");
 
     let twice = rows(vec![vec![value("id", Some("2"))], vec![value("id", Some("2"))]], vec![], vec![]);
-    assert_eq!(db.commit(&twice).await.unwrap_err().kind, ErrorKind::Conflict);
+    assert_eq!(db.commit(&twice, &Checks::NONE).await.unwrap_err().kind, ErrorKind::Conflict);
     let generated = rows(vec![], vec![], vec![vec![value("id", Some("9"))]]);
-    assert_eq!(db.commit(&generated).await.unwrap_err().kind, ErrorKind::Invalid);
+    assert_eq!(db.commit(&generated, &Checks::NONE).await.unwrap_err().kind, ErrorKind::Invalid);
 
     let Some(read_only) = connect(true).await else { return };
-    assert_eq!(read_only.commit(&update("second", "fifth")).await.unwrap_err().kind, ErrorKind::ReadOnly);
-    db.commit(&structure(&notes, vec![StructureChange::Drop])).await.unwrap();
+    assert_eq!(
+        read_only.commit(&update("second", "fifth"), &Checks::NONE).await.unwrap_err().kind,
+        ErrorKind::ReadOnly
+    );
+    db.commit(&structure(&notes, vec![StructureChange::Drop]), &Checks::NONE).await.unwrap();
 }
 
 #[tokio::test]
@@ -563,7 +569,7 @@ async fn changes_structure_in_one_transaction() {
             column: new_column("made", "timestamptz", Some("now()"), false),
         },
     ];
-    assert_eq!(db.commit(&structure(&t, changes)).await.unwrap().statements, 6);
+    assert_eq!(db.commit(&structure(&t, changes), &Checks::NONE).await.unwrap().statements, 6);
     let s = db.structure(&t).await.unwrap();
     let state = s.columns.iter().find(|c| c.name == "state").unwrap();
     assert_eq!((state.type_name.as_str(), state.nullable), ("character varying(20)", false));
@@ -578,7 +584,7 @@ async fn changes_structure_in_one_transaction() {
             to: "no_such_type".into(),
         },
     ];
-    let error = db.commit(&structure(&t, broken)).await.unwrap_err();
+    let error = db.commit(&structure(&t, broken), &Checks::NONE).await.unwrap_err();
     assert!(error.message.starts_with("Changing the type of state failed"));
     assert!(
         db.structure(&t).await.unwrap().columns.iter().any(|c| c.name == "made"),
@@ -589,11 +595,11 @@ async fn changes_structure_in_one_transaction() {
         column: "state".into(),
         to: Some("'x'; DROP TABLE hn_fixture.customers".into()),
     }];
-    assert!(db.commit(&structure(&t, smuggled)).await.is_err());
+    assert!(db.commit(&structure(&t, smuggled), &Checks::NONE).await.is_err());
     assert!(db.structure(&table("customers")).await.is_ok());
 
-    db.commit(&structure(&t, vec![StructureChange::Truncate])).await.unwrap();
-    db.commit(&structure(&t, vec![StructureChange::Drop])).await.unwrap();
+    db.commit(&structure(&t, vec![StructureChange::Truncate]), &Checks::NONE).await.unwrap();
+    db.commit(&structure(&t, vec![StructureChange::Drop]), &Checks::NONE).await.unwrap();
     assert_eq!(db.structure(&t).await.unwrap_err().kind, ErrorKind::NotFound);
 }
 
@@ -643,7 +649,7 @@ async fn imports_csv_in_one_transaction_keeping_null_apart_from_empty() {
     let Some(read_only) = connect(true).await else { return };
     let refused = read_only.import(&t, &[Some("n".into())], b',', &mut Pieces::of("n\n4\n")).await;
     assert_eq!(refused.unwrap_err().kind, ErrorKind::ReadOnly);
-    db.commit(&structure(&t, vec![StructureChange::Drop])).await.unwrap();
+    db.commit(&structure(&t, vec![StructureChange::Drop]), &Checks::NONE).await.unwrap();
 }
 
 #[tokio::test]
@@ -746,6 +752,7 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
                 "SET search_path = nowhere",
             ]),
             &[],
+            &Checks::NONE,
         )
         .await
         .unwrap();
@@ -760,6 +767,7 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
                 "INSERT INTO hn_fixture.nowhere VALUES (1)",
             ]),
             &[],
+            &Checks::NONE,
         )
         .await
         .unwrap_err();
@@ -768,13 +776,13 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
     assert_eq!(bodies(&page), [Some("a".to_string()), Some("b".to_string())]);
 
     for refused in ["COMMIT", "  /* why */ begin", "SAVEPOINT x", "COPY hn_fixture.customers TO STDOUT"] {
-        let error = db.execute(&statements(&[refused]), &[]).await.unwrap_err();
+        let error = db.execute(&statements(&[refused]), &[], &Checks::NONE).await.unwrap_err();
         assert_eq!(error.kind, ErrorKind::Invalid, "{refused}");
     }
 
     let Some(read_only) = connect(true).await else { return };
     let refused = read_only
-        .execute(&statements(&[&format!("INSERT INTO {name} (body) VALUES ('d')")]), &[])
+        .execute(&statements(&[&format!("INSERT INTO {name} (body) VALUES ('d')")]), &[], &Checks::NONE)
         .await
         .unwrap_err();
     assert_eq!(refused.code.as_deref(), Some("25006"));
@@ -838,13 +846,18 @@ async fn refuses_a_query_that_computes_with_a_hidden_column() {
         );
     }
     let error = db
-        .execute(&statements(&["UPDATE hn_fixture.customers SET name = email WHERE id = 1"]), &email())
+        .execute(
+            &statements(&["UPDATE hn_fixture.customers SET name = email WHERE id = 1"]),
+            &email(),
+            &Checks::NONE,
+        )
         .await
         .unwrap_err();
     assert!(error.message.contains("is hidden from agents"), "{}", error.message);
     db.execute(
         &statements(&["UPDATE hn_fixture.customers SET name = name WHERE id = 1", "SELECT 1"]),
         &email(),
+        &Checks::NONE,
     )
     .await
     .unwrap();
@@ -861,7 +874,7 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
         inserts: vec![vec![value("body", Some("first"))], vec![value("body", Some("second"))]],
         restores: vec![],
     };
-    let added = db.commit(&insert).await.unwrap().inserted;
+    let added = db.commit(&insert, &Checks::NONE).await.unwrap().inserted;
     assert_eq!(added.len(), 2);
     let first = added[0].clone();
     let delete = Changes::Rows {
@@ -871,7 +884,7 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
         inserts: vec![],
         restores: vec![],
     };
-    db.commit(&delete).await.unwrap();
+    db.commit(&delete, &Checks::NONE).await.unwrap();
     let mut back = first.clone();
     back.push(value("body", Some("first")));
     let restore = Changes::Rows {
@@ -881,7 +894,7 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
         inserts: vec![],
         restores: vec![back],
     };
-    assert_eq!(db.commit(&restore).await.unwrap().inserted, [first]);
+    assert_eq!(db.commit(&restore, &Checks::NONE).await.unwrap().inserted, [first]);
     let page = db.page(&request(&scratch.name, None, None, 0, 10)).await.unwrap();
     assert_eq!(bodies(&page), [Some("first".to_string()), Some("second".to_string())]);
 }
@@ -985,7 +998,7 @@ async fn puts_a_dropped_table_back_as_it_was() {
     assert!(db.backup_size(&t, &hn_core::RestoreInto::Recreate).await.unwrap() > 0.0);
 
     let mut kept = Kept::default();
-    db.commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept)
+    db.commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept, &Checks::NONE)
         .await
         .unwrap();
     assert!(kept.finished);
@@ -1027,7 +1040,7 @@ async fn refills_an_emptied_table_without_firing_its_triggers() {
     let rows = every_row(&db, &t).await;
 
     let mut kept = Kept::default();
-    db.commit_with_backup(&structure(&t, vec![StructureChange::Truncate]), &t, &mut kept)
+    db.commit_with_backup(&structure(&t, vec![StructureChange::Truncate]), &t, &mut kept, &Checks::NONE)
         .await
         .unwrap();
     assert!(every_row(&db, &t).await.is_empty());
@@ -1048,7 +1061,9 @@ async fn puts_dropped_columns_back_with_their_index_check_and_foreign_key() {
 
     let mut kept = Kept::default();
     let drops = ["note", "code"].map(|c| StructureChange::DropColumn { column: c.into() });
-    db.commit_with_backup(&structure(&t, drops.to_vec()), &t, &mut kept).await.unwrap();
+    db.commit_with_backup(&structure(&t, drops.to_vec()), &t, &mut kept, &Checks::NONE)
+        .await
+        .unwrap();
     let definition = kept.definition.unwrap();
     let into = hn_core::RestoreInto::Columns {
         names: vec!["note".into(), "code".into()],
@@ -1081,7 +1096,7 @@ async fn a_backup_that_fails_leaves_the_table_untouched() {
         ..Kept::default()
     };
     let error = db
-        .commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept)
+        .commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept, &Checks::NONE)
         .await
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::NoBackup);
@@ -1091,4 +1106,216 @@ async fn a_backup_that_fails_leaves_the_table_untouched() {
     let partitioned = db.backup_size(&table("events"), &hn_core::RestoreInto::Recreate).await.unwrap_err();
     assert_eq!(partitioned.kind, ErrorKind::Invalid);
     assert!(partitioned.message.contains("partitioned"), "{}", partitioned.message);
+}
+
+fn rule(table: &str, check: hn_core::RuleCheck) -> hn_core::Rule {
+    let table = self::table(table);
+    hn_core::Rule {
+        id: format!("{table:?}-{check:?}"),
+        words: check.sentence(&table, true).unwrap_or_else(|| "the custom rule holds".into()),
+        table,
+        check,
+        source: hn_core::RuleSource::Written,
+        added_ms: 0.0,
+    }
+}
+
+fn checks(rules: Vec<hn_core::Rule>) -> Checks {
+    Checks { rules, ..Checks::default() }
+}
+
+/// Invoices that must name a known customer, keep a known status and never go below zero.
+async fn ruled(db: &PgDatabase) {
+    let made = db
+        .run(&statements(&[
+            "DROP TABLE IF EXISTS hn_fixture.rule_invoices, hn_fixture.rule_customers, hn_fixture.rule_ledger",
+            "CREATE TABLE hn_fixture.rule_customers (id int PRIMARY KEY)",
+            "CREATE TABLE hn_fixture.rule_invoices (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)",
+            "CREATE TABLE hn_fixture.rule_ledger (id int PRIMARY KEY, note text)",
+            "INSERT INTO hn_fixture.rule_customers VALUES (1)",
+            "INSERT INTO hn_fixture.rule_invoices VALUES (1, 'draft', 10, 1)",
+            "INSERT INTO hn_fixture.rule_ledger VALUES (1, NULL)",
+        ]))
+        .await
+        .unwrap();
+    assert!(made.failed.is_none(), "{:?}", made.failed);
+}
+
+fn invoice_rules() -> Vec<hn_core::Rule> {
+    use hn_core::RuleCheck;
+    vec![
+        rule(
+            "rule_invoices",
+            RuleCheck::OneOf {
+                column: "status".into(),
+                values: vec!["draft".into(), "sent".into(), "paid".into()],
+            },
+        ),
+        rule(
+            "rule_invoices",
+            RuleCheck::Between {
+                column: "amount".into(),
+                at_least: Some("0".into()),
+                at_most: None,
+            },
+        ),
+        rule(
+            "rule_invoices",
+            RuleCheck::HasMatch {
+                column: "customer_id".into(),
+                target: table("rule_customers"),
+                target_column: "id".into(),
+            },
+        ),
+    ]
+}
+
+async fn invoice_count(db: &PgDatabase) -> String {
+    let counted = db.read("SELECT count(*) FROM hn_fixture.rule_invoices", 1, &[]).await.unwrap();
+    counted.rows[0][0].clone().unwrap_or_default()
+}
+
+#[tokio::test]
+async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
+    let Some(db) = connect(false).await else { return };
+    ruled(&db).await;
+    let checks = checks(invoice_rules());
+    let insert = |values: &str| statements(&[&format!("INSERT INTO hn_fixture.rule_invoices VALUES {values}")]);
+
+    for (values, words, row) in [
+        ("(2, 'void', 5, 1)", "status is one of draft, sent and paid", "id = 2"),
+        ("(3, 'sent', -1, 1)", "amount is at least 0", "id = 3"),
+        (
+            "(4, 'paid', 1, 99)",
+            "every customer_id in rule_invoices has a row in rule_customers",
+            "id = 4",
+        ),
+    ] {
+        let error = db.execute(&insert(values), &[], &checks).await.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::BrokenRule, "{}", error.message);
+        assert!(error.message.contains(words) && error.message.contains(row), "{}", error.message);
+    }
+    assert_eq!(invoice_count(&db).await, "1", "nothing was written");
+    db.execute(&insert("(5, 'sent', 3, 1)"), &[], &checks).await.unwrap();
+    assert_eq!(invoice_count(&db).await, "2");
+
+    let orphaning = statements(&["DELETE FROM hn_fixture.rule_customers WHERE id = 1"]);
+    let error = db.execute(&orphaning, &[], &checks).await.unwrap_err();
+    assert_eq!(error.kind, ErrorKind::BrokenRule, "removing the row a rule matches breaks it");
+
+    let staged = Changes::Rows {
+        table: table("rule_invoices"),
+        deletes: vec![],
+        updates: vec![],
+        inserts: vec![vec![
+            value("id", Some("6")),
+            value("status", Some("lost")),
+            value("customer_id", Some("1")),
+        ]],
+        restores: vec![],
+    };
+    assert_eq!(db.commit(&staged, &checks).await.unwrap_err().kind, ErrorKind::BrokenRule);
+    let tried = Checks {
+        dry_run: true,
+        ..checks.clone()
+    };
+    let fine = Changes::Rows {
+        table: table("rule_invoices"),
+        deletes: vec![],
+        updates: vec![],
+        inserts: vec![vec![
+            value("id", Some("7")),
+            value("status", Some("paid")),
+            value("customer_id", Some("1")),
+        ]],
+        restores: vec![],
+    };
+    db.commit(&fine, &tried).await.unwrap();
+    assert_eq!(invoice_count(&db).await, "2", "a dry run writes nothing");
+}
+
+#[tokio::test]
+async fn checks_only_the_rules_on_tables_a_change_touched() {
+    let Some(db) = connect(false).await else { return };
+    ruled(&db).await;
+    let filled = rule("rule_ledger", hn_core::RuleCheck::AlwaysFilled { column: "note".into() });
+    let checks = checks(vec![filled]);
+    // The ledger already breaks its rule, which a change to another table doesn't trip over.
+    let elsewhere = statements(&["INSERT INTO hn_fixture.rule_customers VALUES (2)"]);
+    db.execute(&elsewhere, &[], &checks).await.unwrap();
+    let here = statements(&["INSERT INTO hn_fixture.rule_ledger VALUES (2, 'kept')"]);
+    let error = db.execute(&here, &[], &checks).await.unwrap_err();
+    assert!(
+        error.message.contains("note is always filled") && error.message.contains("id = 1"),
+        "{}",
+        error.message
+    );
+}
+
+#[tokio::test]
+async fn a_table_that_only_grows_refuses_changes_removals_and_emptying() {
+    let Some(db) = connect(false).await else { return };
+    ruled(&db).await;
+    let checks = checks(vec![rule("rule_ledger", hn_core::RuleCheck::OnlyGrows)]);
+    let ledger = table("rule_ledger");
+    // A pooled connection may still hold the counts of the update before, which don't count against the insert after.
+    let rows = |updates: Vec<RowUpdate>, inserts: Vec<Vec<ColumnValue>>| Changes::Rows {
+        table: ledger.clone(),
+        deletes: vec![],
+        updates,
+        inserts,
+        restores: vec![],
+    };
+    let update = RowUpdate {
+        key: vec![value("id", Some("1"))],
+        cells: vec![CellChange {
+            column: "note".into(),
+            from: None,
+            to: Some("before".into()),
+        }],
+    };
+    db.commit(&rows(vec![update], vec![]), &Checks::NONE).await.unwrap();
+    let insert = vec![value("id", Some("3")), value("note", Some("added"))];
+    db.commit(&rows(vec![], vec![insert]), &checks).await.unwrap();
+    for refused in [
+        "UPDATE hn_fixture.rule_ledger SET note = 'changed'",
+        "DELETE FROM hn_fixture.rule_ledger WHERE id = 3",
+    ] {
+        let error = db.execute(&statements(&[refused]), &[], &checks).await.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::BrokenRule, "{refused}: {}", error.message);
+    }
+    for emptied in [vec![StructureChange::Truncate], vec![StructureChange::Drop]] {
+        let error = db.commit(&structure(&ledger, emptied), &checks).await.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::BrokenRule, "{}", error.message);
+    }
+    assert!(db.structure(&ledger).await.is_ok(), "the ledger is still there");
+}
+
+#[tokio::test]
+async fn a_rules_own_query_writes_nothing_and_stops_in_time() {
+    let Some(db) = connect(false).await else { return };
+    ruled(&db).await;
+    let made = db
+        .run(&statements(&["CREATE SEQUENCE IF NOT EXISTS hn_fixture.rule_counter"]))
+        .await
+        .unwrap();
+    assert!(made.failed.is_none());
+    let custom = |sql: &str| {
+        rule(
+            "rule_ledger",
+            hn_core::RuleCheck::Custom {
+                sql: sql.into(),
+                reads: vec![],
+            },
+        )
+    };
+    let add = statements(&["INSERT INTO hn_fixture.rule_ledger VALUES (4, 'four')"]);
+    let writing = checks(vec![custom("SELECT nextval('hn_fixture.rule_counter') WHERE false")]);
+    let error = db.execute(&add, &[], &writing).await.unwrap_err();
+    assert!(error.message.contains("couldn't check it"), "a rule can't write: {}", error.message);
+    let slow = checks(vec![custom("SELECT 1 FROM pg_sleep(6)")]);
+    let error = db.execute(&add, &[], &slow).await.unwrap_err();
+    assert!(error.message.contains("within 5 seconds"), "{}", error.message);
+    let holds = checks(vec![custom("SELECT 1 WHERE false")]);
+    db.execute(&add, &[], &holds).await.unwrap();
 }

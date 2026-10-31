@@ -21,7 +21,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use hn_core::{AgentAccess, AgentMark, Changes, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
+use hn_core::{AgentAccess, AgentMark, Changes, Checks, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
 use hn_pg::{PgDatabase, Secrets};
 use serde::Serialize;
 use specta::Type;
@@ -1016,7 +1016,7 @@ impl Agents {
                 };
                 let done = self
                     .backups
-                    .commit(&choices, session, changes, Some(by), !choices.backups)
+                    .commit(&choices, session, changes, Some(by), !choices.backups, &Checks::NONE)
                     .await
                     .map_err(|error| match error.kind {
                         ErrorKind::NoBackup => Error {
@@ -1041,7 +1041,7 @@ impl Agents {
             }
             Work::Statements(statements) => {
                 let started = Instant::now();
-                let results = session.db.execute(statements, hidden).await?;
+                let results = session.db.execute(statements, hidden, &Checks::NONE).await?;
                 Ok(Ran {
                     statements: results.len() as u32,
                     rows: results.iter().map(|r| f64::from(r.rows_affected)).sum(),

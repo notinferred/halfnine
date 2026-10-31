@@ -6,6 +6,7 @@ mod changes;
 mod editor;
 mod errors;
 mod hidden;
+mod rules;
 mod sql;
 mod tunnel;
 
@@ -13,9 +14,9 @@ use std::time::{Duration, Instant};
 
 use futures_util::TryStreamExt;
 use hn_core::{
-    Activity, ByteSource, Changes, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind, ExportSource,
-    Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, RunOutcome, SchemaNode, ServerInfo, StatementResult,
-    Structure, StructureChange, TableDefinition, TableRef, TableSink, TlsMode,
+    Activity, ByteSource, Changes, Checks, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind,
+    ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, RunOutcome, SchemaNode, ServerInfo,
+    StatementResult, Structure, StructureChange, TableDefinition, TableRef, TableSink, TlsMode,
 };
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, PgConnection, Postgres, Row, Transaction};
@@ -154,27 +155,7 @@ impl PgDatabase {
     }
 
     async fn columns(&self, table: &TableRef) -> Result<Vec<ColumnMeta>, Error> {
-        let rows = sqlx::query(catalog::PAGE_COLUMNS)
-            .bind(&table.schema)
-            .bind(&table.name)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(from_sqlx)?;
-        if rows.is_empty() {
-            return Err(not_found(table));
-        }
-        rows.iter()
-            .map(|r| {
-                Ok(ColumnMeta {
-                    name: r.try_get(0)?,
-                    type_name: r.try_get(1)?,
-                    key_position: r.try_get(2)?,
-                    generated: r.try_get(3)?,
-                    identity: r.try_get(4)?,
-                })
-            })
-            .collect::<Result<_, sqlx::Error>>()
-            .map_err(from_sqlx)
+        table_columns(&self.pool, table).await
     }
 
     async fn relation_kind(&self, table: &TableRef) -> Result<Option<RelationKind>, Error> {
@@ -208,6 +189,19 @@ impl PgDatabase {
                 changes::structure(table, kind, changes)
             }
         }
+    }
+
+    /// Runs a commit's statements, then checks the rules on the tables they touched.
+    async fn checked_steps(
+        &self,
+        tx: &mut PgConnection,
+        steps: Vec<Step>,
+        checks: &Checks,
+        before: rules::Before,
+    ) -> Result<Vec<Vec<ColumnValue>>, Error> {
+        let inserted = self.run_steps(tx, steps).await?;
+        rules::after(tx, checks, before, self).await?;
+        Ok(inserted)
     }
 
     /// Runs a commit's statements in order, returning the keys of the rows it added. The first that fails, or that
@@ -516,14 +510,24 @@ impl Database for PgDatabase {
         Ok(self.steps(changes).await?.into_iter().map(|step| step.shown).collect())
     }
 
-    async fn commit(&self, changes: &Changes) -> Result<Committed, Error> {
+    async fn commit(&self, changes: &Changes, checks: &Checks) -> Result<Committed, Error> {
         let steps = self.steps(changes).await?;
         let statements = steps.len() as u32;
         let (mut tx, pid) = self.long_transaction(self.read_only).await?;
         let _running = self.running.enter(pid);
         let started = Instant::now();
-        let done = self.run_steps(&mut tx, steps).await;
-        settle(tx, done, statements, started).await
+        if checks.dry_run {
+            // A change tried before the person is asked waits on no one for long.
+            sqlx::raw_sql("SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '15s'")
+                .execute(&mut *tx)
+                .await
+                .map_err(from_sqlx)?;
+        }
+        let done = match rules::baseline(&mut tx, checks).await {
+            Ok(before) => self.checked_steps(&mut tx, steps, checks, before).await,
+            Err(error) => Err(error),
+        };
+        settle(tx, done, statements, started, checks.dry_run).await
     }
 
     async fn backup_size(&self, table: &TableRef, into: &RestoreInto) -> Result<f64, Error> {
@@ -533,21 +537,25 @@ impl Database for PgDatabase {
         size
     }
 
-    async fn commit_with_backup(&self, changes: &Changes, table: &TableRef, sink: &mut dyn TableSink) -> Result<Committed, Error> {
+    async fn commit_with_backup(&self, changes: &Changes, table: &TableRef, sink: &mut dyn TableSink, checks: &Checks) -> Result<Committed, Error> {
         let steps = self.steps(changes).await?;
         let statements = steps.len() as u32;
         let (mut tx, pid) = self.long_transaction(self.read_only).await?;
         let _running = self.running.enter(pid);
         let started = Instant::now();
+        let before = match rules::baseline(&mut tx, checks).await {
+            Ok(before) => before,
+            Err(error) => return settle(tx, Err(error), statements, started, false).await,
+        };
         let done = match self.back_up(&mut tx, table, sink).await {
-            Ok(()) => self.run_steps(&mut tx, steps).await,
+            Ok(()) => self.checked_steps(&mut tx, steps, checks, before).await,
             Err(error) => Err(Error {
                 kind: ErrorKind::NoBackup,
                 message: format!("The backup failed, so nothing changed: {}", error.message),
                 ..error
             }),
         };
-        settle(tx, done, statements, started).await
+        settle(tx, done, statements, started, checks.dry_run).await
     }
 
     async fn review_restore(&self, definition: &TableDefinition, into: &RestoreInto) -> Result<Vec<String>, Error> {
@@ -641,7 +649,7 @@ impl Database for PgDatabase {
         Ok(result)
     }
 
-    async fn execute(&self, statements: &[String], hidden: &[ColumnRef]) -> Result<Vec<StatementResult>, Error> {
+    async fn execute(&self, statements: &[String], hidden: &[ColumnRef], checks: &Checks) -> Result<Vec<StatementResult>, Error> {
         if let Some(word) = statements
             .iter()
             .map(|s| editor::first_word(s))
@@ -655,7 +663,7 @@ impl Database for PgDatabase {
         let mut connection = editor::open(&self.options, self.read_only).await?;
         let executed = {
             let _running = self.running.enter(connection.pid);
-            self.execute_all(&mut connection.conn, statements, hidden).await
+            self.execute_all(&mut connection.conn, statements, hidden, checks).await
         };
         // Closed rather than returned to a pool, so nothing the statements set reaches anything else.
         let _ = sqlx::Connection::close(connection.conn).await;
@@ -678,8 +686,15 @@ impl PgDatabase {
         }
     }
 
-    async fn execute_all(&self, conn: &mut PgConnection, statements: &[String], hidden: &[ColumnRef]) -> Result<Vec<StatementResult>, Error> {
+    async fn execute_all(
+        &self,
+        conn: &mut PgConnection,
+        statements: &[String],
+        hidden: &[ColumnRef],
+        checks: &Checks,
+    ) -> Result<Vec<StatementResult>, Error> {
         self.agent_transaction(conn).await?;
+        let before = rules::baseline(conn, checks).await?;
         let mut results = Vec::with_capacity(statements.len());
         for (index, statement) in statements.iter().enumerate() {
             if !hidden.is_empty() {
@@ -691,7 +706,9 @@ impl PgDatabase {
             })?;
             results.push(result);
         }
-        sqlx::raw_sql("COMMIT").execute(&mut *conn).await.map_err(from_sqlx)?;
+        rules::after(conn, checks, before, self).await?;
+        let end = if checks.dry_run { "ROLLBACK" } else { "COMMIT" };
+        sqlx::raw_sql(end).execute(&mut *conn).await.map_err(from_sqlx)?;
         Ok(results)
     }
 }
@@ -900,10 +917,15 @@ async fn settle(
     done: Result<Vec<Vec<ColumnValue>>, Error>,
     statements: u32,
     started: Instant,
+    dry_run: bool,
 ) -> Result<Committed, Error> {
     match done {
         Ok(inserted) => {
-            tx.commit().await.map_err(from_sqlx)?;
+            if dry_run {
+                tx.rollback().await.map_err(from_sqlx)?;
+            } else {
+                tx.commit().await.map_err(from_sqlx)?;
+            }
             Ok(Committed {
                 statements,
                 elapsed_ms: hn_core::millis(started.elapsed()),
@@ -922,6 +944,31 @@ fn failed(what: &str, error: Error) -> Error {
         message: format!("{what} failed, so nothing was written: {}", error.message),
         ..error
     }
+}
+
+/// A table's columns, through the pool or inside a transaction, which sees what the transaction changed.
+async fn table_columns<'e>(executor: impl sqlx::PgExecutor<'e>, table: &TableRef) -> Result<Vec<ColumnMeta>, Error> {
+    let rows = sqlx::query(catalog::PAGE_COLUMNS)
+        .bind(&table.schema)
+        .bind(&table.name)
+        .fetch_all(executor)
+        .await
+        .map_err(from_sqlx)?;
+    if rows.is_empty() {
+        return Err(not_found(table));
+    }
+    rows.iter()
+        .map(|r| {
+            Ok(ColumnMeta {
+                name: r.try_get(0)?,
+                type_name: r.try_get(1)?,
+                key_position: r.try_get(2)?,
+                generated: r.try_get(3)?,
+                identity: r.try_get(4)?,
+            })
+        })
+        .collect::<Result<_, sqlx::Error>>()
+        .map_err(from_sqlx)
 }
 
 fn not_found(table: &TableRef) -> Error {

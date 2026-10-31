@@ -552,7 +552,7 @@ async fn keeps_the_reverse_of_a_row_change_to_undo() {
     let record = world.agents.undo(&made.call).unwrap();
     let info = world.agents.databases.lock().await.values().next().cloned().unwrap();
     let session = world.agents.sessions.get(&info.session_id).await.unwrap();
-    session.db.commit(&record.changes).await.unwrap();
+    session.db.commit(&record.changes, &hn_core::Checks::NONE).await.unwrap();
     world.agents.undone(&made.call).unwrap();
     assert!(!world.agents.activity(1)[0].undo);
     let (rows, _) = call(

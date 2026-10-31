@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use hn_core::{
-    AgentMark, Cell, Changes, Committed, Database, Error, ErrorKind, PageColumn, RestoreInto, RowSink, StructureChange, TableDefinition, TableRef,
-    TableSink, csv_line,
+    AgentMark, Cell, Changes, Checks, Committed, Database, Error, ErrorKind, PageColumn, RestoreInto, RowSink, StructureChange, TableDefinition,
+    TableRef, TableSink, csv_line,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -151,9 +151,9 @@ impl Backups {
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "That backup has been deleted."))
     }
 
-    /// Commits `changes`, backing up first what they would lose, as `choices` allow. Refuses with
-    /// [`ErrorKind::NoBackup`], saying why, when that can't be backed up, unless `without_backup` says someone
-    /// confirmed going ahead without one.
+    /// Commits `changes`, backing up first what they would lose, as `choices` allow, and keeping the rules in `checks`.
+    /// Refuses with [`ErrorKind::NoBackup`], saying why, when that can't be backed up, unless `without_backup` says
+    /// someone confirmed going ahead without one.
     pub async fn commit(
         &self,
         choices: &Choices,
@@ -161,9 +161,10 @@ impl Backups {
         changes: &Changes,
         by: Option<AgentCall>,
         without_backup: bool,
+        checks: &Checks,
     ) -> Result<CommitDone, Error> {
         let Some((table, into)) = loses(changes).filter(|_| !without_backup) else {
-            let committed = session.db.commit(changes).await?;
+            let committed = session.db.commit(changes, checks).await?;
             return Ok(CommitDone { committed, backup: None });
         };
         let refused = |why: String| Error::new(ErrorKind::NoBackup, why);
@@ -185,7 +186,7 @@ impl Backups {
         let mut files = self.start(session, table, into, by)?;
         let id = files.backup.id.clone();
         let table = files.table.clone();
-        match session.db.commit_with_backup(changes, &table, &mut files).await {
+        match session.db.commit_with_backup(changes, &table, &mut files, checks).await {
             Ok(committed) => Ok(CommitDone {
                 committed,
                 backup: Some(self.get(&id)?),
@@ -588,17 +589,17 @@ mod database_tests {
             backups: false,
             ..Choices::default()
         };
-        let refused = backups.commit(&off, &session, &drop_table(&table), None, false).await;
+        let refused = backups.commit(&off, &session, &drop_table(&table), None, false, &Checks::NONE).await;
         assert_eq!(refused.err().map(|e| e.kind), Some(ErrorKind::NoBackup));
         let small = Choices {
             backup_limit_bytes: Some(1.0),
             ..Choices::default()
         };
-        let refused = backups.commit(&small, &session, &drop_table(&table), None, false).await;
+        let refused = backups.commit(&small, &session, &drop_table(&table), None, false, &Checks::NONE).await;
         assert!(refused.unwrap_err().message.contains("Settings can raise that"));
 
         let done = backups
-            .commit(&Choices::default(), &session, &drop_table(&table), None, false)
+            .commit(&Choices::default(), &session, &drop_table(&table), None, false, &Checks::NONE)
             .await
             .unwrap();
         let backup = done.backup.unwrap();

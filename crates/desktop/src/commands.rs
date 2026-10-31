@@ -3,8 +3,8 @@
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use hn_core::{
-    Activity, AgentAccess, Changes, Choice, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest, RunOutcome,
-    SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
+    Activity, AgentAccess, Changes, Checks, Choice, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest,
+    RunOutcome, SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
 use hn_pg::{PgDatabase, Secrets};
 use serde::{Deserialize, Serialize};
@@ -354,7 +354,7 @@ pub async fn commit_changes(state: State<'_, AppState>, session_id: String, chan
     let shown = session.db.review(&changes).await?;
     let done = state
         .backups
-        .commit(&state.settings.get(), &session, &changes, None, without_backup)
+        .commit(&state.settings.get(), &session, &changes, None, without_backup, &Checks::NONE)
         .await;
     log::info!(
         "commit: {} statements{}",
