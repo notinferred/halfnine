@@ -8,10 +8,11 @@ use std::time::Duration;
 
 use hn_core::{AgentAccess, ConnectionSpec, Label, TlsMode};
 use hn_pg::Secrets;
-use rmcp::model::{CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, Implementation};
-use rmcp::service::RunningService;
+use rmcp::model::{CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, Implementation, ProtocolVersion};
+use rmcp::service::{ClientLifecycleMode, RunningService, serve_client_with_lifecycle};
 use rmcp::{RoleClient, ServiceExt};
 use serde_json::{Value, json};
+use tokio::io::BufReader;
 
 use super::*;
 use crate::secrets::Passwords;
@@ -107,6 +108,24 @@ async fn client(agents: &Arc<Agents>, name: &str) -> RunningService<RoleClient, 
         .serve(client_end)
         .await
         .unwrap()
+}
+
+/// A client reaching the app through `halfnine mcp` while the app is closed. `opened` counts each time the bridge opens
+/// the app, which here is an app session served in memory.
+async fn bridged(agents: &Arc<Agents>, lifecycle: ClientLifecycleMode, opened: &Arc<AtomicUsize>) -> RunningService<RoleClient, ClientConfig> {
+    let (agent_end, bridge_end) = tokio::io::duplex(1 << 16);
+    let (from_agent, to_agent) = tokio::io::split(bridge_end);
+    let agents = agents.clone();
+    let opened = opened.clone();
+    let open_app = move || async move {
+        opened.fetch_add(1, Ordering::SeqCst);
+        let (app_end, bridge_end) = tokio::io::duplex(1 << 16);
+        tokio::spawn(listen::serve(agents, app_end));
+        Ok::<_, String>(bridge_end)
+    };
+    tokio::spawn(crate::mcp::bridge::carry(BufReader::new(from_agent), to_agent, None, open_app));
+    let config = ClientConfig::new(ClientCapabilities::default(), Implementation::new("claude-code", "1.0"));
+    serve_client_with_lifecycle(config, agent_end, lifecycle).await.unwrap()
 }
 
 async fn call(client: &RunningService<RoleClient, ClientConfig>, tool: &str, arguments: Value) -> (String, CallToolResult) {
@@ -259,6 +278,36 @@ async fn lists_connections_by_name_and_level_only() {
     world.agents.set_paused(true).await.unwrap();
     let (text, result) = call(&client, "list_connections", json!({})).await;
     assert!(text.starts_with("PAUSED") && result.is_error == Some(true));
+}
+
+#[tokio::test]
+async fn the_bridge_opens_the_app_only_when_an_agent_calls_a_tool() {
+    let lifecycles = [
+        ClientLifecycleMode::Initialize,
+        ClientLifecycleMode::Discover {
+            preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+        },
+    ];
+    for lifecycle in lifecycles {
+        let world = world(None);
+        let opened = Arc::new(AtomicUsize::new(0));
+        let client = bridged(&world.agents, lifecycle.clone(), &opened).await;
+        let tools = client.list_all_tools().await.unwrap();
+        assert_eq!(tools.len(), 11, "{lifecycle:?}");
+        assert_eq!(opened.load(Ordering::SeqCst), 0, "{lifecycle:?}: opened before a tool was called");
+
+        for _ in 0..2 {
+            let (text, _) = call(&client, "list_connections", json!({})).await;
+            assert!(text.starts_with("OK 6 connections:"), "{lifecycle:?}: {text}");
+        }
+        assert_eq!(opened.load(Ordering::SeqCst), 1, "{lifecycle:?}");
+        let state = world.agents.state();
+        assert_eq!(
+            state.clients.iter().map(|c| c.agent.as_str()).collect::<Vec<_>>(),
+            ["Claude Code"],
+            "{lifecycle:?}"
+        );
+    }
 }
 
 #[tokio::test]

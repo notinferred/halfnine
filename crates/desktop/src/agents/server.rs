@@ -33,7 +33,7 @@ pub struct Server {
     session: String,
 }
 
-#[tool_router]
+#[tool_router(vis = "pub(crate)")]
 impl Server {
     pub fn new(agents: Arc<Agents>, session: String) -> Self {
         Self { agents, session }
@@ -451,6 +451,13 @@ impl Server {
 #[tool_handler]
 impl ServerHandler for Server {
     fn get_info(&self) -> ServerConfig {
+        Self::config()
+    }
+}
+
+impl Server {
+    /// What a session is told about Halfnine when it opens, by the app or by `halfnine mcp` before the app is open.
+    pub(crate) fn config() -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("halfnine", env!("CARGO_PKG_VERSION")).with_title("Halfnine"))
             .with_instructions(INSTRUCTIONS)

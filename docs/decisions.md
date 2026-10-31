@@ -134,3 +134,10 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Whose changes rules check.** **Chose:** "Agents enforced, you warned": an agent's change that breaks a rule never commits; the person's own commit shows the rule, with Commit anyway. **Not chosen:** agents only; everyone, no exceptions.
 - **Trying a change before asking.** **Chose:** "Only Halfnine's own changes": an agent's change_rows and change_structure are tried against the rules in a transaction that's rolled back, before the person is asked; run_sql never runs before approval and is checked at commit. **Not chosen:** never before approval; every change, run_sql too.
 - **The plan** for Rules (six kinds, checked in the change's own transaction, suggestions from the data, shown to agents in describe). **Accepted.**
+
+## 2026-10-31: The app opening with every agent session
+
+- **The complaint.** **Dan:** "This app feels like a virus it keeps popping up lets clean up and do housekeeping it shouldnt even be installed right now". Claude Code had Halfnine at user scope, and `halfnine mcp` opened the app as soon as any session started, before any tool was called.
+- **Halfnine's data on this Mac.** **Chose:** "Delete all of it": the app, its data and backups, its Keychain entry, and Claude Code's registration of it. **Not chosen:** keep backups and passwords; keep everything.
+- **The cause in the product.** **Chose:** "Fix it before 0.3.0": open the app only when an agent first calls a tool, and answer the tool list without it. **Not chosen:** put it on the roadmap; leave it.
+- **When the fix proved bigger** (both of the library's ways of opening a session have to be answered). **Chose:** "Do it, as designed". **Not chosen:** open the app hidden at session start, quitting when the last agent leaves; stop for now.

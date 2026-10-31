@@ -2,3 +2,4 @@
 
 pub mod bridge;
 pub mod endpoint;
+mod lobby;

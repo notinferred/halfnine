@@ -127,7 +127,7 @@ An agent that needs a table, a query answered, or a fresh database asks Halfnine
 
 ### The agent core (done 2026-10-29)
 
-- [x] **`halfnine mcp`:** the same binary, started by any MCP client, relaying to the running app over a socket only this account can open, and opening the app in the background if it is closed.
+- [x] **`halfnine mcp`:** the same binary, started by any MCP client, relaying to the running app over a socket only this account can open. When the app is closed, it opens it in the background once the agent first calls a tool.
 - [x] **Seven tools:** `list_connections` (names, labels and levels only, Off ones included), `describe`, `query` (always read-only, with time and row limits), `change_rows`, `change_structure`, `run_sql` and `wait_for_approval`. Every result starts with a status word.
 - [x] **Access per connection:** Off, Read, Read with approved writes, or Full, set in the connection's form. Red-labelled connections start at Off and every other at Read. A read-only connection stays read-only.
 - [x] **Approvals in the table:** an agent's change opens in its own tab as staged rows, cells or columns, or as its SQL, and the bar asks 1. Yes, 2. Yes, don't ask again here, 3. No, and tell it why. The window comes forward to ask. A row that changed meanwhile rolls the change back.
@@ -165,6 +165,7 @@ Dan's decisions are in `docs/decisions.md` under 2026-10-30.
 - [x] **Settings and first launch:** a Settings page (Docker databases, backups and their limit, Pause agents) and a setup shown once, with Docker on when Docker is found.
 - [x] **Several connections open at once,** after Dan's first look at the beta: the connection at the top of the sidebar is a menu of those open in the window, with Open another (⌘O) and Close. Each keeps its tabs and staged changes, and the connections screen offers Back to the one before.
 - [x] **Fixed on the way:** CSV exports write empty text apart from NULL; the Structure view shows PostgreSQL 18's virtual generated columns; two databases made at once no longer pick the same port.
+- [x] **The app opens only when an agent calls a tool,** after Dan found it opening with every Claude Code session: while the app is closed, `halfnine mcp` answers the session's opening and the list of tools itself, from the app's own definitions, then opens the app and hands it the session.
 - [ ] **Dan's check,** the M3 way, with his OK at the time:
   1. The first launch shows the setup.
   2. Docker Desktop's containers are listed under Docker and connect with a double-click.
@@ -191,6 +192,6 @@ Dan's decisions are in `docs/decisions.md` under 2026-10-30.
 
 ## Not planned
 
-- A tray icon or a global hotkey: Dan chose a normal app. An agent opens the app when it is closed, and the window comes forward when it needs an answer.
+- A tray icon or a global hotkey: Dan chose a normal app. An agent's first tool call opens the app when it is closed, and the window comes forward when it needs an answer.
 - Cloudflare: GitHub only for now.
 - Forking an existing client: Dan chose a fresh build.
