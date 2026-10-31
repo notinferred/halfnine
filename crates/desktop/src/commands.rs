@@ -103,6 +103,7 @@ pub async fn save_connection(state: State<'_, AppState>, draft: ConnectionDraft)
 pub async fn delete_connection(state: State<'_, AppState>, id: String) -> Result<(), Error> {
     let was_saving = state.store.get(&id).is_ok_and(|c| c.save_password);
     state.store.remove(&id)?;
+    state.rules.forget_connection(&id)?;
     state.agents.forget_connection(&id).await;
     state.passwords.forget_typed(&id);
     if was_saving { state.passwords.forget(&id) } else { Ok(()) }

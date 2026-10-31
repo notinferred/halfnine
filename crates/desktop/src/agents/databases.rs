@@ -166,8 +166,14 @@ impl Agents {
             password: None,
         };
         let docker = self.directory.docker.clone();
-        let job = docker.clone();
-        let waiting = docker.job(&name, &format!("Copying {source}…"), async move { job.copy(&source, new).await });
+        let (job, rules) = (docker.clone(), self.rules.clone());
+        let from = spec.id.clone();
+        let waiting = docker.job(&name, &format!("Copying {source}…"), async move {
+            let copy = job.copy(&source, new).await?;
+            // A copy keeps the rules of the database it copies, as it keeps its hidden columns.
+            rules.copy_connection(&from, &copy.id)?;
+            Ok(copy)
+        });
         self.finished(waiting, &name, "copy_database").await
     }
 

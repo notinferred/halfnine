@@ -187,9 +187,12 @@ pub async fn copy_docker_database(state: State<'_, AppState>, source: String, na
         port: None,
         password: None,
     };
-    let docker = state.docker.clone();
-    let _ = state
-        .docker
-        .job(&name, &format!("Copying {source}…"), async move { docker.copy(&source, new).await });
+    let (docker, rules) = (state.docker.clone(), state.rules.clone());
+    let _ = state.docker.job(&name, &format!("Copying {source}…"), async move {
+        let spec = docker.copy(&source, new).await?;
+        // A copy keeps the rules of the database it copies, as it keeps its hidden columns.
+        rules.copy_connection(&format!("{}{source}", super::ID_PREFIX), &spec.id)?;
+        Ok(spec)
+    });
     Ok(())
 }

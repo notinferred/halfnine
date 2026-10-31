@@ -88,6 +88,13 @@ impl Rules {
         })
     }
 
+    /// Lets go of a connection's rules, as when the connection is deleted.
+    pub fn forget_connection(&self, connection_id: &str) -> Result<(), Error> {
+        self.change(|saved| {
+            saved.connections.remove(connection_id);
+        })
+    }
+
     fn change(&self, edit: impl FnOnce(&mut Saved)) -> Result<(), Error> {
         let mut saved = self.lock();
         let mut next = Saved {

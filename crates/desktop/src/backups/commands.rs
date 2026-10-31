@@ -58,7 +58,16 @@ pub async fn restore_backup(state: State<'_, AppState>, session_id: String, id: 
 #[tauri::command]
 #[specta::specta]
 pub async fn restore_database_backup(state: State<'_, AppState>, id: String) -> Result<ConnectionSpec, Error> {
-    state.backups.restore_database(&state.docker, &id).await
+    let backup = state.backups.get(&id)?;
+    let spec = state.backups.restore_database(&state.docker, &id).await?;
+    // Rules are kept by connection, so one put back under a new name gets those of the one deleted.
+    if let super::Holds::Database { container } = backup.holds {
+        let deleted = format!("{}{}", crate::docker::ID_PREFIX, container.name);
+        if deleted != spec.id {
+            state.rules.copy_connection(&deleted, &spec.id)?;
+        }
+    }
+    Ok(spec)
 }
 
 #[tauri::command]
