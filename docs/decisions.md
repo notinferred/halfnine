@@ -125,3 +125,12 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 - **Labelling what fields hold.** **Dan:** "The agent doesn't need to see whats in it to have it labeled and search through it is labeled correctly with code and audited because of patterns in the data, then the AI can search with ease better if the user asks you know so add reference points"
 - **Boundaries.** **Dan:** "ACAD was an idea outside halfnine, we can def add a boundaries view but outside the connections"
 - **Order.** **Chose:** "Plan them all now". **Not chosen:** release 0.3.0 first, then plan one at a time; start the top feature now.
+
+## 2026-10-31: Rules that define right
+
+- **Scrapped.** **Dan:** "Ok scrap all the new changes". The features above (agent work as a pull request, migrations as files, anonymized copies, comparing two databases, field labels, a Boundaries page) are not built.
+- **Why.** **Dan:** "reach is what lets you skip the time it takes to do something right, and boundaries are what define what “right” is, so a product’s value comes from reach and boundary design together, and neither is enough alone | Idk lmk"
+- **What next.** **Chose:** "Rules that define right": a few statements per database that say what correct data is; an agent's change that breaks one doesn't commit, and Halfnine suggests rules from patterns in the data. 0.3.0 ships first. **Not chosen:** agent work on a copy first; ship 0.3.0, then think.
+- **Whose changes rules check.** **Chose:** "Agents enforced, you warned": an agent's change that breaks a rule never commits; the person's own commit shows the rule, with Commit anyway. **Not chosen:** agents only; everyone, no exceptions.
+- **Trying a change before asking.** **Chose:** "Only Halfnine's own changes": an agent's change_rows and change_structure are tried against the rules in a transaction that's rolled back, before the person is asked; run_sql never runs before approval and is checked at commit. **Not chosen:** never before approval; every change, run_sql too.
+- **The plan** for Rules (six kinds, checked in the change's own transaction, suggestions from the data, shown to agents in describe). **Accepted.**
