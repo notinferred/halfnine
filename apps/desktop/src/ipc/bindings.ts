@@ -50,9 +50,10 @@ export const commands = {
 	/**
 	 *  Commits staged changes in one transaction, and adds what ran to the history. A change that drops or empties a
 	 *  table, or drops a column, is backed up first, and refused with `NoBackup` when it can't be, unless
-	 *  `without_backup` says someone confirmed going ahead without one.
+	 *  `without_backup` says someone confirmed going ahead without one. A change that breaks one of the database's rules is
+	 *  refused with `BrokenRule`, unless `despite_rules` says the person chose to commit it anyway.
 	 */
-	commitChanges: (sessionId: string, changes: Changes, withoutBackup: boolean) => __TAURI_INVOKE<CommitDone>("commit_changes", { sessionId, changes, withoutBackup }),
+	commitChanges: (sessionId: string, changes: Changes, withoutBackup: boolean, despiteRules: boolean) => __TAURI_INVOKE<CommitDone>("commit_changes", { sessionId, changes, withoutBackup, despiteRules }),
 	/**  Values to pick for a foreign key that points at `column` of `table`. */
 	choices: (sessionId: string, table: TableRef, column: string, search: string) => __TAURI_INVOKE<Choice[]>("choices", { sessionId, table, column, search }),
 	/**  Asks which CSV file to import and previews its first rows. `None` when the dialog was dismissed. */

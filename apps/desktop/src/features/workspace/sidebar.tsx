@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { type Changes, type CommitDone, commands, type RelationKind, type SchemaNode, type SessionInfo, type TableRef } from "../../ipc/bindings.ts";
-import { describe, notBackedUp } from "../../ipc/errors.ts";
+import { brokeRule, describe, notBackedUp } from "../../ipc/errors.ts";
 import { useWorkspace } from "../../state.ts";
 import { Menu } from "../../ui/menu.tsx";
 import { showNote } from "../../ui/note.tsx";
@@ -190,14 +190,18 @@ function SchemaBranch(props: { session: SessionInfo; node: SchemaNode; query: st
   };
 
   // With backups on, a table is backed up and dropped or emptied at once, with Undo. Otherwise its name is asked for.
-  const empty = async (target: Emptying) => {
+  // One that breaks a rule set for the table says so, and the person may go ahead anyway.
+  const empty = async (target: Emptying, despiteRules = false) => {
     const backingUpThis = backingUp && target.kind === "table";
     const slow = backingUpThis ? setTimeout(() => showNote({ text: `Backing up ${target.table.name}…` }), 400) : undefined;
     try {
-      done(target, await commands.commitChanges(id, changesOf(target), false));
+      done(target, await commands.commitChanges(id, changesOf(target), false, despiteRules));
     } catch (e) {
       if (notBackedUp(e)) setConfirming({ ...target, why: describe(e) });
-      else showNote({ text: describe(e), error: true });
+      else if (brokeRule(e)) {
+        const label = target.action === "drop" ? "Drop anyway" : "Truncate anyway";
+        showNote({ text: describe(e), error: true, action: { label, run: () => empty(target, true) } });
+      } else showNote({ text: describe(e), error: true });
     } finally {
       clearTimeout(slow);
     }

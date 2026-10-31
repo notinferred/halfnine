@@ -655,3 +655,33 @@ tr:hover .structure-drop,
 .agent-eye[aria-pressed="true"] {
   color: var(--text);
 }
+
+/* A rule: its words, where it came from, and what can be done with it. */
+.rules-item {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.rules-source,
+.rules-empty,
+.rules-note {
+  font-size: var(--text-sm);
+}
+
+.rules-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.rules-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rules-sql {
+  min-height: 96px;
+  resize: vertical;
+}

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type Changes, type CommitDone, type Committed, commands, type SessionInfo } from "../../ipc/bindings.ts";
-import { describe, notBackedUp } from "../../ipc/errors.ts";
+import { brokeRule, describe, notBackedUp } from "../../ipc/errors.ts";
 import { Keys } from "../../ui/keys.tsx";
 import { modCap, useShortcuts } from "../../ui/shortcuts.ts";
 import { noteUndo } from "../workspace/backup-note.ts";
@@ -30,20 +30,24 @@ export function ChangesBar(props: {
   const [unbacked, setUnbacked] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The rule a commit broke, while the person decides whether to commit anyway. */
+  const [broken, setBroken] = useState<string | null>(null);
   const review = useQuery({
     queryKey: ["review", id, props.changes],
     queryFn: () => commands.reviewChanges(id, props.changes),
     enabled: reviewing,
   });
 
-  const commit = async () => {
+  const commit = async (despiteRules = false) => {
     if (committing) return;
     setCommitting(true);
     setError(null);
+    setBroken(null);
     try {
-      committed(await commands.commitChanges(id, props.changes, false));
+      committed(await commands.commitChanges(id, props.changes, false, despiteRules));
     } catch (e) {
       if (notBackedUp(e)) setUnbacked(describe(e));
+      else if (brokeRule(e)) setBroken(describe(e));
       else setError(describe(e));
     } finally {
       setCommitting(false);
@@ -70,6 +74,14 @@ export function ChangesBar(props: {
             {review.isError ? describe(review.error) : review.data ? ["BEGIN;", ...review.data, "COMMIT;"].join("\n") : "…"}
           </pre>
         </div>
+      )}
+      {broken && (
+        <p className="changes-note status-error" role="alert">
+          {broken}{" "}
+          <button type="button" className="btn btn-quiet" onClick={() => void commit(true)}>
+            Commit anyway
+          </button>
+        </p>
       )}
       {(error ?? props.held) && (
         <p className="changes-note status-error" role="alert">

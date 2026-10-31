@@ -492,6 +492,7 @@ export function TableTab({ session, tab, proposal }: { session: SessionInfo; tab
             draft={tab.draft}
             staged={proposal !== undefined}
             agents={agentColumns}
+            rules={proposal ? undefined : { session, table: tab.table }}
             onDraft={canEditStructure ? (draft) => updateTable(tab.id, { draft }) : undefined}
           />
         )}

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { type Changes, type CommitDone, commands, type RelationKind, type SessionInfo, type StructureChange } from "../../ipc/bindings.ts";
-import { describe } from "../../ipc/errors.ts";
+import { brokeRule, describe } from "../../ipc/errors.ts";
 import { inWords } from "./backup-note.ts";
 
 const NOUN: Record<RelationKind, string> = {
@@ -34,16 +34,19 @@ export function ConfirmByName(props: {
   useEffect(() => input.current?.focus(), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The rule this breaks, once the person has seen it and may commit anyway. */
+  const [broken, setBroken] = useState(false);
   const statements = useQuery({ queryKey: ["review", id, props.changes], queryFn: () => commands.reviewChanges(id, props.changes) });
   const { title, consequence, button, doing } = words(props.changes.changes, name, NOUN[props.kind]);
 
-  const run = async () => {
+  const run = async (despiteRules = false) => {
     setBusy(true);
     setError(null);
     try {
-      props.onDone(await commands.commitChanges(id, props.changes, true));
+      props.onDone(await commands.commitChanges(id, props.changes, true, despiteRules));
     } catch (e) {
       setError(describe(e));
+      setBroken(brokeRule(e));
       setBusy(false);
     }
   };
@@ -84,6 +87,14 @@ export function ConfirmByName(props: {
         {error && (
           <p className="status-error" role="alert">
             {error}
+            {broken && (
+              <>
+                {" "}
+                <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void run(true)}>
+                  Commit anyway
+                </button>
+              </>
+            )}
           </p>
         )}
         <div className="sheet-actions">

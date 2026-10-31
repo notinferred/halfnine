@@ -20,6 +20,11 @@ export function notBackedUp(error: unknown): boolean {
   return isAppError(error) && error.kind === "noBackup";
 }
 
+/** The change broke one of the rules set for this database, so nothing was written; the message names the rule. */
+export function brokeRule(error: unknown): boolean {
+  return isAppError(error) && error.kind === "brokenRule";
+}
+
 /** Network trouble and timeouts may pass; everything else needs someone to change something first. */
 export function isTransient(error: unknown): boolean {
   return isAppError(error) && (error.kind === "network" || error.kind === "timeout");

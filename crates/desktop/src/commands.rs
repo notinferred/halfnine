@@ -346,15 +346,27 @@ pub async fn review_changes(state: State<'_, AppState>, session_id: String, chan
 
 /// Commits staged changes in one transaction, and adds what ran to the history. A change that drops or empties a
 /// table, or drops a column, is backed up first, and refused with `NoBackup` when it can't be, unless
-/// `without_backup` says someone confirmed going ahead without one.
+/// `without_backup` says someone confirmed going ahead without one. A change that breaks one of the database's rules is
+/// refused with `BrokenRule`, unless `despite_rules` says the person chose to commit it anyway.
 #[tauri::command]
 #[specta::specta]
-pub async fn commit_changes(state: State<'_, AppState>, session_id: String, changes: Changes, without_backup: bool) -> Result<CommitDone, Error> {
+pub async fn commit_changes(
+    state: State<'_, AppState>,
+    session_id: String,
+    changes: Changes,
+    without_backup: bool,
+    despite_rules: bool,
+) -> Result<CommitDone, Error> {
     let session = state.sessions.get(&session_id).await?;
     let shown = session.db.review(&changes).await?;
+    let checks = if despite_rules {
+        Checks::NONE
+    } else {
+        state.rules.checks(&session.connection.id, &session.database, Vec::new(), false)
+    };
     let done = state
         .backups
-        .commit(&state.settings.get(), &session, &changes, None, without_backup, &Checks::NONE)
+        .commit(&state.settings.get(), &session, &changes, None, without_backup, &checks)
         .await;
     log::info!(
         "commit: {} statements{}",
@@ -365,7 +377,7 @@ pub async fn commit_changes(state: State<'_, AppState>, session_id: String, chan
             Err(_) => ", then an error",
         }
     );
-    if !matches!(&done, Err(e) if e.kind == ErrorKind::NoBackup) {
+    if !matches!(&done, Err(e) if matches!(e.kind, ErrorKind::NoBackup | ErrorKind::BrokenRule)) {
         record(&state, &session, shown, done.as_ref().map_or(0, |d| d.committed.elapsed_ms), done.is_ok())?;
     }
     done

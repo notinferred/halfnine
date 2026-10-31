@@ -1,7 +1,8 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Eye, EyeOff, KeyRound, Plus } from "lucide-react";
-import type { Structure } from "../../ipc/bindings.ts";
+import type { SessionInfo, Structure, TableRef } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
+import { RulesSection } from "./rules.tsx";
 import { COMMON_TYPES, type ColumnDraft, changed, draftFrom, newColumnDraft, type StructureDraft } from "./structure-draft.ts";
 
 /** Which of a table's columns are hidden from agents, and how to change that. */
@@ -39,6 +40,8 @@ export function StructureView(props: {
   staged?: boolean;
   /** Offers to hide each column from agents. */
   agents?: AgentColumns;
+  /** Shows the table's rules, to add, accept from the data, and delete. */
+  rules?: { session: SessionInfo; table: TableRef };
 }) {
   const { structure } = props;
   const onDraft = props.onDraft ?? (props.staged ? () => undefined : undefined);
@@ -96,6 +99,7 @@ export function StructureView(props: {
         <Definitions title="Indexes" items={s.indexes.map((i) => ({ name: i.name, definition: i.definition }))} />
       )}
       <Definitions title="Constraints" items={s.constraints} />
+      {props.rules && <RulesSection session={props.rules.session} table={props.rules.table} columns={s.columns} />}
       <Definitions
         title="Foreign keys"
         items={s.foreignKeys.map((f) => ({
