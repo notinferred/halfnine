@@ -7,7 +7,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use hn_core::{ByteSource, Error, ErrorKind};
+use ok_core::{ByteSource, Error, ErrorKind};
 use serde::Serialize;
 use specta::Type;
 
@@ -52,7 +52,7 @@ impl Imports {
             Err(_) => {
                 return Err(Error::new(
                     ErrorKind::Invalid,
-                    "Halfnine reads CSV files saved as UTF-8. Save it as UTF-8, then import it again.",
+                    "Okayrow reads CSV files saved as UTF-8. Save it as UTF-8, then import it again.",
                 ));
             }
         };
@@ -100,7 +100,7 @@ impl Imports {
 }
 
 fn busy() -> Error {
-    Error::new(ErrorKind::Storage, "The list of chosen files couldn't be read. Restart Halfnine.")
+    Error::new(ErrorKind::Storage, "The list of chosen files couldn't be read. Restart Okayrow.")
 }
 
 /// The separator the first line uses most: a comma, a semicolon (common where the comma is a decimal point), a tab or a bar.

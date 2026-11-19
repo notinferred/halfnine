@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use futures_util::TryStreamExt;
-use hn_core::{Activity, Cell, CutCell, Error, ErrorKind, PageColumn, RunFailure, RunOutcome, StatementResult};
+use ok_core::{Activity, Cell, CutCell, Error, ErrorKind, PageColumn, RunFailure, RunOutcome, StatementResult};
 use sqlx::postgres::{PgConnectOptions, PgRow};
 use sqlx::{AssertSqlSafe, Column, Connection, Either, Executor, PgConnection, Row, SqlSafeStr, Statement, TypeInfo, ValueRef};
 
@@ -64,7 +64,7 @@ pub(crate) async fn run(conn: &mut PgConnection, statements: &[String], read_onl
         results,
         failed,
         in_transaction: in_transaction(conn).await,
-        elapsed_ms: hn_core::millis(started.elapsed()),
+        elapsed_ms: ok_core::millis(started.elapsed()),
     }
 }
 
@@ -98,7 +98,7 @@ async fn run_one(conn: &mut PgConnection, sql: &str, read_only: bool) -> Result<
         cut,
         total_rows,
         rows_affected,
-        elapsed_ms: hn_core::millis(started.elapsed()),
+        elapsed_ms: ok_core::millis(started.elapsed()),
     })
 }
 
@@ -113,7 +113,7 @@ pub(crate) async fn run_in_transaction(conn: &mut PgConnection, sql: &str) -> Re
         cut,
         total_rows,
         rows_affected,
-        elapsed_ms: hn_core::millis(started.elapsed()),
+        elapsed_ms: ok_core::millis(started.elapsed()),
     })
 }
 

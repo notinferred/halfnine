@@ -1,4 +1,4 @@
-//! Where the running app listens for `halfnine mcp`, and how the two recognise each other. On each launch the app
+//! Where the running app listens for `okayrow mcp`, and how the two recognise each other. On each launch the app
 //! writes the address and a fresh token to `mcp.json` in its config folder, which only the person's own account can
 //! read; a bridge must send that token before anything else.
 
@@ -6,14 +6,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use hn_core::Error;
+use ok_core::Error;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::files;
 
 /// The app's identifier, as `tauri.conf.json` names it, which names its config folder too.
-pub const IDENTIFIER: &str = "com.notinferred.halfnine";
+pub const IDENTIFIER: &str = "com.notinferred.okayrow";
 const FILE: &str = "mcp.json";
 const VERSION: u32 = 1;
 const ACCEPTED: &[u8] = b"ok\n";
@@ -31,11 +31,11 @@ pub fn config_dir() -> Option<PathBuf> {
 }
 
 pub fn read(dir: &Path) -> Result<Endpoint, Error> {
-    files::load(&dir.join(FILE), VERSION, "where Halfnine listens")
+    files::load(&dir.join(FILE), VERSION, "where Okayrow listens")
 }
 
 pub fn write(dir: &Path, endpoint: &Endpoint) -> Result<(), Error> {
-    files::save_private(&dir.join(FILE), VERSION, endpoint, "where Halfnine listens")
+    files::save_private(&dir.join(FILE), VERSION, endpoint, "where Okayrow listens")
 }
 
 pub fn remove(dir: &Path) {
@@ -67,7 +67,7 @@ pub async fn admit<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, token: &st
     if sent == token {
         stream.write_all(ACCEPTED).await.is_ok()
     } else {
-        let _ = stream.write_all(b"Halfnine refused the connection: the token didn't match.\n").await;
+        let _ = stream.write_all(b"Okayrow refused the connection: the token didn't match.\n").await;
         false
     }
 }
@@ -111,9 +111,9 @@ mod unix {
             let path = dir.join("mcp.sock");
             if path.exists() {
                 if std::os::unix::net::UnixStream::connect(&path).is_ok() {
-                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "another Halfnine is listening"));
+                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "another Okayrow is listening"));
                 }
-                // Left behind by a Halfnine that didn't quit cleanly.
+                // Left behind by a Okayrow that didn't quit cleanly.
                 std::fs::remove_file(&path)?;
             }
             let listener = UnixListener::bind(&path)?;
@@ -173,7 +173,7 @@ mod windows {
                 other => return other,
             }
         }
-        Err(io::Error::new(io::ErrorKind::TimedOut, "Halfnine's pipe stayed busy"))
+        Err(io::Error::new(io::ErrorKind::TimedOut, "Okayrow's pipe stayed busy"))
     }
 }
 
@@ -213,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn listens_on_a_socket_only_its_owner_can_open() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("hn-endpoint-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("ok-endpoint-{}", uuid::Uuid::new_v4().simple()));
         let (mut listener, address) = Listener::bind(&dir).unwrap();
         assert_eq!(std::fs::metadata(&address).unwrap().permissions().mode() & 0o777, 0o600);
         let (client, server) = tokio::join!(connect(&address), listener.accept());

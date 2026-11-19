@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use hn_core::{Checks, ColumnRef, Database, Error, ErrorKind, Rule, RuleCheck, RuleSource, Suggestion, TableRef};
+use ok_core::{Checks, ColumnRef, Database, Error, ErrorKind, Rule, RuleCheck, RuleSource, Suggestion, TableRef};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -129,7 +129,7 @@ pub async fn list_rules(state: State<'_, AppState>, session_id: String) -> Resul
 }
 
 /// Adds a rule after trying it on the data as it is: one that rows already break is refused, naming them. A custom
-/// rule takes the person's own `words`; any other is put in words by Halfnine. `evidence` marks one Halfnine suggested.
+/// rule takes the person's own `words`; any other is put in words by Okayrow. `evidence` marks one Okayrow suggested.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_rule(
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn keeps_each_databases_rules_apart_and_on_disk() {
-        let dir = std::env::temp_dir().join(format!("hn-rules-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("ok-rules-{}", uuid::Uuid::new_v4().simple()));
         let rules = Rules::open(&dir).unwrap();
         let rule = Rule {
             id: "r1".into(),

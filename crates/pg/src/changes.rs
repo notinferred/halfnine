@@ -2,7 +2,7 @@
 //! [`ident`] and values as bound parameters, and to show, with the values written in and identifiers quoted only where
 //! Postgres needs it. Both come from the same calls, so what someone reviews is what runs.
 
-use hn_core::{Cell, ColumnValue, Error, ErrorKind, NewColumn, RelationKind, RowUpdate, StructureChange, TableRef};
+use ok_core::{Cell, ColumnValue, Error, ErrorKind, NewColumn, RelationKind, RowUpdate, StructureChange, TableRef};
 
 use crate::sql::{Built, ColumnMeta, find, ident};
 
@@ -580,7 +580,7 @@ const KEYWORDS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hn_core::CellChange;
+    use ok_core::CellChange;
 
     fn table() -> TableRef {
         TableRef {

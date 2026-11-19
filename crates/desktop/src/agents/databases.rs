@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use hn_core::{AgentAccess, AgentMark, ConnectionSpec, Error, ErrorKind, Made, Source};
+use ok_core::{AgentAccess, AgentMark, ConnectionSpec, Error, ErrorKind, Made, Source};
 use serde::Serialize;
 use specta::Type;
 use tokio::sync::watch;
@@ -41,7 +41,7 @@ impl Agents {
         if !state.on {
             return Err(Reply::new(
                 Status::Refused,
-                "Docker databases are off in Halfnine. The person can turn them on in Settings.",
+                "Docker databases are off in Okayrow. The person can turn them on in Settings.",
             ));
         }
         match state.problem {
@@ -91,7 +91,7 @@ impl Agents {
                 )),
             };
         }
-        hn_docker::valid_name(name).map_err(Reply::from)?;
+        ok_docker::valid_name(name).map_err(Reply::from)?;
         let made = docker.state().databases.iter().filter(|d| agent.made(&d.connection)).count();
         if made >= DATABASES_LIMIT {
             return Err(Reply::new(
@@ -107,7 +107,7 @@ impl Agents {
             return reply;
         }
         let version = version.unwrap_or(18);
-        if !hn_docker::VERSIONS.contains(&version) {
+        if !ok_docker::VERSIONS.contains(&version) {
             return Reply::new(Status::Refused, "Choose PostgreSQL 14, 15, 16, 17 or 18.");
         }
         let name = name.unwrap_or_else(|| self.unused_name("scratch"));
@@ -222,7 +222,7 @@ impl Agents {
             Some(Err(error)) => Reply::from(error),
             None => Reply::new(
                 Status::Error,
-                format!("Halfnine lost track of making {name}. list_connections shows whether it's there."),
+                format!("Okayrow lost track of making {name}. list_connections shows whether it's there."),
             ),
         }
     }
@@ -247,7 +247,7 @@ impl Agents {
         {
             text.push_str(&format!(
                 " Its URL, for a program you run: {}",
-                hn_core::url(spec, secrets.password.as_deref())
+                ok_core::url(spec, secrets.password.as_deref())
             ));
         }
         Reply::new(Status::Ok, text)
@@ -288,7 +288,7 @@ pub struct DeletionRequestView {
     pub id: String,
     pub agent: String,
     pub connection: ConnectionSpec,
-    /// Whether Halfnine backs it up first, so it can be put back.
+    /// Whether Okayrow backs it up first, so it can be put back.
     pub backed_up: bool,
     pub state: DeletionState,
 }
@@ -343,11 +343,11 @@ impl Agents {
     async fn deletion_answer(&self, name: &str, mut state: watch::Receiver<DeletionState>) -> Reply {
         let settled = match tokio::time::timeout(self.wait, state.wait_for(DeletionState::settled)).await {
             Ok(Ok(settled)) => settled.clone(),
-            Ok(Err(_)) => return Reply::new(Status::Error, "Halfnine forgot this request."),
+            Ok(Err(_)) => return Reply::new(Status::Error, "Okayrow forgot this request."),
             Err(_) => {
                 return Reply::new(
                     Status::Waiting,
-                    format!("Halfnine is asking the person whether to delete {name}. Call delete_database again to keep waiting."),
+                    format!("Okayrow is asking the person whether to delete {name}. Call delete_database again to keep waiting."),
                 );
             }
         };
@@ -360,7 +360,7 @@ impl Agents {
             ),
             DeletionState::Failed { error } => Reply::from(error),
             DeletionState::Withdrawn { why } => Reply::new(Status::Refused, format!("Withdrawn: {why} Nothing was deleted.")),
-            DeletionState::Pending | DeletionState::Deleting => Reply::new(Status::Error, "Halfnine lost track of this request."),
+            DeletionState::Pending | DeletionState::Deleting => Reply::new(Status::Error, "Okayrow lost track of this request."),
         }
     }
 
@@ -431,12 +431,12 @@ impl Agents {
 
 fn deleted(name: &str, backed_up: bool, kept_volume: bool) -> String {
     let backup = if backed_up {
-        " Halfnine backed it up first, so the person can put it back."
+        " Okayrow backed it up first, so the person can put it back."
     } else {
-        " Backups are off in Halfnine, so it can't be put back."
+        " Backups are off in Okayrow, so it can't be put back."
     };
     let volume = if kept_volume {
-        " Its data volume wasn't made by Halfnine, so it was kept."
+        " Its data volume wasn't made by Okayrow, so it was kept."
     } else {
         ""
     };

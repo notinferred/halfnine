@@ -1,5 +1,5 @@
 //! Every agent call, appended to `agent-activity.jsonl` in the config folder and never rewritten. A call's line is
-//! written before Halfnine touches a database for it, and a call that can't be logged is refused. Lines hold the SQL as
+//! written before Okayrow touches a database for it, and a call that can't be logged is refused. Lines hold the SQL as
 //! written, but never rows a database returned, an error's own words, which can quote values, or any secret.
 
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use hn_core::Error;
+use ok_core::Error;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -97,7 +97,7 @@ pub struct ActivityEntry {
     pub reason: Option<String>,
     /// Its row changes can still be undone.
     pub undo: bool,
-    /// The backup Halfnine made before it dropped or emptied something, to put back.
+    /// The backup Okayrow made before it dropped or emptied something, to put back.
     pub backup: Option<String>,
 }
 
@@ -186,7 +186,7 @@ impl ActivityLog {
                         entry.reason = done.reason;
                     }
                 }
-                // A line from a newer Halfnine, or one cut short by a crash, is passed over.
+                // A line from a newer Okayrow, or one cut short by a crash, is passed over.
                 Err(_) => {}
             }
         }
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn keeps_the_latest_outcome_of_each_call_newest_first() {
-        let dir = std::env::temp_dir().join(format!("hn-activity-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("ok-activity-{}", uuid::Uuid::new_v4().simple()));
         let log = ActivityLog::open(dir.clone());
         let call = |id: &str| Call {
             call: id.into(),

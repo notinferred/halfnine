@@ -1,18 +1,18 @@
 //! The adapter against a real Postgres loaded with `fixture.sql`. CI provides one through `HN_TEST_DATABASE_URL`;
 //! without that variable these tests report that they were skipped and pass, so a laptop never needs a database.
 
-use hn_core::{
+use ok_core::{
     ByteSource, Cell, CellChange, Changes, Checks, ColumnValue, ConnectionSpec, Database, ErrorKind, ExportSource, Filter, Label, NewColumn,
     PageRequest, RelationKind, RowSink, RowUpdate, Sort, StructureChange, TableRef, TlsMode,
 };
-use hn_pg::{PgDatabase, Secrets};
+use ok_pg::{PgDatabase, Secrets};
 
 async fn connect(read_only: bool) -> Option<PgDatabase> {
     let Ok(url) = std::env::var("HN_TEST_DATABASE_URL") else {
         eprintln!("skipped: HN_TEST_DATABASE_URL is not set");
         return None;
     };
-    let parts = hn_core::parse_url(&url).expect("HN_TEST_DATABASE_URL is a postgres:// URL");
+    let parts = ok_core::parse_url(&url).expect("HN_TEST_DATABASE_URL is a postgres:// URL");
     let spec = ConnectionSpec {
         id: "test".into(),
         name: "test".into(),
@@ -27,7 +27,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
         save_password: false,
         agent_access: None,
         hidden_columns: Vec::new(),
-        source: hn_core::Source::Saved,
+        source: ok_core::Source::Saved,
     };
     let secrets = Secrets {
         password: parts.password,
@@ -42,7 +42,7 @@ async fn connect(read_only: bool) -> Option<PgDatabase> {
 
 fn table(name: &str) -> TableRef {
     TableRef {
-        schema: "hn_fixture".into(),
+        schema: "ok_fixture".into(),
         name: name.into(),
     }
 }
@@ -57,7 +57,7 @@ fn request(name: &str, filter: Option<Filter>, sort: Option<Sort>, offset: u32, 
     }
 }
 
-fn column(page: &hn_core::Page, name: &str) -> usize {
+fn column(page: &ok_core::Page, name: &str) -> usize {
     page.columns.iter().position(|c| c.name == name).expect("the column is on the page")
 }
 
@@ -73,7 +73,7 @@ async fn reports_the_server_and_its_databases() {
 async fn lists_every_kind_of_object_but_partitions() {
     let Some(db) = connect(false).await else { return };
     let schema = db.schema().await.unwrap();
-    let node = schema.iter().find(|n| n.name == "hn_fixture").unwrap();
+    let node = schema.iter().find(|n| n.name == "ok_fixture").unwrap();
     let kind = |name: &str| node.relations.iter().find(|r| r.name == name).map(|r| r.kind);
     assert_eq!(kind("invoices"), Some(RelationKind::Table));
     let invoices = node.relations.iter().find(|r| r.name == "invoices").unwrap();
@@ -206,7 +206,7 @@ async fn keeps_postgres_codes_on_errors() {
     assert_eq!((error.kind, error.code.as_deref()), (ErrorKind::Query, Some("42703")));
 
     let second = Filter::Where {
-        sql: "true; DROP TABLE hn_fixture.customers".into(),
+        sql: "true; DROP TABLE ok_fixture.customers".into(),
     };
     assert!(db.page(&request("invoices", Some(second), None, 0, 10)).await.is_err());
     assert!(db.structure(&table("customers")).await.is_ok());
@@ -217,13 +217,13 @@ async fn read_only_connections_are_refused_by_the_server() {
     let Some(writable) = connect(false).await else { return };
     let touch = || {
         Some(Filter::Where {
-            sql: "hn_fixture.touch()".into(),
+            sql: "ok_fixture.touch()".into(),
         })
     };
     // Browsing only reads, on every connection, so a filter can't write even where the editor may.
     let error = writable.page(&request("customers", touch(), None, 0, 1)).await.unwrap_err();
     assert_eq!(error.code.as_deref(), Some("25006"));
-    assert!(writable.run(&statements(&["SELECT hn_fixture.touch()"])).await.unwrap().failed.is_none());
+    assert!(writable.run(&statements(&["SELECT ok_fixture.touch()"])).await.unwrap().failed.is_none());
 
     let Some(read_only) = connect(true).await else { return };
     let error = read_only.page(&request("customers", touch(), None, 0, 1)).await.unwrap_err();
@@ -240,7 +240,7 @@ async fn a_browse_filter_cannot_switch_read_only_off_for_later_queries() {
         db.page(&request("customers", Some(switch_off.clone()), None, 0, 1)).await.unwrap();
     }
     let touch = Filter::Where {
-        sql: "hn_fixture.touch()".into(),
+        sql: "ok_fixture.touch()".into(),
     };
     assert_eq!(
         db.page(&request("customers", Some(touch), None, 0, 1)).await.unwrap_err().kind,
@@ -258,7 +258,7 @@ async fn runs_statements_and_keeps_the_session_between_runs() {
     let outcome = db
         .run(&statements(&[
             "SELECT 1 AS one, NULL::text AS nothing, ''::text AS empty",
-            "SELECT * FROM hn_fixture.invoices WHERE false",
+            "SELECT * FROM ok_fixture.invoices WHERE false",
             "CREATE TEMP TABLE scratch (x int)",
             "INSERT INTO scratch VALUES (1), (2)",
             "SELECT x FROM scratch ORDER BY x",
@@ -312,14 +312,14 @@ async fn the_read_only_editor_cannot_be_talked_out_of_it() {
     let attempts: [&[&str]; 4] = [
         &[
             "SET default_transaction_read_only = off",
-            "UPDATE hn_fixture.customers SET name = name WHERE id = 1",
+            "UPDATE ok_fixture.customers SET name = name WHERE id = 1",
         ],
-        &["COMMIT", "UPDATE hn_fixture.customers SET name = name WHERE id = 1"],
+        &["COMMIT", "UPDATE ok_fixture.customers SET name = name WHERE id = 1"],
         &[
             "SELECT set_config('default_transaction_read_only', 'off', false)",
-            "SELECT hn_fixture.touch()",
+            "SELECT ok_fixture.touch()",
         ],
-        &["SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE", "SELECT hn_fixture.touch()"],
+        &["SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE", "SELECT ok_fixture.touch()"],
     ];
     for attempt in attempts {
         let outcome = db.run(&statements(attempt)).await.unwrap();
@@ -347,11 +347,11 @@ async fn cancels_a_running_statement() {
 #[tokio::test]
 async fn explains_and_rolls_back_what_analyze_ran() {
     let Some(db) = connect(false).await else { return };
-    let plan = db.explain("SELECT * FROM hn_fixture.invoices WHERE id = 5;", false).await.unwrap();
+    let plan = db.explain("SELECT * FROM ok_fixture.invoices WHERE id = 5;", false).await.unwrap();
     assert!(plan.contains("Index Scan") && !plan.contains("Actual Total Time"));
 
     let measured = db
-        .explain("UPDATE hn_fixture.customers SET name = 'changed' WHERE id = 2", true)
+        .explain("UPDATE ok_fixture.customers SET name = 'changed' WHERE id = 2", true)
         .await
         .unwrap();
     assert!(measured.contains("Actual Total Time"));
@@ -365,7 +365,7 @@ async fn explains_and_rolls_back_what_analyze_ran() {
     assert_eq!(page.rows[0][column(&page, "name")].as_deref(), Some("Customer 2"));
 
     assert_eq!(
-        db.explain("SELECT 1; DROP TABLE hn_fixture.customers", false).await.unwrap_err().kind,
+        db.explain("SELECT 1; DROP TABLE ok_fixture.customers", false).await.unwrap_err().kind,
         ErrorKind::Invalid
     );
 }
@@ -377,12 +377,12 @@ struct Collected {
 }
 
 impl RowSink for Collected {
-    fn columns(&mut self, columns: &[hn_core::PageColumn]) -> Result<(), hn_core::Error> {
+    fn columns(&mut self, columns: &[ok_core::PageColumn]) -> Result<(), ok_core::Error> {
         self.columns = columns.iter().map(|c| c.name.clone()).collect();
         Ok(())
     }
 
-    fn row(&mut self, row: &[Cell]) -> Result<(), hn_core::Error> {
+    fn row(&mut self, row: &[Cell]) -> Result<(), ok_core::Error> {
         self.rows.push(row.to_vec());
         Ok(())
     }
@@ -414,7 +414,7 @@ async fn exports_every_row_and_never_writes() {
     assert_eq!(long.rows.last().unwrap()[0].as_deref(), Some("20000"));
 
     let write = ExportSource::Statement {
-        sql: "UPDATE hn_fixture.customers SET name = name RETURNING id".into(),
+        sql: "UPDATE ok_fixture.customers SET name = name RETURNING id".into(),
     };
     assert_eq!(db.export(&write, &mut Collected::default()).await.unwrap_err().kind, ErrorKind::ReadOnly);
 }
@@ -423,7 +423,7 @@ async fn exports_every_row_and_never_writes() {
 async fn lists_sessions_and_stops_them_only_when_allowed() {
     let Some(db) = connect(false).await else { return };
     let sessions = db.activity().await.unwrap();
-    assert!(sessions.iter().any(|a| a.application == "Halfnine"));
+    assert!(sessions.iter().any(|a| a.application == "Okayrow"));
     assert!(!db.stop(999_999, false).await.unwrap());
 
     let Some(read_only) = connect(true).await else { return };
@@ -469,7 +469,7 @@ async fn scratch(db: &PgDatabase, name: &str) -> TableRef {
     scratch
 }
 
-fn bodies(page: &hn_core::Page) -> Vec<Cell> {
+fn bodies(page: &ok_core::Page) -> Vec<Cell> {
     page.rows.iter().map(|r| r[column(page, "body")].clone()).collect()
 }
 
@@ -593,7 +593,7 @@ async fn changes_structure_in_one_transaction() {
 
     let smuggled = vec![StructureChange::SetDefault {
         column: "state".into(),
-        to: Some("'x'; DROP TABLE hn_fixture.customers".into()),
+        to: Some("'x'; DROP TABLE ok_fixture.customers".into()),
     }];
     assert!(db.commit(&structure(&t, smuggled), &Checks::NONE).await.is_err());
     assert!(db.structure(&table("customers")).await.is_ok());
@@ -624,7 +624,7 @@ impl Pieces {
 }
 
 impl ByteSource for Pieces {
-    fn next(&mut self) -> Result<Option<Vec<u8>>, hn_core::Error> {
+    fn next(&mut self) -> Result<Option<Vec<u8>>, ok_core::Error> {
         Ok(if self.0.is_empty() { None } else { Some(self.0.remove(0)) })
     }
 }
@@ -690,19 +690,19 @@ async fn picks_rows_by_their_keys() {
 async fn an_agent_query_only_ever_reads() {
     let Some(db) = connect(false).await else { return };
     for refused in [
-        "UPDATE hn_fixture.customers SET name = name",
-        "COPY hn_fixture.customers TO STDOUT",
+        "UPDATE ok_fixture.customers SET name = name",
+        "COPY ok_fixture.customers TO STDOUT",
         "SET search_path = x",
     ] {
         assert_eq!(db.read(refused, 10, &[]).await.unwrap_err().kind, ErrorKind::Invalid, "{refused}");
     }
-    let writes = db.read("SELECT hn_fixture.touch()", 10, &[]).await.unwrap_err();
+    let writes = db.read("SELECT ok_fixture.touch()", 10, &[]).await.unwrap_err();
     assert_eq!(writes.code.as_deref(), Some("25006"));
     assert!(db.read("SELECT 1; SELECT 2", 10, &[]).await.is_err());
-    let hidden = "WITH gone AS (DELETE FROM hn_fixture.customers RETURNING 1) SELECT count(*) FROM gone";
+    let hidden = "WITH gone AS (DELETE FROM ok_fixture.customers RETURNING 1) SELECT count(*) FROM gone";
     assert!(db.read(hidden, 10, &[]).await.is_err());
     assert_eq!(
-        db.read("SELECT count(*) FROM hn_fixture.customers", 1, &[]).await.unwrap().rows,
+        db.read("SELECT count(*) FROM ok_fixture.customers", 1, &[]).await.unwrap().rows,
         [[Some("50".to_string())]]
     );
     let shown = db.read("show transaction_read_only", 1, &[]).await.unwrap();
@@ -728,7 +728,7 @@ async fn an_agent_query_stops_at_its_limit() {
     let Some(db) = connect(false).await else { return };
     let started = std::time::Instant::now();
     let endless = db
-        .read("SELECT a.id, b.id FROM hn_fixture.invoices a, hn_fixture.invoices b", 10, &[])
+        .read("SELECT a.id, b.id FROM ok_fixture.invoices a, ok_fixture.invoices b", 10, &[])
         .await
         .unwrap();
     assert_eq!((endless.rows.len(), endless.total_rows), (10, 11));
@@ -743,7 +743,7 @@ async fn an_agent_query_stops_at_its_limit() {
 async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
     let Some(db) = connect(false).await else { return };
     let scratch = scratch(&db, "agent_scratch").await;
-    let name = format!("hn_fixture.{}", scratch.name);
+    let name = format!("ok_fixture.{}", scratch.name);
     let done = db
         .execute(
             &statements(&[
@@ -764,7 +764,7 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
         .execute(
             &statements(&[
                 &format!("INSERT INTO {name} (body) VALUES ('c')"),
-                "INSERT INTO hn_fixture.nowhere VALUES (1)",
+                "INSERT INTO ok_fixture.nowhere VALUES (1)",
             ]),
             &[],
             &Checks::NONE,
@@ -775,7 +775,7 @@ async fn an_agent_change_is_all_or_nothing_on_its_own_connection() {
     let page = db.page(&request(&scratch.name, None, None, 0, 10)).await.unwrap();
     assert_eq!(bodies(&page), [Some("a".to_string()), Some("b".to_string())]);
 
-    for refused in ["COMMIT", "  /* why */ begin", "SAVEPOINT x", "COPY hn_fixture.customers TO STDOUT"] {
+    for refused in ["COMMIT", "  /* why */ begin", "SAVEPOINT x", "COPY ok_fixture.customers TO STDOUT"] {
         let error = db.execute(&statements(&[refused]), &[], &Checks::NONE).await.unwrap_err();
         assert_eq!(error.kind, ErrorKind::Invalid, "{refused}");
     }
@@ -805,9 +805,9 @@ async fn lists_every_foreign_key_once() {
     assert!(references.iter().all(|r| !r.source.schema.starts_with("pg_")));
 }
 
-fn email() -> Vec<hn_core::ColumnRef> {
-    vec![hn_core::ColumnRef {
-        schema: "hn_fixture".into(),
+fn email() -> Vec<ok_core::ColumnRef> {
+    vec![ok_core::ColumnRef {
+        schema: "ok_fixture".into(),
         table: "customers".into(),
         column: "email".into(),
     }]
@@ -817,15 +817,15 @@ fn email() -> Vec<hn_core::ColumnRef> {
 async fn masks_a_hidden_column_wherever_a_query_returns_it() {
     let Some(db) = connect(false).await else { return };
     for query in [
-        "SELECT * FROM hn_fixture.customers WHERE id = 7",
-        "SELECT c.email AS contact, c.name FROM hn_fixture.customers c WHERE c.id = 7",
-        "SELECT i.id, c.email FROM hn_fixture.invoices i JOIN hn_fixture.customers c ON c.id = i.customer_id WHERE i.id = 7",
+        "SELECT * FROM ok_fixture.customers WHERE id = 7",
+        "SELECT c.email AS contact, c.name FROM ok_fixture.customers c WHERE c.id = 7",
+        "SELECT i.id, c.email FROM ok_fixture.invoices i JOIN ok_fixture.customers c ON c.id = i.customer_id WHERE i.id = 7",
     ] {
         let result = db.read(query, 5, &email()).await.unwrap();
         let text = format!("{:?}", result.rows);
         assert!(text.contains("[hidden]") && !text.contains("@example.com"), "{query}: {text}");
     }
-    let plain = db.read("SELECT name FROM hn_fixture.customers WHERE id = 7", 5, &email()).await.unwrap();
+    let plain = db.read("SELECT name FROM ok_fixture.customers WHERE id = 7", 5, &email()).await.unwrap();
     assert_eq!(plain.rows, [[Some("Customer 7".to_string())]]);
 }
 
@@ -833,21 +833,21 @@ async fn masks_a_hidden_column_wherever_a_query_returns_it() {
 async fn refuses_a_query_that_computes_with_a_hidden_column() {
     let Some(db) = connect(false).await else { return };
     for query in [
-        "SELECT lower(email) FROM hn_fixture.customers",
-        "SELECT id FROM hn_fixture.customers WHERE email LIKE 'customer1%'",
-        "SELECT to_jsonb(c) FROM hn_fixture.customers c",
-        "SELECT count(*) FROM hn_fixture.invoices i JOIN hn_fixture.customers c ON c.email = i.note",
+        "SELECT lower(email) FROM ok_fixture.customers",
+        "SELECT id FROM ok_fixture.customers WHERE email LIKE 'customer1%'",
+        "SELECT to_jsonb(c) FROM ok_fixture.customers c",
+        "SELECT count(*) FROM ok_fixture.invoices i JOIN ok_fixture.customers c ON c.email = i.note",
     ] {
         let error = db.read(query, 5, &email()).await.unwrap_err();
         assert!(
-            error.message.contains("hn_fixture.customers.email is hidden from agents"),
+            error.message.contains("ok_fixture.customers.email is hidden from agents"),
             "{query}: {}",
             error.message
         );
     }
     let error = db
         .execute(
-            &statements(&["UPDATE hn_fixture.customers SET name = email WHERE id = 1"]),
+            &statements(&["UPDATE ok_fixture.customers SET name = email WHERE id = 1"]),
             &email(),
             &Checks::NONE,
         )
@@ -855,7 +855,7 @@ async fn refuses_a_query_that_computes_with_a_hidden_column() {
         .unwrap_err();
     assert!(error.message.contains("is hidden from agents"), "{}", error.message);
     db.execute(
-        &statements(&["UPDATE hn_fixture.customers SET name = name WHERE id = 1", "SELECT 1"]),
+        &statements(&["UPDATE ok_fixture.customers SET name = name WHERE id = 1", "SELECT 1"]),
         &email(),
         &Checks::NONE,
     )
@@ -902,34 +902,34 @@ async fn returns_the_keys_it_adds_and_puts_a_deleted_row_back_as_it_was() {
 /// A backup kept in memory: its definition, and its rows as the CSV a restore reads back.
 #[derive(Default)]
 struct Kept {
-    definition: Option<hn_core::TableDefinition>,
+    definition: Option<ok_core::TableDefinition>,
     csv: String,
     finished: bool,
     full_disk: bool,
 }
 
 impl RowSink for Kept {
-    fn columns(&mut self, columns: &[hn_core::PageColumn]) -> Result<(), hn_core::Error> {
-        self.csv.push_str(&hn_core::csv_line(columns.iter().map(|c| Some(c.name.as_str()))));
+    fn columns(&mut self, columns: &[ok_core::PageColumn]) -> Result<(), ok_core::Error> {
+        self.csv.push_str(&ok_core::csv_line(columns.iter().map(|c| Some(c.name.as_str()))));
         Ok(())
     }
 
-    fn row(&mut self, row: &[Cell]) -> Result<(), hn_core::Error> {
+    fn row(&mut self, row: &[Cell]) -> Result<(), ok_core::Error> {
         if self.full_disk {
-            return Err(hn_core::Error::new(ErrorKind::Storage, "The disk is full."));
+            return Err(ok_core::Error::new(ErrorKind::Storage, "The disk is full."));
         }
-        self.csv.push_str(&hn_core::csv_line(row.iter().map(Option::as_deref)));
+        self.csv.push_str(&ok_core::csv_line(row.iter().map(Option::as_deref)));
         Ok(())
     }
 }
 
-impl hn_core::TableSink for Kept {
-    fn definition(&mut self, definition: &hn_core::TableDefinition) -> Result<(), hn_core::Error> {
+impl ok_core::TableSink for Kept {
+    fn definition(&mut self, definition: &ok_core::TableDefinition) -> Result<(), ok_core::Error> {
         self.definition = Some(definition.clone());
         Ok(())
     }
 
-    fn finish(&mut self) -> Result<(), hn_core::Error> {
+    fn finish(&mut self) -> Result<(), ok_core::Error> {
         self.finished = true;
         Ok(())
     }
@@ -939,7 +939,7 @@ impl hn_core::TableSink for Kept {
 /// columns, a foreign key, check and unique constraints, an expression index with a WHERE, comments and a trigger.
 /// Its rows hold NULL apart from empty text, quotes, a newline, `\.` and a 70 KB value.
 async fn keepsake(db: &PgDatabase, name: &str) -> TableRef {
-    let t = format!("hn_fixture.{name}");
+    let t = format!("ok_fixture.{name}");
     let outcome = db
         .run(&[
             format!("DROP TABLE IF EXISTS {t}"),
@@ -986,7 +986,7 @@ async fn every_row(db: &PgDatabase, t: &TableRef) -> Vec<Vec<Cell>> {
     rows.rows
 }
 
-fn shape(s: &hn_core::Structure) -> String {
+fn shape(s: &ok_core::Structure) -> String {
     format!("{:?}", (&s.columns, &s.primary_key, &s.indexes, &s.constraints, &s.foreign_keys))
 }
 
@@ -995,7 +995,7 @@ async fn puts_a_dropped_table_back_as_it_was() {
     let Some(db) = connect(false).await else { return };
     let t = keepsake(&db, "scratch_backup_drop").await;
     let (rows, before) = (every_row(&db, &t).await, db.structure(&t).await.unwrap());
-    assert!(db.backup_size(&t, &hn_core::RestoreInto::Recreate).await.unwrap() > 0.0);
+    assert!(db.backup_size(&t, &ok_core::RestoreInto::Recreate).await.unwrap() > 0.0);
 
     let mut kept = Kept::default();
     db.commit_with_backup(&structure(&t, vec![StructureChange::Drop]), &t, &mut kept, &Checks::NONE)
@@ -1006,10 +1006,10 @@ async fn puts_a_dropped_table_back_as_it_was() {
     let definition = kept.definition.unwrap();
     assert!(definition.not_kept.is_empty());
 
-    let review = db.review_restore(&definition, &hn_core::RestoreInto::Recreate).await.unwrap();
-    assert!(review[0].starts_with("CREATE SEQUENCE hn_fixture.scratch_backup_drop_serial_no_seq AS integer"));
+    let review = db.review_restore(&definition, &ok_core::RestoreInto::Recreate).await.unwrap();
+    assert!(review[0].starts_with("CREATE SEQUENCE ok_fixture.scratch_backup_drop_serial_no_seq AS integer"));
     let restored = db
-        .restore(&definition, &hn_core::RestoreInto::Recreate, &mut Pieces::of(&kept.csv))
+        .restore(&definition, &ok_core::RestoreInto::Recreate, &mut Pieces::of(&kept.csv))
         .await
         .unwrap();
     assert_eq!(restored, 4.0);
@@ -1018,7 +1018,7 @@ async fn puts_a_dropped_table_back_as_it_was() {
 
     let next = db
         .run(&statements(&[
-            "INSERT INTO hn_fixture.scratch_backup_drop (body) VALUES ('next') RETURNING id, serial_no, note",
+            "INSERT INTO ok_fixture.scratch_backup_drop (body) VALUES ('next') RETURNING id, serial_no, note",
         ]))
         .await
         .unwrap();
@@ -1029,7 +1029,7 @@ async fn puts_a_dropped_table_back_as_it_was() {
         "{next:?}"
     );
 
-    let again = db.restore(&definition, &hn_core::RestoreInto::Recreate, &mut Pieces::of(&kept.csv)).await;
+    let again = db.restore(&definition, &ok_core::RestoreInto::Recreate, &mut Pieces::of(&kept.csv)).await;
     assert_eq!(again.unwrap_err().kind, ErrorKind::Invalid);
 }
 
@@ -1045,7 +1045,7 @@ async fn refills_an_emptied_table_without_firing_its_triggers() {
         .unwrap();
     assert!(every_row(&db, &t).await.is_empty());
     let definition = kept.definition.unwrap();
-    let refill = hn_core::RestoreInto::Refill;
+    let refill = ok_core::RestoreInto::Refill;
     assert_eq!(db.restore(&definition, &refill, &mut Pieces::of(&kept.csv)).await.unwrap(), 4.0);
     assert_eq!(every_row(&db, &t).await, rows, "the NULL note wasn't stamped");
 
@@ -1065,20 +1065,20 @@ async fn puts_dropped_columns_back_with_their_index_check_and_foreign_key() {
         .await
         .unwrap();
     let definition = kept.definition.unwrap();
-    let into = hn_core::RestoreInto::Columns {
+    let into = ok_core::RestoreInto::Columns {
         names: vec!["note".into(), "code".into()],
     };
     assert!(db.backup_size(&t, &into).await.is_ok());
-    let key = hn_core::RestoreInto::Columns { names: vec!["id".into()] };
+    let key = ok_core::RestoreInto::Columns { names: vec!["id".into()] };
     assert_eq!(db.backup_size(&t, &key).await.unwrap_err().kind, ErrorKind::Invalid);
     assert_eq!(db.restore(&definition, &into, &mut Pieces::of(&kept.csv)).await.unwrap(), 4.0);
 
     let after = db.structure(&t).await.unwrap();
     let now = every_row(&db, &t).await;
     for name in ["note", "code"] {
-        let column = |s: &hn_core::Structure| format!("{:?}", s.columns.iter().find(|c| c.name == name));
+        let column = |s: &ok_core::Structure| format!("{:?}", s.columns.iter().find(|c| c.name == name));
         assert_eq!(column(&after), column(&before));
-        let at = |s: &hn_core::Structure| s.columns.iter().position(|c| c.name == name).unwrap();
+        let at = |s: &ok_core::Structure| s.columns.iter().position(|c| c.name == name).unwrap();
         let values = |rows: &[Vec<Cell>], at: usize| rows.iter().map(|r| r[at].clone()).collect::<Vec<_>>();
         assert_eq!(values(&now, at(&after)), values(&rows, at(&before)), "{name}");
     }
@@ -1103,24 +1103,24 @@ async fn a_backup_that_fails_leaves_the_table_untouched() {
     assert!(error.message.starts_with("The backup failed, so nothing changed"), "{}", error.message);
     assert_eq!(every_row(&db, &t).await.len(), 4);
 
-    let partitioned = db.backup_size(&table("events"), &hn_core::RestoreInto::Recreate).await.unwrap_err();
+    let partitioned = db.backup_size(&table("events"), &ok_core::RestoreInto::Recreate).await.unwrap_err();
     assert_eq!(partitioned.kind, ErrorKind::Invalid);
     assert!(partitioned.message.contains("partitioned"), "{}", partitioned.message);
 }
 
-fn rule(table: &str, check: hn_core::RuleCheck) -> hn_core::Rule {
+fn rule(table: &str, check: ok_core::RuleCheck) -> ok_core::Rule {
     let table = self::table(table);
-    hn_core::Rule {
+    ok_core::Rule {
         id: format!("{table:?}-{check:?}"),
         words: check.sentence(&table, true).unwrap_or_else(|| "the custom rule holds".into()),
         table,
         check,
-        source: hn_core::RuleSource::Written,
+        source: ok_core::RuleSource::Written,
         added_ms: 0.0,
     }
 }
 
-fn checks(rules: Vec<hn_core::Rule>) -> Checks {
+fn checks(rules: Vec<ok_core::Rule>) -> Checks {
     Checks { rules, ..Checks::default() }
 }
 
@@ -1128,21 +1128,21 @@ fn checks(rules: Vec<hn_core::Rule>) -> Checks {
 async fn ruled(db: &PgDatabase, p: &str) {
     let made = db
         .run(&[
-            format!("DROP TABLE IF EXISTS hn_fixture.{p}_invoices, hn_fixture.{p}_customers, hn_fixture.{p}_ledger"),
-            format!("CREATE TABLE hn_fixture.{p}_customers (id int PRIMARY KEY)"),
-            format!("CREATE TABLE hn_fixture.{p}_invoices (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)"),
-            format!("CREATE TABLE hn_fixture.{p}_ledger (id int PRIMARY KEY, note text)"),
-            format!("INSERT INTO hn_fixture.{p}_customers VALUES (1)"),
-            format!("INSERT INTO hn_fixture.{p}_invoices VALUES (1, 'draft', 10, 1)"),
-            format!("INSERT INTO hn_fixture.{p}_ledger VALUES (1, NULL)"),
+            format!("DROP TABLE IF EXISTS ok_fixture.{p}_invoices, ok_fixture.{p}_customers, ok_fixture.{p}_ledger"),
+            format!("CREATE TABLE ok_fixture.{p}_customers (id int PRIMARY KEY)"),
+            format!("CREATE TABLE ok_fixture.{p}_invoices (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)"),
+            format!("CREATE TABLE ok_fixture.{p}_ledger (id int PRIMARY KEY, note text)"),
+            format!("INSERT INTO ok_fixture.{p}_customers VALUES (1)"),
+            format!("INSERT INTO ok_fixture.{p}_invoices VALUES (1, 'draft', 10, 1)"),
+            format!("INSERT INTO ok_fixture.{p}_ledger VALUES (1, NULL)"),
         ])
         .await
         .unwrap();
     assert!(made.failed.is_none(), "{:?}", made.failed);
 }
 
-fn invoice_rules(p: &str) -> Vec<hn_core::Rule> {
-    use hn_core::RuleCheck;
+fn invoice_rules(p: &str) -> Vec<ok_core::Rule> {
+    use ok_core::RuleCheck;
     vec![
         rule(
             &format!("{p}_invoices"),
@@ -1171,7 +1171,7 @@ fn invoice_rules(p: &str) -> Vec<hn_core::Rule> {
 }
 
 async fn invoice_count(db: &PgDatabase, p: &str) -> String {
-    let counted = db.read(&format!("SELECT count(*) FROM hn_fixture.{p}_invoices"), 1, &[]).await.unwrap();
+    let counted = db.read(&format!("SELECT count(*) FROM ok_fixture.{p}_invoices"), 1, &[]).await.unwrap();
     counted.rows[0][0].clone().unwrap_or_default()
 }
 
@@ -1181,7 +1181,7 @@ async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
     let p = "rule_refuse";
     ruled(&db, p).await;
     let checks = checks(invoice_rules(p));
-    let insert = |values: &str| vec![format!("INSERT INTO hn_fixture.{p}_invoices VALUES {values}")];
+    let insert = |values: &str| vec![format!("INSERT INTO ok_fixture.{p}_invoices VALUES {values}")];
 
     for (values, words, row) in [
         ("(2, 'void', 5, 1)", "status is one of draft, sent and paid", "id = 2"),
@@ -1200,7 +1200,7 @@ async fn refuses_a_change_that_breaks_a_rule_and_writes_nothing() {
     db.execute(&insert("(5, 'sent', 3, 1)"), &[], &checks).await.unwrap();
     assert_eq!(invoice_count(&db, p).await, "2");
 
-    let orphaning = vec![format!("DELETE FROM hn_fixture.{p}_customers WHERE id = 1")];
+    let orphaning = vec![format!("DELETE FROM ok_fixture.{p}_customers WHERE id = 1")];
     let error = db.execute(&orphaning, &[], &checks).await.unwrap_err();
     assert_eq!(error.kind, ErrorKind::BrokenRule, "removing the row a rule matches breaks it");
 
@@ -1240,12 +1240,12 @@ async fn checks_only_the_rules_on_tables_a_change_touched() {
     let Some(db) = connect(false).await else { return };
     let p = "rule_touch";
     ruled(&db, p).await;
-    let filled = rule(&format!("{p}_ledger"), hn_core::RuleCheck::AlwaysFilled { column: "note".into() });
+    let filled = rule(&format!("{p}_ledger"), ok_core::RuleCheck::AlwaysFilled { column: "note".into() });
     let checks = checks(vec![filled]);
     // The ledger already breaks its rule, which a change to another table doesn't trip over.
-    let elsewhere = vec![format!("INSERT INTO hn_fixture.{p}_customers VALUES (2)")];
+    let elsewhere = vec![format!("INSERT INTO ok_fixture.{p}_customers VALUES (2)")];
     db.execute(&elsewhere, &[], &checks).await.unwrap();
-    let here = vec![format!("INSERT INTO hn_fixture.{p}_ledger VALUES (2, 'kept')")];
+    let here = vec![format!("INSERT INTO ok_fixture.{p}_ledger VALUES (2, 'kept')")];
     let error = db.execute(&here, &[], &checks).await.unwrap_err();
     assert!(
         error.message.contains("note is always filled") && error.message.contains("id = 1"),
@@ -1259,7 +1259,7 @@ async fn a_table_that_only_grows_refuses_changes_removals_and_emptying() {
     let Some(db) = connect(false).await else { return };
     let p = "rule_grow";
     ruled(&db, p).await;
-    let checks = checks(vec![rule(&format!("{p}_ledger"), hn_core::RuleCheck::OnlyGrows)]);
+    let checks = checks(vec![rule(&format!("{p}_ledger"), ok_core::RuleCheck::OnlyGrows)]);
     let ledger = table(&format!("{p}_ledger"));
     // A pooled connection may still hold the counts of the update before, which don't count against the insert after.
     let rows = |updates: Vec<RowUpdate>, inserts: Vec<Vec<ColumnValue>>| Changes::Rows {
@@ -1281,8 +1281,8 @@ async fn a_table_that_only_grows_refuses_changes_removals_and_emptying() {
     let insert = vec![value("id", Some("3")), value("note", Some("added"))];
     db.commit(&rows(vec![], vec![insert]), &checks).await.unwrap();
     for refused in [
-        format!("UPDATE hn_fixture.{p}_ledger SET note = 'changed'"),
-        format!("DELETE FROM hn_fixture.{p}_ledger WHERE id = 3"),
+        format!("UPDATE ok_fixture.{p}_ledger SET note = 'changed'"),
+        format!("DELETE FROM ok_fixture.{p}_ledger WHERE id = 3"),
     ] {
         let error = db.execute(std::slice::from_ref(&refused), &[], &checks).await.unwrap_err();
         assert_eq!(error.kind, ErrorKind::BrokenRule, "{refused}: {}", error.message);
@@ -1300,21 +1300,21 @@ async fn a_rules_own_query_writes_nothing_and_stops_in_time() {
     let p = "rule_own";
     ruled(&db, p).await;
     let made = db
-        .run(&statements(&["CREATE SEQUENCE IF NOT EXISTS hn_fixture.rule_counter"]))
+        .run(&statements(&["CREATE SEQUENCE IF NOT EXISTS ok_fixture.rule_counter"]))
         .await
         .unwrap();
     assert!(made.failed.is_none());
     let custom = |sql: &str| {
         rule(
             &format!("{p}_ledger"),
-            hn_core::RuleCheck::Custom {
+            ok_core::RuleCheck::Custom {
                 sql: sql.into(),
                 reads: vec![],
             },
         )
     };
-    let add = vec![format!("INSERT INTO hn_fixture.{p}_ledger VALUES (4, 'four')")];
-    let writing = checks(vec![custom("SELECT nextval('hn_fixture.rule_counter')")]);
+    let add = vec![format!("INSERT INTO ok_fixture.{p}_ledger VALUES (4, 'four')")];
+    let writing = checks(vec![custom("SELECT nextval('ok_fixture.rule_counter')")]);
     let error = db.execute(&add, &[], &writing).await.unwrap_err();
     assert!(error.message.contains("couldn't check it"), "a rule can't write: {}", error.message);
     let slow = checks(vec![custom("SELECT 1 FROM pg_sleep(6)")]);
@@ -1329,16 +1329,16 @@ async fn suggests_rules_from_the_data_with_or_without_statistics() {
     let Some(db) = connect(false).await else { return };
     let made = db
         .run(&statements(&[
-            "DROP TABLE IF EXISTS hn_fixture.suggest_orders",
-            "CREATE TABLE hn_fixture.suggest_orders (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)",
-            "INSERT INTO hn_fixture.suggest_orders SELECT g, CASE WHEN g % 2 = 0 THEN 'open' ELSE 'closed' END, g * 1.5, 1 + g % 3 \
+            "DROP TABLE IF EXISTS ok_fixture.suggest_orders",
+            "CREATE TABLE ok_fixture.suggest_orders (id int PRIMARY KEY, status text, amount numeric(12,2), customer_id int)",
+            "INSERT INTO ok_fixture.suggest_orders SELECT g, CASE WHEN g % 2 = 0 THEN 'open' ELSE 'closed' END, g * 1.5, 1 + g % 3 \
              FROM generate_series(1, 40) g",
         ]))
         .await
         .unwrap();
     assert!(made.failed.is_none(), "{:?}", made.failed);
     let orders = table("suggest_orders");
-    let words = |found: &[hn_core::Suggestion]| found.iter().map(|s| s.words.clone()).collect::<Vec<_>>().join(" | ");
+    let words = |found: &[ok_core::Suggestion]| found.iter().map(|s| s.words.clone()).collect::<Vec<_>>().join(" | ");
 
     let sampled = db.suggest_rules(&orders).await.unwrap();
     let said = words(&sampled);
@@ -1355,7 +1355,7 @@ async fn suggests_rules_from_the_data_with_or_without_statistics() {
     );
     assert!(sampled[0].evidence.starts_with("All 40 rows"), "{}", sampled[0].evidence);
 
-    let analyzed = db.run(&statements(&["ANALYZE hn_fixture.suggest_orders"])).await.unwrap();
+    let analyzed = db.run(&statements(&["ANALYZE ok_fixture.suggest_orders"])).await.unwrap();
     assert!(analyzed.failed.is_none());
     let from_statistics = db.suggest_rules(&orders).await.unwrap();
     assert!(words(&from_statistics).contains("status is one of"), "{}", words(&from_statistics));

@@ -41,7 +41,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm typecheck
-      - run: pnpm --filter @halfnine/desktop build
+      - run: pnpm --filter @okayrow/desktop build
 
       # Tauri compiles against the system webview, which on Linux is WebKitGTK.
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
@@ -55,5 +55,5 @@ jobs:
       # Whatever a failed test left behind; the tests label what they make.
       - if: always()
         run: |
-          docker ps -aq --filter label=com.notinferred.halfnine.test | xargs -r docker rm -f
-          docker volume ls -q --filter label=com.notinferred.halfnine.test | xargs -r docker volume rm -f
+          docker ps -aq --filter label=com.notinferred.okayrow.test | xargs -r docker rm -f
+          docker volume ls -q --filter label=com.notinferred.okayrow.test | xargs -r docker volume rm -f

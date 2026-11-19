@@ -15,7 +15,7 @@ export function needsPassword(error: unknown): boolean {
   return isAppError(error) && error.kind === "passwordNeeded";
 }
 
-/** Halfnine couldn't back up what a drop or truncate would lose, so nothing changed; the message says why. */
+/** Okayrow couldn't back up what a drop or truncate would lose, so nothing changed; the message says why. */
 export function notBackedUp(error: unknown): boolean {
   return isAppError(error) && error.kind === "noBackup";
 }

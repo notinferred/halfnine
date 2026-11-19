@@ -15,7 +15,7 @@ const NOUN: Record<RelationKind, string> = {
 type Structure = Extract<Changes, { kind: "structure" }>;
 
 /**
- * A drop, truncate or column drop that Halfnine couldn't back up first can't be undone, so it says why, shows the
+ * A drop, truncate or column drop that Okayrow couldn't back up first can't be undone, so it says why, shows the
  * statements, and waits for the table's name to be typed. Then it runs without a backup.
  */
 export function ConfirmByName(props: {

@@ -73,7 +73,7 @@ function Databases(props: { onCreate: () => void }) {
       const done = await commands.deleteDockerDatabase(name, withoutBackup);
       // The window may have had that database open, which is gone now.
       useWorkspace.getState().forgetConnection(database.connection.id);
-      const kept = done.keptVolume ? " Its data volume wasn't made by Halfnine, so it was kept." : "";
+      const kept = done.keptVolume ? " Its data volume wasn't made by Okayrow, so it was kept." : "";
       if (done.backup) noteUndo(queries, done.backup, null, kept);
       else showNote({ text: `Deleted ${name}.${kept}` });
       return null;

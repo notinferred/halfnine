@@ -76,7 +76,7 @@ export const commands = {
 	agentState: () => __TAURI_INVOKE<AgentState>("agent_state"),
 	/**
 	 *  Commits what the agent proposed. With `remember`, its next changes on that connection, short of dropping or
-	 *  emptying a table, run without asking until Halfnine quits.
+	 *  emptying a table, run without asking until Okayrow quits.
 	 */
 	approveProposal: (id: string, remember: boolean) => __TAURI_INVOKE<null>("approve_proposal", { id, remember }),
 	declineProposal: (id: string, reason: string) => __TAURI_INVOKE<null>("decline_proposal", { id, reason }),
@@ -96,7 +96,7 @@ export const commands = {
 	 *  are on, and gives what was done.
 	 */
 	answerDeletion: (id: string, yes: boolean) => __TAURI_INVOKE<{
-	/**  Its data volume was kept, because Halfnine didn't make it. */
+	/**  Its data volume was kept, because Okayrow didn't make it. */
 	keptVolume: boolean,
 	backup: Backup | null,
 } | null>("answer_deletion", { id, yes }),
@@ -106,7 +106,7 @@ export const commands = {
 	listRules: (sessionId: string) => __TAURI_INVOKE<Rule[]>("list_rules", { sessionId }),
 	/**
 	 *  Adds a rule after trying it on the data as it is: one that rows already break is refused, naming them. A custom
-	 *  rule takes the person's own `words`; any other is put in words by Halfnine. `evidence` marks one Halfnine suggested.
+	 *  rule takes the person's own `words`; any other is put in words by Okayrow. `evidence` marks one Okayrow suggested.
 	 */
 	addRule: (sessionId: string, table: TableRef, check: RuleCheck, words: string | null, evidence: string | null) => __TAURI_INVOKE<RuleAdded>("add_rule", { sessionId, table, check, words, evidence }),
 	deleteRule: (sessionId: string, id: string) => __TAURI_INVOKE<null>("delete_rule", { sessionId, id }),
@@ -120,7 +120,7 @@ export const commands = {
 	/**  The person's two choices in the first-launch setup, which then doesn't show again. */
 	finishSetup: (docker: boolean, backups: boolean) => __TAURI_INVOKE<null>("finish_setup", { docker, backups }),
 	dockerState: () => __TAURI_INVOKE<DockerState>("docker_state"),
-	/**  Turns Docker databases on or off in Settings. Off, Halfnine stops talking to the engine. */
+	/**  Turns Docker databases on or off in Settings. Off, Okayrow stops talking to the engine. */
 	setDockerEnabled: (on: boolean) => __TAURI_INVOKE<null>("set_docker_enabled", { on }),
 	startDockerDatabase: (name: string) => __TAURI_INVOKE<null>("start_docker_database", { name }),
 	/**  Stops a container, closing what the window and agents have open on it first. */
@@ -205,7 +205,7 @@ export type ActivityEntry = {
 	reason: string | null,
 	/**  Its row changes can still be undone. */
 	undo: boolean,
-	/**  The backup Halfnine made before it dropped or emptied something, to put back. */
+	/**  The backup Okayrow made before it dropped or emptied something, to put back. */
 	backup: string | null,
 };
 
@@ -310,7 +310,7 @@ export type Client = "claudeCode" | "codex" | "cursor" | "vsCode" | "claudeDeskt
 export type ClientSetup = {
 	client: Client,
 	name: string,
-	/**  Already set up with this copy of Halfnine, as far as its settings show. `None` when they can't tell. */
+	/**  Already set up with this copy of Okayrow, as far as its settings show. `None` when they can't tell. */
 	connected: boolean | null,
 };
 
@@ -387,7 +387,7 @@ export type ConnectionSpec = {
 	 */
 	savePassword?: boolean,
 	/**
-	 *  What AI agents connected through `halfnine mcp` may do here. `None` until someone picks a level, which keeps the
+	 *  What AI agents connected through `okayrow mcp` may do here. `None` until someone picks a level, which keeps the
 	 *  label's default.
 	 */
 	agentAccess?: AgentAccess | null,
@@ -409,7 +409,7 @@ export type CutCell = {
 
 /**  A deleted Docker database, and the backup made before, if one was. */
 export type DeleteDone = {
-	/**  Its data volume was kept, because Halfnine didn't make it. */
+	/**  Its data volume was kept, because Okayrow didn't make it. */
 	keptVolume: boolean,
 	backup: Backup | null,
 };
@@ -419,7 +419,7 @@ export type DeletionRequestView = {
 	id: string,
 	agent: string,
 	connection: ConnectionSpec,
-	/**  Whether Halfnine backs it up first, so it can be put back. */
+	/**  Whether Okayrow backs it up first, so it can be put back. */
 	backedUp: boolean,
 	state: DeletionState,
 };
@@ -449,7 +449,7 @@ export type DockerSettings = {
 
 export type DockerState = {
 	on: boolean,
-	/**  Which engine Halfnine found, such as "the desktop-linux context". */
+	/**  Which engine Okayrow found, such as "the desktop-linux context". */
 	engine: string | null,
 	/**  Why there is no engine, when Docker databases are on. */
 	problem: string | null,
@@ -478,9 +478,9 @@ export type ErrorKind = "network" | "timeout" | "auth" |
 "conflict" | "notFound" | "invalid" | "storage" | "keychain" | 
 /**  The Docker engine on this computer couldn't be reached, or refused. */
 "docker" | 
-/**  Nothing was dropped, emptied or deleted, because Halfnine couldn't back it up first. The message says why. */
+/**  Nothing was dropped, emptied or deleted, because Okayrow couldn't back it up first. The message says why. */
 "noBackup" | 
-/**  Nothing was written, because the change broke a rule the person set, or Halfnine couldn't check one in time. */
+/**  Nothing was written, because the change broke a rule the person set, or Okayrow couldn't check one in time. */
 "brokenRule";
 
 export type ExportDone = {
@@ -576,7 +576,7 @@ export type KeptContainer = {
 	database: string,
 	/**  Every database in it, dumped to `<n>.dump` in this order. */
 	databases: string[],
-	/**  How Halfnine made it, and for which agent; `None` when Halfnine didn't make it. */
+	/**  How Okayrow made it, and for which agent; `None` when Okayrow didn't make it. */
 	made: Made | null,
 	overrides: Overrides,
 };
@@ -584,7 +584,7 @@ export type KeptContainer = {
 /**  The colour that marks an environment, so production always looks different. */
 export type Label = "none" | "green" | "amber" | "red";
 
-/**  How Halfnine made a container, when it did. */
+/**  How Okayrow made a container, when it did. */
 export type Made = {
 	how: MadeHow,
 	/**  The agent that asked for it, if one did. */
@@ -592,7 +592,7 @@ export type Made = {
 };
 
 export type MadeHow = "new" | "copy" | 
-/**  Made to restore a backup of a database Halfnine didn't make, which keeps that origin: it is treated as anyone's. */
+/**  Made to restore a backup of a database Okayrow didn't make, which keeps that origin: it is treated as anyone's. */
 "restored";
 
 export type NewColumn = {
@@ -698,7 +698,7 @@ export type Rule = {
 	id: string,
 	table: TableRef,
 	check: RuleCheck,
-	/**  The rule in words, as the person wrote it or Halfnine put it. */
+	/**  The rule in words, as the person wrote it or Okayrow put it. */
 	words: string,
 	source: RuleSource,
 	addedMs: number | null,
@@ -734,7 +734,7 @@ reads: TableRef[] };
 export type RuleSource = 
 /**  The person wrote it. */
 { kind: "written" } | 
-/**  Halfnine suggested it from patterns in the data, and the person accepted it. */
+/**  Okayrow suggested it from patterns in the data, and the person accepted it. */
 { kind: "suggested"; evidence: string };
 
 export type RunFailure = {
@@ -788,7 +788,7 @@ export type SetupPlan = {
 	steps: string[],
 	/**  The same setup as a command or settings to paste, for doing it by hand. */
 	manual: string,
-	/**  Why Halfnine can't do it itself, when it can't, in which case `manual` is the way. */
+	/**  Why Okayrow can't do it itself, when it can't, in which case `manual` is the way. */
 	blocked: string | null,
 };
 
@@ -841,7 +841,7 @@ export type Structure = {
 /**  One change to a table's structure. Types and defaults are SQL someone typed, as Postgres would read them. */
 export type StructureChange = { kind: "createTable"; columns: NewColumn[] } | { kind: "addColumn"; column: NewColumn } | { kind: "renameColumn"; column: string; to: string } | { kind: "setType"; column: string; to: string } | { kind: "setNullable"; column: string; nullable: boolean } | { kind: "setDefault"; column: string; to: string | null } | { kind: "dropColumn"; column: string } | { kind: "createIndex"; columns: string[]; unique: boolean } | { kind: "dropIndex"; name: string } | { kind: "truncate" } | { kind: "drop" };
 
-/**  A rule Halfnine found in the data, for the person to accept or dismiss. */
+/**  A rule Okayrow found in the data, for the person to accept or dismiss. */
 export type Suggestion = {
 	check: RuleCheck,
 	words: string,

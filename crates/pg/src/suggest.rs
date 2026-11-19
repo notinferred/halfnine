@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use hn_core::{Error, RuleCheck, Suggestion, TableRef};
+use ok_core::{Error, RuleCheck, Suggestion, TableRef};
 use sqlx::postgres::PgRow;
 use sqlx::{PgConnection, Row};
 
@@ -240,7 +240,7 @@ fn read_statistics(columns: &mut [Seen], stats: &[PgRow]) -> Result<(), sqlx::Er
 async fn read_sample(conn: &mut PgConnection, table: &TableRef, columns: &mut [Seen], about: f64, db: &PgDatabase) -> Result<Basis, Error> {
     let looked: Vec<usize> = (0..columns.len()).filter(|&i| !columns[i].skip).collect();
     let mut w = Writer::default();
-    w.text("WITH hn_sample AS MATERIALIZED (SELECT ");
+    w.text("WITH ok_sample AS MATERIALIZED (SELECT ");
     if looked.is_empty() {
         w.text("1");
     }
@@ -260,7 +260,7 @@ async fn read_sample(conn: &mut PgConnection, table: &TableRef, columns: &mut [S
             .text("::text = '')");
         w.text(", ARRAY(SELECT DISTINCT ")
             .name(&name)
-            .text("::text FROM hn_sample WHERE ")
+            .text("::text FROM ok_sample WHERE ")
             .name(&name);
         w.text(&format!(" IS NOT NULL LIMIT {})", CHOICES + 1));
         if columns[i].category == "N" {
@@ -269,7 +269,7 @@ async fn read_sample(conn: &mut PgConnection, table: &TableRef, columns: &mut [S
             w.text(", NULL::float8");
         }
     }
-    w.text(" FROM hn_sample");
+    w.text(" FROM ok_sample");
     let row = db
         .query(w.step(String::new(), None).run)
         .persistent(false)

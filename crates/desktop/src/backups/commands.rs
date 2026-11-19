@@ -1,6 +1,6 @@
 //! The window's commands for backups: listing them, putting one back, deleting one, and the backup settings.
 
-use hn_core::{ConnectionSpec, Error};
+use ok_core::{ConnectionSpec, Error};
 use serde::Serialize;
 use specta::Type;
 use tauri::State;

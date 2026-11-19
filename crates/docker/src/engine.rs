@@ -1,4 +1,4 @@
-//! The Docker engine on this computer, as Halfnine uses it: the Postgres containers in it, and making, starting,
+//! The Docker engine on this computer, as Okayrow uses it: the Postgres containers in it, and making, starting,
 //! stopping and removing them, running commands inside them, and copying files into them.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use bollard::query_parameters::{
 use bollard::{API_DEFAULT_VERSION, Docker};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt, TryStreamExt};
-use hn_core::{Error, ErrorKind};
+use ok_core::{Error, ErrorKind};
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::discover::Found;
@@ -29,11 +29,11 @@ const STDERR_LIMIT: usize = 64 * 1024;
 
 pub struct Engine {
     docker: Docker,
-    /// Where it was found, to show people which engine Halfnine uses.
+    /// Where it was found, to show people which engine Okayrow uses.
     pub found: Found,
 }
 
-/// A Postgres container, with what Halfnine needs to connect to it and to manage it.
+/// A Postgres container, with what Okayrow needs to connect to it and to manage it.
 #[derive(Clone, Debug)]
 pub struct Container {
     pub id: String,
@@ -117,7 +117,7 @@ impl Engine {
         }
         Err(Error::new(
             ErrorKind::Docker,
-            "Halfnine can't find Docker. Start Docker Desktop, OrbStack or Colima.",
+            "Okayrow can't find Docker. Start Docker Desktop, OrbStack or Colima.",
         ))
     }
 
@@ -352,7 +352,7 @@ impl Engine {
     }
 }
 
-/// A container as Halfnine sees it, or `None` when it doesn't run Postgres.
+/// A container as Okayrow sees it, or `None` when it doesn't run Postgres.
 fn postgres_container(inspected: ContainerInspectResponse) -> Option<Container> {
     let config = inspected.config.unwrap_or_default();
     let env = config.env.unwrap_or_default();

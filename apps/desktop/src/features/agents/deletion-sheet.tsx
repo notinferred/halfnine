@@ -27,7 +27,7 @@ export function DeletionSheet(props: { request: DeletionRequestView }) {
       if (!done) return;
       // The window may have had that database open, which is gone now.
       useWorkspace.getState().forgetConnection(request.connection.id);
-      const kept = done.keptVolume ? " Its data volume wasn't made by Halfnine, so it was kept." : "";
+      const kept = done.keptVolume ? " Its data volume wasn't made by Okayrow, so it was kept." : "";
       if (done.backup) noteUndo(queries, done.backup, null, kept);
       else showNote({ text: `Deleted ${name}.${kept}` });
     } catch (e) {
@@ -60,7 +60,7 @@ export function DeletionSheet(props: { request: DeletionRequestView }) {
         <p id="deletion-detail" className="muted">
           {request.agent} didn't make this Docker database.{" "}
           {request.backedUp
-            ? "Halfnine backs it up first, so you can put it back from the Docker page's backups."
+            ? "Okayrow backs it up first, so you can put it back from the Docker page's backups."
             : "Backups are off in Settings, so it can't be put back."}
         </p>
         {error && (

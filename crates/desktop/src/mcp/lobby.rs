@@ -1,4 +1,4 @@
-//! What `halfnine mcp` answers while the app is closed: the session's opening, pings and the list of tools, from the
+//! What `okayrow mcp` answers while the app is closed: the session's opening, pings and the list of tools, from the
 //! same definitions the app serves. An agent session that never calls a tool never opens the app. The first message
 //! only the app can answer ends the lobby, and the session so far is handed to the app.
 
@@ -29,7 +29,7 @@ impl ServerHandler for Lobby {
     }
 
     async fn call_tool(&self, _request: CallToolRequestParams, _context: RequestContext<RoleServer>) -> Result<CallToolResponse, ErrorData> {
-        Err(ErrorData::internal_error("Halfnine's app answers tool calls, not the lobby", None))
+        Err(ErrorData::internal_error("Okayrow's app answers tool calls, not the lobby", None))
     }
 }
 

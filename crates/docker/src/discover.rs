@@ -30,7 +30,7 @@ impl Endpoint {
     }
 }
 
-/// An endpoint, and what pointed at it, to show people which engine Halfnine uses.
+/// An endpoint, and what pointed at it, to show people which engine Okayrow uses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
     pub endpoint: Endpoint,

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use hn_core::Error;
+use ok_core::Error;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -94,7 +94,7 @@ impl Settings {
 #[tauri::command]
 #[specta::specta]
 pub async fn find_docker() -> Result<Option<String>, Error> {
-    Ok(hn_docker::Engine::find(&hn_docker::discover::here())
+    Ok(ok_docker::Engine::find(&ok_docker::discover::here())
         .await
         .ok()
         .map(|engine| engine.found.by))
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn starts_with_backups_on_and_keeps_an_earlier_pause() {
-        let dir = std::env::temp_dir().join(format!("hn-settings-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("ok-settings-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("agents.json"), r#"{"version":1,"paused":true}"#).unwrap();
         let settings = Settings::open(&dir).unwrap();

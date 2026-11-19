@@ -24,7 +24,7 @@ const sourceInWords = (rule: Rule) => (rule.source.kind === "suggested" ? `Sugge
 
 /**
  * What correct data is in this table, as rules the person sets: an agent's change that breaks one never commits, and
- * the person's own commit warns. Halfnine suggests rules from patterns in the data.
+ * the person's own commit warns. Okayrow suggests rules from patterns in the data.
  */
 export function RulesSection(props: { session: SessionInfo; table: TableRef; columns: ColumnInfo[] }) {
   const id = props.session.sessionId;
@@ -178,7 +178,7 @@ function AddRuleSheet(props: {
         }}
       >
         <h2 id="add-rule-title">A rule for {props.table.name}</h2>
-        <p className="muted">Halfnine tries it on the data first. Rows that break it already are named, and it isn't added.</p>
+        <p className="muted">Okayrow tries it on the data first. Rows that break it already are named, and it isn't added.</p>
         <div className="rules-sentence">
           {needsColumn && columnPicker}
           <select ref={kindSelect} aria-label="Rule" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>

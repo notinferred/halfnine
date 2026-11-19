@@ -15,9 +15,9 @@ unsafe_code = "forbid"
 # One version of each dependency for the whole workspace; crates refer to it with `workspace = true`.
 # Exact, as each was published at least two weeks before it was added (2026-10-28).
 [workspace.dependencies]
-hn-core = { path = "crates/core" }
-hn-pg = { path = "crates/pg" }
-hn-docker = { path = "crates/docker" }
+ok-core = { path = "crates/core" }
+ok-pg = { path = "crates/pg" }
+ok-docker = { path = "crates/docker" }
 
 serde = { version = "=1.0.229", features = ["derive"] }
 # Keeps the key order of the other apps' settings files that setting up an agent edits.
@@ -46,13 +46,13 @@ tauri-plugin-dialog = "=2.8.3"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
-# The MCP server agents reach through `halfnine mcp` (2026-10-29): the official Rust SDK, and the JSON schemas it
+# The MCP server agents reach through `okayrow mcp` (2026-10-29): the official Rust SDK, and the JSON schemas it
 # describes each tool's input with.
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros"] }
 schemars = "=1.2.3"
 # Where the bridge finds the app's config folder without starting Tauri, by the same rules Tauri follows.
 dirs = "=7.0.0"
-# Opens Cursor's and VS Code's own install screens for Halfnine, from Rust only. What Tauri's opener plugin uses inside.
+# Opens Cursor's and VS Code's own install screens for Okayrow, from Rust only. What Tauri's opener plugin uses inside.
 open = "=5.4.4"
 base64 = "=0.22.1"
 # The Docker engine on this computer (2026-10-30), through its socket or named pipe only: no TLS, no TCP, no C

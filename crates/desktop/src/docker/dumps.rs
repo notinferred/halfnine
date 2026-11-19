@@ -5,8 +5,8 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use hn_core::{Error, ErrorKind};
-use hn_docker::Engine;
+use ok_core::{Error, ErrorKind};
+use ok_docker::Engine;
 use serde::{Deserialize, Serialize};
 
 use crate::files::private_dir;
@@ -48,12 +48,12 @@ pub async fn size(engine: &Engine, container: &str, user: &str) -> Result<f64, E
     let sum = "SELECT coalesce(sum(pg_database_size(datname)), 0) FROM pg_database WHERE datallowconn AND NOT datistemplate";
     let (ran, out) = engine.run(container, &["psql", "-U", user, "-d", "postgres", "-tAc", sum]).await?;
     if !ran.succeeded() {
-        return Err(failed("Halfnine couldn't measure the databases", &ran.stderr));
+        return Err(failed("Okayrow couldn't measure the databases", &ran.stderr));
     }
     String::from_utf8_lossy(&out)
         .trim()
         .parse()
-        .map_err(|_| Error::new(ErrorKind::Docker, "Halfnine couldn't measure the databases."))
+        .map_err(|_| Error::new(ErrorKind::Docker, "Okayrow couldn't measure the databases."))
 }
 
 /// Waits until Postgres in a running container accepts connections, which it doesn't at once after starting.
@@ -82,7 +82,7 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path, pass
     let list = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname";
     let (ran, out) = engine.run(container, &["psql", "-U", user, "-d", "postgres", "-tAc", list]).await?;
     if !ran.succeeded() {
-        return Err(failed("Halfnine couldn't list the databases", &ran.stderr));
+        return Err(failed("Okayrow couldn't list the databases", &ran.stderr));
     }
     let databases: Vec<String> = String::from_utf8_lossy(&out)
         .lines()
@@ -96,7 +96,7 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path, pass
     }
     let ran = engine.run_to(container, &roles, &mut globals).await?;
     if !ran.succeeded() {
-        return Err(failed("Halfnine couldn't save the roles", &ran.stderr));
+        return Err(failed("Okayrow couldn't save the roles", &ran.stderr));
     }
     for (n, database) in databases.iter().enumerate() {
         let path = dir.join(format!("{n}.dump"));
@@ -106,7 +106,7 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path, pass
             .await?;
         if !ran.succeeded() {
             let _ = std::fs::remove_file(&path);
-            return Err(failed(&format!("Halfnine couldn't save {database}"), &ran.stderr));
+            return Err(failed(&format!("Okayrow couldn't save {database}"), &ran.stderr));
         }
         file.sync_all().await.map_err(write_failed)?;
     }
@@ -121,13 +121,13 @@ pub async fn dump(engine: &Engine, container: &str, user: &str, dir: &Path, pass
 /// Makes every database of a dump folder in a running container: the roles first, then each database, made new
 /// unless it already exists, as the one the container was made with does.
 pub async fn restore(engine: &Engine, container: &str, dir: &Path, dumped: &Dumped) -> Result<(), Error> {
-    engine.run(container, &["mkdir", "-p", "/tmp/halfnine"]).await?;
-    engine.upload(container, "/tmp/halfnine", GLOBALS, &dir.join(GLOBALS)).await?;
+    engine.run(container, &["mkdir", "-p", "/tmp/okayrow"]).await?;
+    engine.upload(container, "/tmp/okayrow", GLOBALS, &dir.join(GLOBALS)).await?;
     // Roles that already exist, such as the container's own user, only draw errors here, which are fine.
     let _ = engine
         .run(
             container,
-            &["psql", "-q", "-U", &dumped.user, "-d", "postgres", "-f", "/tmp/halfnine/globals.sql"],
+            &["psql", "-q", "-U", &dumped.user, "-d", "postgres", "-f", "/tmp/okayrow/globals.sql"],
         )
         .await?;
     let (ran, out) = engine
@@ -137,13 +137,13 @@ pub async fn restore(engine: &Engine, container: &str, dir: &Path, dumped: &Dump
         )
         .await?;
     if !ran.succeeded() {
-        return Err(failed("Halfnine couldn't list the databases", &ran.stderr));
+        return Err(failed("Okayrow couldn't list the databases", &ran.stderr));
     }
     let existing = String::from_utf8_lossy(&out).to_string();
     for (n, database) in dumped.databases.iter().enumerate() {
         let file = format!("{n}.dump");
-        engine.upload(container, "/tmp/halfnine", &file, &dir.join(&file)).await?;
-        let path = format!("/tmp/halfnine/{file}");
+        engine.upload(container, "/tmp/okayrow", &file, &dir.join(&file)).await?;
+        let path = format!("/tmp/okayrow/{file}");
         let exists = existing.lines().any(|d| d == database);
         let cmd: Vec<&str> = if exists {
             vec!["pg_restore", "-U", &dumped.user, "-d", database, &path]
@@ -153,9 +153,9 @@ pub async fn restore(engine: &Engine, container: &str, dir: &Path, dumped: &Dump
         let (ran, _) = engine.run(container, &cmd).await?;
         let _ = engine.run(container, &["rm", "-f", &path]).await;
         if !ran.succeeded() {
-            return Err(failed(&format!("Halfnine couldn't restore {database}"), &ran.stderr));
+            return Err(failed(&format!("Okayrow couldn't restore {database}"), &ran.stderr));
         }
     }
-    let _ = engine.run(container, &["rm", "-rf", "/tmp/halfnine"]).await;
+    let _ = engine.run(container, &["rm", "-rf", "/tmp/okayrow"]).await;
     Ok(())
 }

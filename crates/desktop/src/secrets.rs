@@ -6,14 +6,14 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use hn_core::{Error, ErrorKind};
-use hn_pg::Secrets;
+use ok_core::{Error, ErrorKind};
+use ok_pg::Secrets;
 use keyring_core::Entry;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::SecretChange;
 
-const SERVICE: &str = "com.notinferred.halfnine";
+const SERVICE: &str = "com.notinferred.okayrow";
 const ACCOUNT: &str = "passwords";
 const VERSION: u32 = 1;
 
@@ -157,7 +157,7 @@ fn read() -> Result<Saved, Error> {
             if saved.version > VERSION {
                 return Err(Error::new(
                     ErrorKind::Keychain,
-                    "A newer Halfnine saved these passwords, so this one won't change them.",
+                    "A newer Okayrow saved these passwords, so this one won't change them.",
                 ));
             }
             Ok(saved)
@@ -198,7 +198,7 @@ fn secrets(pair: Option<&Pair>) -> Secrets {
 }
 
 fn busy() -> Error {
-    Error::new(ErrorKind::Keychain, "The saved passwords couldn't be read. Restart Halfnine.")
+    Error::new(ErrorKind::Keychain, "The saved passwords couldn't be read. Restart Okayrow.")
 }
 
 fn keychain(e: keyring_core::Error) -> Error {
@@ -206,7 +206,7 @@ fn keychain(e: keyring_core::Error) -> Error {
 }
 
 fn keychain_text(e: &serde_json::Error) -> Error {
-    Error::new(ErrorKind::Keychain, format!("Halfnine's keychain entry couldn't be read: {e}."))
+    Error::new(ErrorKind::Keychain, format!("Okayrow's keychain entry couldn't be read: {e}."))
 }
 
 /// Tests keep secrets in keyring-core's in-memory store, shared by every test in the process.

@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use hn_core::{Cell, Error, PageColumn, RowSink, csv_line};
+use ok_core::{Cell, Error, PageColumn, RowSink, csv_line};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     fn write(format: ExportFormat) -> String {
-        let path = std::env::temp_dir().join(format!("halfnine-export-{}.{}", uuid::Uuid::new_v4(), format.extension()));
+        let path = std::env::temp_dir().join(format!("okayrow-export-{}.{}", uuid::Uuid::new_v4(), format.extension()));
         let mut sink = Sink::create(&path, format).unwrap();
         let columns = [
             PageColumn {

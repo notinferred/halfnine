@@ -1,4 +1,4 @@
-# Halfnine
+# Okayrow
 
 A small, calm PostgreSQL client for macOS and Windows, light enough to leave open all day.
 
@@ -6,35 +6,35 @@ It is early: [ROADMAP.md](ROADMAP.md) says where things stand.
 
 ## Install
 
-Download the installer from [Releases](https://github.com/notinferred/halfnine/releases). The builds aren't signed yet, so each system asks once before opening them:
+Download the installer from [Releases](https://github.com/notinferred/okayrow/releases). The builds aren't signed yet, so each system asks once before opening them:
 
-- **macOS** (Apple silicon, macOS 13 or later): open the `.dmg` and drag Halfnine to Applications. Open it once, then choose System Settings › Privacy & Security › Open Anyway. Or run `xattr -dr com.apple.quarantine /Applications/Halfnine.app`.
+- **macOS** (Apple silicon, macOS 13 or later): open the `.dmg` and drag Okayrow to Applications. Open it once, then choose System Settings › Privacy & Security › Open Anyway. Or run `xattr -dr com.apple.quarantine /Applications/Okayrow.app`.
 - **Windows** (x64): run the `-setup.exe`. At the SmartScreen warning choose More info › Run anyway. It installs for the current user, without administrator rights.
 
-When a connection saves its password, macOS asks once before Halfnine first reads it, and again after each update until the app is signed. Choose Always Allow.
+When a connection saves its password, macOS asks once before Okayrow first reads it, and again after each update until the app is signed. Choose Always Allow.
 
 ## Docker databases and backups
 
-Turn on Docker databases in Settings, or at the first launch, and the Postgres containers on this computer show under Docker on the connections screen. Double-click one to connect; Halfnine reads its user and password from the container. The Docker page makes new ones (PostgreSQL 14 to 18, optionally from a dump or an SQL file), copies, starts, stops and deletes them. It works with Docker Desktop, OrbStack, Colima and Rancher Desktop.
+Turn on Docker databases in Settings, or at the first launch, and the Postgres containers on this computer show under Docker on the connections screen. Double-click one to connect; Okayrow reads its user and password from the container. The Docker page makes new ones (PostgreSQL 14 to 18, optionally from a dump or an SQL file), copies, starts, stops and deletes them. It works with Docker Desktop, OrbStack, Colima and Rancher Desktop.
 
-With backups on, as they are unless you turn them off in Settings, dropping or emptying a table, dropping a column, or deleting a Docker database backs it up first and acts at once, with Undo at the foot of the window. Backups stay on the Docker page until you delete them. A table bigger than the limit in Settings, or one Halfnine can't back up, asks for its name instead.
+With backups on, as they are unless you turn them off in Settings, dropping or emptying a table, dropping a column, or deleting a Docker database backs it up first and acts at once, with Undo at the foot of the window. Backups stay on the Docker page until you delete them. A table bigger than the limit in Settings, or one Okayrow can't back up, asks for its name instead.
 
 ## Rules
 
-A table's Structure view has a Rules section, where you say what correct data is: a column is always filled, is one of a few values, stays between bounds, or has a matching row in another table; the table only grows; or your own query finds the rows that break a rule. Halfnine suggests rules from patterns in the data, and tries each on the data before it's added. An agent's change that breaks a rule never commits, and the agent is told which rule. Your own commit that breaks one shows it, with Commit anyway.
+A table's Structure view has a Rules section, where you say what correct data is: a column is always filled, is one of a few values, stays between bounds, or has a matching row in another table; the table only grows; or your own query finds the rows that break a rule. Okayrow suggests rules from patterns in the data, and tries each on the data before it's added. An agent's change that breaks a rule never commits, and the agent is told which rule. Your own commit that breaks one shows it, with Commit anyway.
 
 ## Use with AI agents
 
-Halfnine is also an MCP server, so Claude Code, Codex, Cursor, VS Code and Claude Desktop can use your connections through it. Open Agents, at the foot of the sidebar or the connections screen, choose Connect next to your tool, and Halfnine shows what it will change before it adds itself. Or add it by hand; on macOS:
+Okayrow is also an MCP server, so Claude Code, Codex, Cursor, VS Code and Claude Desktop can use your connections through it. Open Agents, at the foot of the sidebar or the connections screen, choose Connect next to your tool, and Okayrow shows what it will change before it adds itself. Or add it by hand; on macOS:
 
 ```sh
-claude mcp add --scope user --transport stdio halfnine -- /Applications/Halfnine.app/Contents/MacOS/halfnine mcp
-codex mcp add halfnine -- /Applications/Halfnine.app/Contents/MacOS/halfnine mcp
+claude mcp add --scope user --transport stdio okayrow -- /Applications/Okayrow.app/Contents/MacOS/okayrow mcp
+codex mcp add okayrow -- /Applications/Okayrow.app/Contents/MacOS/okayrow mcp
 ```
 
-For Claude Desktop, install Halfnine first, then open the `.mcpb` file from the same release to add it as an extension. It is also listed in the official MCP Registry as `io.github.notinferred/halfnine`.
+For Claude Desktop, install Okayrow first, then open the `.mcpb` file from the same release to add it as an extension. Releases up to v0.3.0 are listed in the official MCP Registry as `io.github.notinferred/halfnine`; the next release is listed as `io.github.notinferred/okayrow`.
 
-Each connection sets what agents may do there, under Agents in its settings: Off, Read, Read with approved writes, or Full. Red-labelled connections start at Off and every other at Read. At Read with approved writes, an agent's change opens in Halfnine as staged rows or SQL and waits for your answer. Everything agents do is listed on the Agents page, where one switch pauses them all. What an agent reads goes to its AI provider.
+Each connection sets what agents may do there, under Agents in its settings: Off, Read, Read with approved writes, or Full. Red-labelled connections start at Off and every other at Read. At Read with approved writes, an agent's change opens in Okayrow as staged rows or SQL and waits for your answer. Everything agents do is listed on the Agents page, where one switch pauses them all. What an agent reads goes to its AI provider.
 
 With Docker databases on, an agent can make its own databases, or copy one before risky work. Those start at Full and are marked with the agent's name, and it gets their URL for programs it runs. It deletes one made for it without asking; deleting any other asks you. While backups are on, what an agent drops or empties is backed up first, and `run_sql` won't drop tables, schemas or databases.
 
@@ -58,11 +58,11 @@ You need Node 24 or later, pnpm (the version in `package.json` is fetched automa
 To check the app or run the Postgres tests on a Mac without a database, start a throwaway one in Docker. It deletes itself when stopped:
 
 ```sh
-docker run -d --rm --name halfnine-check -e POSTGRES_PASSWORD=check -p 127.0.0.1:55432:5432 postgres:18
-docker exec -i halfnine-check psql -U postgres -q < crates/pg/tests/fixture.sql
+docker run -d --rm --name okayrow-check -e POSTGRES_PASSWORD=check -p 127.0.0.1:55432:5432 postgres:18
+docker exec -i okayrow-check psql -U postgres -q < crates/pg/tests/fixture.sql
 # connect the app to postgres://postgres:check@localhost:55432/postgres
 # or: HN_TEST_DATABASE_URL=postgres://postgres:check@localhost:55432/postgres cargo test --workspace
-docker stop halfnine-check
+docker stop okayrow-check
 ```
 
 ## Layout
@@ -74,4 +74,4 @@ docker stop halfnine-check
 
 ## License
 
-Halfnine is source-available under the [PolyForm Shield License 1.0.0](LICENSE.md). You may use it for any purpose, at work included, and change it, but not to sell it or to provide a product that competes with it. Copyright 2026 notInferred.
+Okayrow is source-available under the [PolyForm Shield License 1.0.0](LICENSE.md). You may use it for any purpose, at work included, and change it, but not to sell it or to provide a product that competes with it. Copyright 2026 notInferred.

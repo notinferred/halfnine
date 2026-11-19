@@ -1,7 +1,7 @@
 //! What the window asks of agents. Only these approve, decline, allow or pause, and only a person in the window calls them.
 
-use hn_core::{ConnectionSpec, Error, HiddenColumn, TableRef};
-use hn_pg::Secrets;
+use ok_core::{ConnectionSpec, Error, HiddenColumn, TableRef};
+use ok_pg::Secrets;
 use tauri::State;
 
 use super::AgentState;
@@ -17,7 +17,7 @@ pub async fn agent_state(state: State<'_, AppState>) -> Result<AgentState, Error
 }
 
 /// Commits what the agent proposed. With `remember`, its next changes on that connection, short of dropping or
-/// emptying a table, run without asking until Halfnine quits.
+/// emptying a table, run without asking until Okayrow quits.
 #[tauri::command]
 #[specta::specta]
 pub async fn approve_proposal(state: State<'_, AppState>, id: String, remember: bool) -> Result<(), Error> {

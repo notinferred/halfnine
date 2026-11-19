@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use hn_core::{Error, ErrorKind};
+use ok_core::{Error, ErrorKind};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +29,7 @@ pub fn read<T: DeserializeOwned>(path: &Path, version: u32, what: &str) -> Resul
             if file.version > version {
                 return Err(Error::new(
                     ErrorKind::Storage,
-                    format!("A newer Halfnine wrote {what}, so this one won't change them."),
+                    format!("A newer Okayrow wrote {what}, so this one won't change them."),
                 ));
             }
             Ok(Some(file.body))

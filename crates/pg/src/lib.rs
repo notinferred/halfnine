@@ -1,4 +1,4 @@
-//! Halfnine's Postgres adapter: it implements [`hn_core::Database`] over a small sqlx pool, optionally through an SSH tunnel.
+//! Okayrow's Postgres adapter: it implements [`ok_core::Database`] over a small sqlx pool, optionally through an SSH tunnel.
 
 pub mod backup;
 mod catalog;
@@ -14,7 +14,7 @@ mod tunnel;
 use std::time::{Duration, Instant};
 
 use futures_util::TryStreamExt;
-use hn_core::{
+use ok_core::{
     Activity, ByteSource, Changes, Checks, Choice, ColumnRef, ColumnValue, Committed, ConnectionSpec, CutCell, Database, Error, ErrorKind,
     ExportSource, Filter, Page, PageColumn, PageRequest, Reference, RelationKind, RestoreInto, RowSink, Rule, RuleTried, RunOutcome, SchemaNode,
     ServerInfo, StatementResult, Structure, StructureChange, Suggestion, TableDefinition, TableRef, TableSink, TlsMode,
@@ -34,7 +34,7 @@ pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How an agent's query may begin. Anything else is refused before it reaches Postgres, which runs these read-only.
 const AGENT_READS: [&str; 6] = ["SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN"];
-/// Statements an agent's change may not hold: it runs as one transaction that Halfnine begins and ends, and COPY needs a
+/// Statements an agent's change may not hold: it runs as one transaction that Okayrow begins and ends, and COPY needs a
 /// protocol of its own.
 pub const NOT_IN_A_CHANGE: [&str; 10] = [
     "BEGIN",
@@ -92,7 +92,7 @@ impl PgDatabase {
             .username(&spec.user)
             .database(database.unwrap_or(&spec.database))
             .ssl_mode(ssl_mode)
-            .application_name("Halfnine");
+            .application_name("Okayrow");
         if let Some(password) = &secrets.password {
             options = options.password(password);
         }
@@ -372,7 +372,7 @@ impl Database for PgDatabase {
         let mut tx = self.reading().await?;
         let started = Instant::now();
         let rows = self.query(built).fetch_all(&mut *tx).await.map_err(from_sqlx)?;
-        let elapsed_ms = hn_core::millis(started.elapsed());
+        let elapsed_ms = ok_core::millis(started.elapsed());
         let _ = tx.rollback().await;
 
         let limit = request.limit.clamp(1, sql::PAGE_LIMIT) as usize;
@@ -658,7 +658,7 @@ impl Database for PgDatabase {
         {
             return Err(Error::new(
                 ErrorKind::Invalid,
-                format!("{word} isn't allowed here: Halfnine runs the statements as one transaction of its own."),
+                format!("{word} isn't allowed here: Okayrow runs the statements as one transaction of its own."),
             ));
         }
         let mut connection = editor::open(&self.options, self.read_only).await?;
@@ -731,12 +731,12 @@ impl PgDatabase {
 /// Refuses a statement whose plan reads a hidden column, which a write could copy somewhere an agent can see. Only some
 /// statements have a plan; the attempt is undone for the others, which read no values.
 async fn refuse_hidden_reads(conn: &mut PgConnection, statement: &str, hidden: &[ColumnRef]) -> Result<(), Error> {
-    sqlx::raw_sql("SAVEPOINT hn_hidden").execute(&mut *conn).await.map_err(from_sqlx)?;
+    sqlx::raw_sql("SAVEPOINT ok_hidden").execute(&mut *conn).await.map_err(from_sqlx)?;
     let planned = plan(conn, statement).await;
     let undo = if planned.is_ok() {
-        "RELEASE SAVEPOINT hn_hidden"
+        "RELEASE SAVEPOINT ok_hidden"
     } else {
-        "ROLLBACK TO SAVEPOINT hn_hidden"
+        "ROLLBACK TO SAVEPOINT ok_hidden"
     };
     sqlx::raw_sql(undo).execute(&mut *conn).await.map_err(from_sqlx)?;
     match planned.ok().and_then(|plan| hidden::misuse(&plan, hidden, hidden::Allow::Nothing)) {
@@ -870,9 +870,9 @@ async fn read_rows(
     let columns = described.into_iter().map(|(column, _)| column).collect();
     let started = Instant::now();
     // `describe` proved the statement is one statement, so it stays one after the prefix.
-    let declare = format!("DECLARE hn_agent NO SCROLL CURSOR FOR {}", statement.trim().trim_end_matches(';'));
+    let declare = format!("DECLARE ok_agent NO SCROLL CURSOR FOR {}", statement.trim().trim_end_matches(';'));
     sqlx::raw_sql(AssertSqlSafe(declare)).execute(&mut *tx).await.map_err(from_sqlx)?;
-    let (mut rows, cut, total_rows, _) = editor::collect(tx, &format!("FETCH {} FROM hn_agent", limit + 1)).await?;
+    let (mut rows, cut, total_rows, _) = editor::collect(tx, &format!("FETCH {} FROM ok_agent", limit + 1)).await?;
     for row in &mut rows {
         for &at in &hide {
             if let Some(value) = row.get_mut(at).filter(|v| v.is_some()) {
@@ -886,7 +886,7 @@ async fn read_rows(
         cut: cut.into_iter().filter(|c| !hide.contains(&(c.column as usize))).collect(),
         total_rows,
         rows_affected: 0,
-        elapsed_ms: hn_core::millis(started.elapsed()),
+        elapsed_ms: ok_core::millis(started.elapsed()),
     })
 }
 
@@ -902,7 +902,7 @@ fn hidden_refused(column: &ColumnRef, why: &str) -> Error {
     Error::new(
         ErrorKind::Invalid,
         format!(
-            "{}.{}.{} is hidden from agents. {why}, so Halfnine refused it. Its values show as {} when a query returns the column itself.",
+            "{}.{}.{} is hidden from agents. {why}, so Okayrow refused it. Its values show as {} when a query returns the column itself.",
             column.schema,
             column.table,
             column.column,
@@ -943,7 +943,7 @@ async fn settle(
             }
             Ok(Committed {
                 statements,
-                elapsed_ms: hn_core::millis(started.elapsed()),
+                elapsed_ms: ok_core::millis(started.elapsed()),
                 inserted,
             })
         }

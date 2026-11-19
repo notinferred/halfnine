@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use hn_core::{AgentAccess, ConnectionSpec, Label, TlsMode};
-use hn_pg::Secrets;
+use ok_core::{AgentAccess, ConnectionSpec, Label, TlsMode};
+use ok_pg::Secrets;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, Implementation, ProtocolVersion};
 use rmcp::service::{ClientLifecycleMode, RunningService, serve_client_with_lifecycle};
 use rmcp::{RoleClient, ServiceExt};
@@ -43,7 +43,7 @@ impl Drop for World {
     }
 }
 
-fn spec(name: &str, access: Option<AgentAccess>, label: Label, read_only: bool, parts: Option<&hn_core::UrlParts>) -> ConnectionSpec {
+fn spec(name: &str, access: Option<AgentAccess>, label: Label, read_only: bool, parts: Option<&ok_core::UrlParts>) -> ConnectionSpec {
     ConnectionSpec {
         id: format!("id-{name}"),
         name: name.into(),
@@ -58,16 +58,16 @@ fn spec(name: &str, access: Option<AgentAccess>, label: Label, read_only: bool, 
         save_password: false,
         agent_access: access,
         hidden_columns: Vec::new(),
-        source: hn_core::Source::Saved,
+        source: ok_core::Source::Saved,
     }
 }
 
 /// Connections at every level, all to the test database, with their passwords typed as for "Ask each time".
 fn world(url: Option<&str>) -> World {
-    let dir = std::env::temp_dir().join(format!("hn-agents-{}", uuid::Uuid::new_v4().simple()));
+    let dir = std::env::temp_dir().join(format!("ok-agents-{}", uuid::Uuid::new_v4().simple()));
     let store = Arc::new(Store::open(dir.clone()).unwrap());
     let passwords = Arc::new(Passwords::default());
-    let parts = url.map(|u| hn_core::parse_url(u).unwrap());
+    let parts = url.map(|u| ok_core::parse_url(u).unwrap());
     let all = [
         spec("off", Some(AgentAccess::Off), Label::None, false, parts.as_ref()),
         spec("read", None, Label::Green, false, parts.as_ref()),
@@ -111,7 +111,7 @@ async fn client(agents: &Arc<Agents>, name: &str) -> RunningService<RoleClient, 
         .unwrap()
 }
 
-/// A client reaching the app through `halfnine mcp` while the app is closed. `opened` counts each time the bridge opens
+/// A client reaching the app through `okayrow mcp` while the app is closed. `opened` counts each time the bridge opens
 /// the app, which here is an app session served in memory.
 async fn bridged(agents: &Arc<Agents>, lifecycle: ClientLifecycleMode, opened: &Arc<AtomicUsize>) -> RunningService<RoleClient, ClientConfig> {
     let (agent_end, bridge_end) = tokio::io::duplex(1 << 16);
@@ -172,23 +172,23 @@ fn the_access_rule() {
 
 #[test]
 fn the_access_rule_for_docker_databases() {
-    let docker = |how: Option<hn_core::MadeHow>| ConnectionSpec {
-        source: hn_core::Source::Docker {
+    let docker = |how: Option<ok_core::MadeHow>| ConnectionSpec {
+        source: ok_core::Source::Docker {
             container: "db".into(),
-            made: how.map(|how| hn_core::Made { how, agent: None }),
+            made: how.map(|how| ok_core::Made { how, agent: None }),
         },
         ..spec("db", None, Label::None, false, None)
     };
-    let made = docker(Some(hn_core::MadeHow::New));
+    let made = docker(Some(ok_core::MadeHow::New));
     assert_eq!(
         verdict(&made, Ask::Credentials, false),
         Verdict::Run,
-        "Halfnine made it, so agents start at Full"
+        "Okayrow made it, so agents start at Full"
     );
-    assert_eq!(verdict(&docker(Some(hn_core::MadeHow::Copy)), Ask::Credentials, false), Verdict::Run);
+    assert_eq!(verdict(&docker(Some(ok_core::MadeHow::Copy)), Ask::Credentials, false), Verdict::Run);
     for refused in [
         docker(None),
-        docker(Some(hn_core::MadeHow::Restored)),
+        docker(Some(ok_core::MadeHow::Restored)),
         ConnectionSpec {
             read_only: true,
             ..made.clone()
@@ -198,7 +198,7 @@ fn the_access_rule_for_docker_databases() {
             ..made.clone()
         },
         ConnectionSpec {
-            hidden_columns: vec![hn_core::HiddenColumn {
+            hidden_columns: vec![ok_core::HiddenColumn {
                 database: "db".into(),
                 schema: "public".into(),
                 table: "people".into(),
@@ -321,7 +321,7 @@ async fn refuses_by_level_before_touching_a_database() {
         assert!(text.starts_with("REFUSED Agents are off"), "{text}");
     }
     let (text, _) = call(&client, "query", query("nowhere")).await;
-    assert!(text.starts_with("REFUSED Halfnine has no connection named"));
+    assert!(text.starts_with("REFUSED Okayrow has no connection named"));
     let write = |connection: &str| json!({"connection": connection, "statements": ["DELETE FROM t"]});
     let (text, _) = call(&client, "run_sql", write("read")).await;
     assert!(text.starts_with("REFUSED Agents may read read but not change it"), "{text}");
@@ -337,25 +337,25 @@ async fn reads_through_a_read_only_transaction_and_marks_rows_as_data() {
     let (text, _) = call(
         &client,
         "query",
-        json!({"connection": "full", "sql": "SELECT id, name FROM hn_fixture.customers ORDER BY id", "limit": 2}),
+        json!({"connection": "full", "sql": "SELECT id, name FROM ok_fixture.customers ORDER BY id", "limit": 2}),
     )
     .await;
     assert!(text.starts_with("OK 2 rows in"), "{text}");
     assert!(text.contains("and more rows exist"));
     assert!(text.contains(results::DATA_NOTE));
     assert!(text.contains("[\"1\",\"Customer 1\"]"));
-    let (text, _) = call(&client, "query", json!({"connection": "full", "sql": "SELECT hn_fixture.touch()"})).await;
+    let (text, _) = call(&client, "query", json!({"connection": "full", "sql": "SELECT ok_fixture.touch()"})).await;
     assert!(text.starts_with("REFUSED") && text.contains("25006"), "{text}");
-    let (text, _) = call(&client, "describe", json!({"connection": "read", "schema": "hn_fixture"})).await;
+    let (text, _) = call(&client, "describe", json!({"connection": "read", "schema": "ok_fixture"})).await;
     assert!(
         text.contains("- table invoices (about 120001 rows): id bigint, customer_id bigint"),
         "{text}"
     );
-    assert!(text.contains("- hn_fixture.invoices(customer_id) → hn_fixture.customers(id)"));
+    assert!(text.contains("- ok_fixture.invoices(customer_id) → ok_fixture.customers(id)"));
     let (text, _) = call(
         &client,
         "describe",
-        json!({"connection": "read", "schema": "hn_fixture", "table": "line_items"}),
+        json!({"connection": "read", "schema": "ok_fixture", "table": "line_items"}),
     )
     .await;
     assert!(text.contains("Primary key: invoice_id, line"), "{text}");
@@ -364,9 +364,9 @@ async fn reads_through_a_read_only_transaction_and_marks_rows_as_data() {
 /// A table of the test's own, created through the full connection.
 async fn scratch(client: &RunningService<RoleClient, ClientConfig>, name: &str) {
     let statements = [
-        format!("DROP TABLE IF EXISTS hn_fixture.{name}"),
-        format!("CREATE TABLE hn_fixture.{name} (id int PRIMARY KEY, body text)"),
-        format!("INSERT INTO hn_fixture.{name} VALUES (1, 'one'), (2, 'two')"),
+        format!("DROP TABLE IF EXISTS ok_fixture.{name}"),
+        format!("CREATE TABLE ok_fixture.{name} (id int PRIMARY KEY, body text)"),
+        format!("INSERT INTO ok_fixture.{name} VALUES (1, 'one'), (2, 'two')"),
     ];
     let (text, _) = call(client, "run_sql", json!({"connection": "full", "statements": statements})).await;
     assert!(text.starts_with("OK Committed 3 statements"), "{text}");
@@ -384,7 +384,7 @@ async fn stages_a_change_and_waits_for_the_person() {
     scratch(&client, "agent_approved").await;
     let change = json!({
         "connection": "approved",
-        "table": {"schema": "hn_fixture", "name": "agent_approved"},
+        "table": {"schema": "ok_fixture", "name": "agent_approved"},
         "update": [{"key": {"id": 1}, "set": {"body": "uno"}}],
         "delete": [{"id": 2}],
     });
@@ -397,7 +397,7 @@ async fn stages_a_change_and_waits_for_the_person() {
 
     let (again, _) = call(&client, "change_rows", change).await;
     assert!(again.contains(&proposal.id), "the same change waits on the same proposal");
-    let other = json!({"connection": "approved", "statements": ["UPDATE hn_fixture.agent_approved SET body = 'x'"]});
+    let other = json!({"connection": "approved", "statements": ["UPDATE ok_fixture.agent_approved SET body = 'x'"]});
     let (busy, _) = call(&client, "run_sql", other).await;
     assert!(busy.starts_with("BUSY"));
 
@@ -408,7 +408,7 @@ async fn stages_a_change_and_waits_for_the_person() {
     let (rows, _) = call(
         &client,
         "query",
-        json!({"connection": "full", "sql": "SELECT id, body FROM hn_fixture.agent_approved"}),
+        json!({"connection": "full", "sql": "SELECT id, body FROM ok_fixture.agent_approved"}),
     )
     .await;
     assert!(rows.contains("[\"1\",\"uno\"]") && !rows.contains("\"2\""), "{rows}");
@@ -430,7 +430,7 @@ async fn a_decline_reaches_the_agent_with_the_reason() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     });
-    let change = json!({"connection": "approved", "table": {"schema": "hn_fixture", "name": "agent_declined"}, "delete": [{"id": 1}]});
+    let change = json!({"connection": "approved", "table": {"schema": "ok_fixture", "name": "agent_declined"}, "delete": [{"id": 1}]});
     let (text, _) = call(&client, "change_rows", change).await;
     decline.await.unwrap();
     assert!(text.starts_with("DECLINED") && text.contains("\"Not on Fridays.\""), "{text}");
@@ -447,10 +447,10 @@ async fn a_row_that_changes_before_approval_rolls_the_change_back() {
     let world = world(Some(&url));
     let client = client(&world.agents, "claude-code").await;
     scratch(&client, "agent_conflict").await;
-    let change = json!({"connection": "approved", "table": {"schema": "hn_fixture", "name": "agent_conflict"}, "update": [{"key": {"id": 1}, "set": {"body": "agent"}}]});
+    let change = json!({"connection": "approved", "table": {"schema": "ok_fixture", "name": "agent_conflict"}, "update": [{"key": {"id": 1}, "set": {"body": "agent"}}]});
     let (text, _) = call(&client, "change_rows", change).await;
     assert!(text.starts_with("WAITING"));
-    let moved = json!({"connection": "full", "statements": ["UPDATE hn_fixture.agent_conflict SET body = 'person' WHERE id = 1"]});
+    let moved = json!({"connection": "full", "statements": ["UPDATE ok_fixture.agent_conflict SET body = 'person' WHERE id = 1"]});
     call(&client, "run_sql", moved).await;
     let proposal = pending(&world.agents);
     let error = world.agents.approve(&proposal.id, false).await.unwrap_err();
@@ -470,7 +470,7 @@ async fn dont_ask_again_covers_this_agent_here_but_never_a_drop() {
     let claude = client(&world.agents, "claude-code").await;
     scratch(&claude, "agent_allowed").await;
     let update =
-        |body: &str| json!({"connection": "approved", "statements": [format!("UPDATE hn_fixture.agent_allowed SET body = '{body}' WHERE id = 1")]});
+        |body: &str| json!({"connection": "approved", "statements": [format!("UPDATE ok_fixture.agent_allowed SET body = '{body}' WHERE id = 1")]});
     call(&claude, "run_sql", update("a")).await;
     world.agents.approve(&pending(&world.agents).id, true).await.unwrap();
     let (text, _) = call(&claude, "run_sql", update("b")).await;
@@ -479,7 +479,7 @@ async fn dont_ask_again_covers_this_agent_here_but_never_a_drop() {
     let other = client(&world.agents, "another-agent").await;
     let (text, _) = call(&other, "run_sql", update("c")).await;
     assert!(text.starts_with("WAITING"), "{text}");
-    let truncate = json!({"connection": "approved", "statements": ["TRUNCATE hn_fixture.agent_allowed"]});
+    let truncate = json!({"connection": "approved", "statements": ["TRUNCATE ok_fixture.agent_allowed"]});
     let (text, _) = call(&claude, "run_sql", truncate).await;
     assert!(text.starts_with("WAITING"), "{text}");
 }
@@ -511,11 +511,11 @@ async fn logs_each_call_before_it_runs_and_never_the_rows() {
     call(
         &client,
         "query",
-        json!({"connection": "read", "sql": "SELECT email FROM hn_fixture.customers WHERE id = 7"}),
+        json!({"connection": "read", "sql": "SELECT email FROM ok_fixture.customers WHERE id = 7"}),
     )
     .await;
     let logged = std::fs::read_to_string(world.dir.join("agent-activity.jsonl")).unwrap();
-    assert!(logged.contains("SELECT email FROM hn_fixture.customers WHERE id = 7"));
+    assert!(logged.contains("SELECT email FROM ok_fixture.customers WHERE id = 7"));
     assert!(!logged.contains("customer7@example.com"));
 }
 
@@ -523,7 +523,7 @@ async fn logs_each_call_before_it_runs_and_never_the_rows() {
 async fn asks_the_person_for_a_password_and_waits() {
     let Some(url) = database_url() else { return };
     let world = world(Some(&url));
-    let parts = hn_core::parse_url(&url).unwrap();
+    let parts = ok_core::parse_url(&url).unwrap();
     world.agents.directory.passwords.forget_typed("id-read");
     let agents = world.agents.clone();
     let answer = tokio::spawn(async move {
@@ -551,9 +551,9 @@ async fn an_agent_sees_a_hidden_column_only_as_hidden() {
     let Some(url) = database_url() else { return };
     let world = world(Some(&url));
     let mut full = world.agents.directory.store.get("id-full").unwrap();
-    full.hidden_columns.push(hn_core::HiddenColumn {
+    full.hidden_columns.push(ok_core::HiddenColumn {
         database: full.database.clone(),
-        schema: "hn_fixture".into(),
+        schema: "ok_fixture".into(),
         table: "customers".into(),
         column: "email".into(),
     });
@@ -562,21 +562,21 @@ async fn an_agent_sees_a_hidden_column_only_as_hidden() {
     let (text, _) = call(
         &client,
         "query",
-        json!({"connection": "full", "sql": "SELECT * FROM hn_fixture.customers WHERE id = 7"}),
+        json!({"connection": "full", "sql": "SELECT * FROM ok_fixture.customers WHERE id = 7"}),
     )
     .await;
     assert!(text.contains("[hidden]") && !text.contains("@example.com"), "{text}");
     let (text, _) = call(
         &client,
         "query",
-        json!({"connection": "full", "sql": "SELECT upper(email) FROM hn_fixture.customers"}),
+        json!({"connection": "full", "sql": "SELECT upper(email) FROM ok_fixture.customers"}),
     )
     .await;
     assert!(text.starts_with("REFUSED") && text.contains("is hidden from agents"), "{text}");
     let (text, _) = call(
         &client,
         "describe",
-        json!({"connection": "full", "schema": "hn_fixture", "table": "customers"}),
+        json!({"connection": "full", "schema": "ok_fixture", "table": "customers"}),
     )
     .await;
     assert!(text.contains("- email text (hidden from agents"), "{text}");
@@ -590,7 +590,7 @@ async fn keeps_the_reverse_of_a_row_change_to_undo() {
     scratch(&client, "agent_undo").await;
     let change = json!({
         "connection": "full",
-        "table": {"schema": "hn_fixture", "name": "agent_undo"},
+        "table": {"schema": "ok_fixture", "name": "agent_undo"},
         "update": [{"key": {"id": 1}, "set": {"body": "uno"}}],
         "delete": [{"id": 2}],
         "insert": [{"id": 3, "body": "tres"}],
@@ -602,13 +602,13 @@ async fn keeps_the_reverse_of_a_row_change_to_undo() {
     let record = world.agents.undo(&made.call).unwrap();
     let info = world.agents.databases.lock().await.values().next().cloned().unwrap();
     let session = world.agents.sessions.get(&info.session_id).await.unwrap();
-    session.db.commit(&record.changes, &hn_core::Checks::NONE).await.unwrap();
+    session.db.commit(&record.changes, &ok_core::Checks::NONE).await.unwrap();
     world.agents.undone(&made.call).unwrap();
     assert!(!world.agents.activity(1)[0].undo);
     let (rows, _) = call(
         &client,
         "query",
-        json!({"connection": "full", "sql": "SELECT id, body FROM hn_fixture.agent_undo ORDER BY id"}),
+        json!({"connection": "full", "sql": "SELECT id, body FROM ok_fixture.agent_undo ORDER BY id"}),
     )
     .await;
     assert!(rows.contains("[\"1\",\"one\"]\n[\"2\",\"two\"]\n</rows>"), "{rows}");
@@ -631,7 +631,7 @@ async fn an_agent_makes_and_deletes_its_own_database_and_asks_to_delete_another(
         .unwrap();
     let docker = world.agents.directory.docker.clone();
     docker.attach().await.expect("CI has a Docker engine");
-    let name = format!("hn-agent-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let name = format!("ok-agent-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
     let work = {
         let (agents, name) = (world.agents.clone(), name.clone());
         tokio::spawn(async move {
@@ -684,14 +684,14 @@ async fn backups_come_before_an_agent_drops_or_empties_anything() {
     world.agents.settings.change(|c| c.backups = true).unwrap();
 
     let run_sql = |statement: &str| json!({"connection": "full", "statements": [statement]});
-    for lost in ["DROP TABLE hn_fixture.agent_backed_up", "/* old */ truncate hn_fixture.agent_backed_up"] {
+    for lost in ["DROP TABLE ok_fixture.agent_backed_up", "/* old */ truncate ok_fixture.agent_backed_up"] {
         let (text, _) = call(&claude, "run_sql", run_sql(lost)).await;
         assert!(text.starts_with("REFUSED") && text.contains("change_structure"), "{text}");
     }
-    let (text, _) = call(&claude, "run_sql", run_sql("DROP FUNCTION IF EXISTS hn_fixture.agent_no_such_function()")).await;
+    let (text, _) = call(&claude, "run_sql", run_sql("DROP FUNCTION IF EXISTS ok_fixture.agent_no_such_function()")).await;
     assert!(text.starts_with("OK Committed"), "a drop that loses no data runs: {text}");
 
-    let drop = json!({"connection": "full", "table": {"schema": "hn_fixture", "name": "agent_backed_up"}, "changes": [{"kind": "drop"}]});
+    let drop = json!({"connection": "full", "table": {"schema": "ok_fixture", "name": "agent_backed_up"}, "changes": [{"kind": "drop"}]});
     let (text, _) = call(&claude, "change_structure", drop).await;
     assert!(
         text.starts_with("OK Committed") && text.contains("backed up agent_backed_up first"),
@@ -711,25 +711,25 @@ async fn backups_come_before_an_agent_drops_or_empties_anything() {
 #[tokio::test]
 async fn an_agents_change_that_breaks_a_rule_never_commits() {
     let Some(url) = database_url() else { return };
-    let database = hn_core::parse_url(&url).unwrap().database;
+    let database = ok_core::parse_url(&url).unwrap().database;
     let world = world(Some(&url));
     let client = client(&world.agents, "claude-code").await;
     scratch(&client, "agent_ruled").await;
-    let table = hn_core::TableRef {
-        schema: "hn_fixture".into(),
+    let table = ok_core::TableRef {
+        schema: "ok_fixture".into(),
         name: "agent_ruled".into(),
     };
-    let check = hn_core::RuleCheck::OneOf {
+    let check = ok_core::RuleCheck::OneOf {
         column: "body".into(),
         values: vec!["one".into(), "two".into(), "three".into()],
     };
     for connection in ["id-full", "id-approved"] {
-        let rule = hn_core::Rule {
+        let rule = ok_core::Rule {
             id: format!("rule-{connection}"),
             words: check.sentence(&table, true).unwrap(),
             table: table.clone(),
             check: check.clone(),
-            source: hn_core::RuleSource::Written,
+            source: ok_core::RuleSource::Written,
             added_ms: 0.0,
         };
         world.agents.rules.add(connection, &database, rule).unwrap();
@@ -737,12 +737,12 @@ async fn an_agents_change_that_breaks_a_rule_never_commits() {
     let insert = |connection: &str, body: &str| {
         json!({
             "connection": connection,
-            "table": {"schema": "hn_fixture", "name": "agent_ruled"},
+            "table": {"schema": "ok_fixture", "name": "agent_ruled"},
             "insert": [{"id": 3, "body": body}],
         })
     };
 
-    let described = json!({"connection": "full", "schema": "hn_fixture", "table": "agent_ruled"});
+    let described = json!({"connection": "full", "schema": "ok_fixture", "table": "agent_ruled"});
     let (text, _) = call(&client, "describe", described).await;
     assert!(
         text.contains("Rules the person set") && text.contains("body is one of one, two and three."),
@@ -760,7 +760,7 @@ async fn an_agents_change_that_breaks_a_rule_never_commits() {
     assert!(world.agents.state().proposals.is_empty());
 
     // Statements an agent wrote never run before approval, so the rule stops them at commit.
-    let statements = json!({"connection": "approved", "statements": ["INSERT INTO hn_fixture.agent_ruled VALUES (4, 'nope')"]});
+    let statements = json!({"connection": "approved", "statements": ["INSERT INTO ok_fixture.agent_ruled VALUES (4, 'nope')"]});
     let (text, _) = call(&client, "run_sql", statements).await;
     assert!(text.starts_with("WAITING"), "{text}");
     let proposal = pending(&world.agents);

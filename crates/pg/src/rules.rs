@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use hn_core::{Checks, ColumnRef, Error, ErrorKind, Rule, RuleCheck, RuleTried, TableRef};
+use ok_core::{Checks, ColumnRef, Error, ErrorKind, Rule, RuleCheck, RuleTried, TableRef};
 use sqlx::postgres::PgRow;
 use sqlx::{PgConnection, Row};
 
@@ -136,7 +136,7 @@ pub(crate) async fn after(conn: &mut PgConnection, checks: &Checks, before: Befo
         let was = before.seen.get(&key(&rule.table)).cloned().unwrap_or_default();
         let is = now.get(&key(&rule.table)).cloned().unwrap_or_default();
         let detail = if !before.counted {
-            Some("Postgres isn't counting writes here (track_counts is off), so Halfnine can't tell".to_string())
+            Some("Postgres isn't counting writes here (track_counts is off), so Okayrow can't tell".to_string())
         } else if was.exists && !is.exists {
             Some("it removes the table".to_string())
         } else if is.files != was.files {
@@ -168,7 +168,7 @@ async fn check<'a>(
     now: &HashMap<Key, Seen>,
     db: &PgDatabase,
 ) -> Result<Vec<Broken<'a>>, Error> {
-    sqlx::raw_sql("SAVEPOINT hn_rules; SET TRANSACTION READ ONLY")
+    sqlx::raw_sql("SAVEPOINT ok_rules; SET TRANSACTION READ ONLY")
         .execute(&mut *conn)
         .await
         .map_err(from_sqlx)?;
@@ -210,9 +210,9 @@ async fn check<'a>(
             Err(error) => {
                 let error = from_sqlx(error);
                 let detail = if error.code.as_deref() == Some("57014") {
-                    format!("Halfnine couldn't check it within {} seconds", TIME.as_secs())
+                    format!("Okayrow couldn't check it within {} seconds", TIME.as_secs())
                 } else {
-                    format!("Halfnine couldn't check it: {}", error.message)
+                    format!("Okayrow couldn't check it: {}", error.message)
                 };
                 broken.push(Broken { rule, detail });
                 // The savepoint is aborted now, so nothing more can run in it.
@@ -220,7 +220,7 @@ async fn check<'a>(
             }
         }
     }
-    sqlx::raw_sql("ROLLBACK TO SAVEPOINT hn_rules; RELEASE SAVEPOINT hn_rules")
+    sqlx::raw_sql("ROLLBACK TO SAVEPOINT ok_rules; RELEASE SAVEPOINT ok_rules")
         .execute(&mut *conn)
         .await
         .map_err(from_sqlx)?;
@@ -278,7 +278,7 @@ pub(crate) async fn try_now(conn: &mut PgConnection, rule: &Rule, db: &PgDatabas
     }
     Ok(RuleTried {
         breaking,
-        elapsed_ms: hn_core::millis(started.elapsed()),
+        elapsed_ms: ok_core::millis(started.elapsed()),
         reads,
     })
 }
@@ -409,9 +409,9 @@ pub(crate) fn query(rule: &Rule, columns: &[ColumnMeta], keys: &[String]) -> Res
                 .text(")");
         }
         RuleCheck::Custom { sql, .. } => {
-            w.text("SELECT NULL FROM (").typed(sql.trim().trim_end_matches(';')).text(") AS hn_rule");
+            w.text("SELECT NULL FROM (").typed(sql.trim().trim_end_matches(';')).text(") AS ok_rule");
         }
-        RuleCheck::OnlyGrows => return Err("Halfnine checks this rule from what the change wrote".into()),
+        RuleCheck::OnlyGrows => return Err("Okayrow checks this rule from what the change wrote".into()),
     }
     w.text(&format!(" LIMIT {EXAMPLES}"));
     Ok(w.step(rule.words.clone(), None).run)
@@ -435,7 +435,7 @@ fn refusal(broken: &[Broken], hidden: &[ColumnRef]) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use hn_core::RuleSource;
+    use ok_core::RuleSource;
 
     use super::*;
 

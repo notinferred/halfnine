@@ -1,13 +1,13 @@
 [package]
-name = "hn-pg"
-description = "Halfnine's Postgres adapter: connections, SSH tunnels, the catalog, and the SQL the app builds."
+name = "ok-pg"
+description = "Okayrow's Postgres adapter: connections, SSH tunnels, the catalog, and the SQL the app builds."
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
-hn-core.workspace = true
+ok-core.workspace = true
 sqlx.workspace = true
 russh.workspace = true
 tokio.workspace = true

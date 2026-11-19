@@ -1,4 +1,4 @@
-//! The app's side of `halfnine mcp`: it listens on the endpoint, admits a bridge that knows this launch's token, and
+//! The app's side of `okayrow mcp`: it listens on the endpoint, admits a bridge that knows this launch's token, and
 //! serves each one its own MCP session.
 
 use std::path::PathBuf;
@@ -11,12 +11,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use super::{Agents, Server};
 use crate::mcp::endpoint::{self, Endpoint, Listener};
 
-/// Listens until the app quits. If it can't, agents can't reach Halfnine, and the log says why.
+/// Listens until the app quits. If it can't, agents can't reach Okayrow, and the log says why.
 pub async fn listen(agents: Arc<Agents>, dir: PathBuf) {
     let (mut listener, address) = match Listener::bind(&dir) {
         Ok(bound) => bound,
         Err(e) => {
-            log::warn!("Agents can't reach Halfnine: {e}");
+            log::warn!("Agents can't reach Okayrow: {e}");
             return;
         }
     };
@@ -27,7 +27,7 @@ pub async fn listen(agents: Arc<Agents>, dir: PathBuf) {
         pid: std::process::id(),
     };
     if let Err(e) = endpoint::write(&dir, &endpoint) {
-        log::warn!("Agents can't reach Halfnine: {}", e.message);
+        log::warn!("Agents can't reach Okayrow: {}", e.message);
         return;
     }
     loop {

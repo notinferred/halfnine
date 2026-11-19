@@ -1,23 +1,23 @@
-//! What Halfnine knows about the official `postgres` image: which containers run it, where its data lives, and the
+//! What Okayrow knows about the official `postgres` image: which containers run it, where its data lives, and the
 //! credentials its environment gives. Pure, so it is tested without an engine.
 
 use std::collections::HashSet;
 
-use hn_core::{Error, ErrorKind};
+use ok_core::{Error, ErrorKind};
 
 /// The versions offered when creating a database, newest first. Each is a tag of the official image.
 pub const VERSIONS: [u16; 5] = [18, 17, 16, 15, 14];
 
-/// Labels Halfnine puts on what it makes, so it knows its own.
+/// Labels Okayrow puts on what it makes, so it knows its own.
 pub mod label {
-    pub const MANAGED: &str = "com.notinferred.halfnine.managed";
-    pub const ID: &str = "com.notinferred.halfnine.id";
-    pub const ORIGIN: &str = "com.notinferred.halfnine.origin";
-    pub const COPY_OF: &str = "com.notinferred.halfnine.copy-of";
-    pub const AGENT: &str = "com.notinferred.halfnine.agent";
-    pub const AGENT_KEY: &str = "com.notinferred.halfnine.agent-key";
+    pub const MANAGED: &str = "com.notinferred.okayrow.managed";
+    pub const ID: &str = "com.notinferred.okayrow.id";
+    pub const ORIGIN: &str = "com.notinferred.okayrow.origin";
+    pub const COPY_OF: &str = "com.notinferred.okayrow.copy-of";
+    pub const AGENT: &str = "com.notinferred.okayrow.agent";
+    pub const AGENT_KEY: &str = "com.notinferred.okayrow.agent-key";
     /// Only on what the tests make, so CI can remove it whatever happens.
-    pub const TEST: &str = "com.notinferred.halfnine.test";
+    pub const TEST: &str = "com.notinferred.okayrow.test";
 }
 
 pub fn image(major: u16) -> String {

@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use hn_docker::{Engine, NewContainer, discover, label, pick_port};
+use ok_docker::{Engine, NewContainer, discover, label, pick_port};
 
 async fn engine() -> Option<Engine> {
     if std::env::var("HN_TEST_DOCKER").as_deref() != Ok("1") {
@@ -56,7 +56,7 @@ async fn psql(engine: &Engine, name: &str, sql: &str) -> String {
 async fn makes_dumps_restores_and_removes_postgres_containers() {
     let Some(engine) = engine().await else { return };
     let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
-    let (first, second) = (format!("hn-test-a-{suffix}"), format!("hn-test-b-{suffix}"));
+    let (first, second) = (format!("ok-test-a-{suffix}"), format!("ok-test-b-{suffix}"));
     assert!(
         engine.has_image("postgres:18").await.unwrap(),
         "the Postgres service already pulled postgres:18"

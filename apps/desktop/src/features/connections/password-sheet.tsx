@@ -37,7 +37,7 @@ export function PasswordSheet(props: {
         <h2 id="password-title">{props.asker ? `${props.asker} wants to use ${connection.name}` : `Connect to ${connection.name}`}</h2>
         <p className="muted">
           {connection.user}@{connection.host}. This connection doesn't save its password, so it's asked for each time.
-          {props.asker && " It's kept until you quit Halfnine."}
+          {props.asker && " It's kept until you quit Okayrow."}
         </p>
         <label className="sheet-label" htmlFor="typed-password">
           Password

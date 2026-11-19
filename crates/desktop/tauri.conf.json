@@ -1,19 +1,19 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Halfnine",
+  "productName": "Okayrow",
   "version": "0.3.0",
-  "identifier": "com.notinferred.halfnine",
+  "identifier": "com.notinferred.okayrow",
   "build": {
     "devUrl": "http://localhost:1420",
     "frontendDist": "../../apps/desktop/dist",
-    "beforeDevCommand": "pnpm --filter @halfnine/desktop dev",
-    "beforeBuildCommand": "pnpm --filter @halfnine/desktop build"
+    "beforeDevCommand": "pnpm --filter @okayrow/desktop dev",
+    "beforeBuildCommand": "pnpm --filter @okayrow/desktop build"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "Halfnine",
+        "title": "Okayrow",
         "width": 1200,
         "height": 760,
         "minWidth": 720,

@@ -22,7 +22,7 @@ const OUTCOME: Record<Outcome, { word: string; tone: "status-ok" | "status-error
   error: { word: "Failed", tone: "status-error" },
 };
 
-/** The Agents page: which agents are connected, everything they did, adding Halfnine to an AI tool, and one switch that pauses them all. */
+/** The Agents page: which agents are connected, everything they did, adding Okayrow to an AI tool, and one switch that pauses them all. */
 export function AgentsPage() {
   const queries = useQueryClient();
   const agents = useQuery({ queryKey: ["agents"], queryFn: commands.agentState });
@@ -95,7 +95,7 @@ export function AgentsPage() {
   );
 }
 
-/** The backup Halfnine made before an agent dropped or emptied something, to put back. */
+/** The backup Okayrow made before an agent dropped or emptied something, to put back. */
 function BackupOf(props: { id: string }) {
   const backups = useQuery({ queryKey: ["backups"], queryFn: commands.listBackups });
   const backup = backups.data?.backups.find((b) => b.id === props.id);
@@ -114,7 +114,7 @@ function Activity(props: { entries: ActivityEntry[]; onConnect: () => void; onUn
   if (entries.length === 0) {
     return (
       <div className="queries-empty agents-start">
-        <p className="muted">No agent has used Halfnine yet.</p>
+        <p className="muted">No agent has used Okayrow yet.</p>
         <button type="button" className="btn btn-primary" onClick={onConnect}>
           Connect an agent
         </button>

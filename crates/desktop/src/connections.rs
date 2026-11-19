@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use hn_core::{ConnectionSpec, Error, ErrorKind, HiddenColumn, Source};
-use hn_pg::Secrets;
+use ok_core::{ConnectionSpec, Error, ErrorKind, HiddenColumn, Source};
+use ok_pg::Secrets;
 
 use crate::docker::{Docker, ID_PREFIX};
 use crate::secrets::Passwords;

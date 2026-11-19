@@ -25,7 +25,7 @@ pub struct ConnectionSpec {
     /// before this choice existed had theirs saved.
     #[serde(default = "saved_before_the_choice")]
     pub save_password: bool,
-    /// What AI agents connected through `halfnine mcp` may do here. `None` until someone picks a level, which keeps the
+    /// What AI agents connected through `okayrow mcp` may do here. `None` until someone picks a level, which keeps the
     /// label's default.
     #[serde(default)]
     pub agent_access: Option<AgentAccess>,
@@ -47,7 +47,7 @@ pub enum Source {
     Docker { container: String, made: Option<Made> },
 }
 
-/// How Halfnine made a container, when it did.
+/// How Okayrow made a container, when it did.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Made {
@@ -61,7 +61,7 @@ pub struct Made {
 pub enum MadeHow {
     New,
     Copy,
-    /// Made to restore a backup of a database Halfnine didn't make, which keeps that origin: it is treated as anyone's.
+    /// Made to restore a backup of a database Okayrow didn't make, which keeps that origin: it is treated as anyone's.
     Restored,
 }
 
@@ -101,18 +101,18 @@ impl ConnectionSpec {
             .collect()
     }
 
-    /// The level agents get: the one picked, or else Off for a red label, Full for a database Halfnine made, and Read
+    /// The level agents get: the one picked, or else Off for a red label, Full for a database Okayrow made, and Read
     /// for any other.
     pub fn agent_access(&self) -> AgentAccess {
         self.agent_access.unwrap_or(match self.label {
             Label::Red => AgentAccess::Off,
-            _ if self.made_by_halfnine() => AgentAccess::Full,
+            _ if self.made_by_okayrow() => AgentAccess::Full,
             _ => AgentAccess::Read,
         })
     }
 
-    /// A Docker database Halfnine made itself, new or as a copy. A restore of someone else's database isn't one.
-    pub fn made_by_halfnine(&self) -> bool {
+    /// A Docker database Okayrow made itself, new or as a copy. A restore of someone else's database isn't one.
+    pub fn made_by_okayrow(&self) -> bool {
         matches!(&self.source, Source::Docker { made: Some(made), .. } if made.how != MadeHow::Restored)
     }
 }
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn agents_get_full_access_to_a_database_halfnine_made() {
+    fn agents_get_full_access_to_a_database_okayrow_made() {
         let saved =
             r#"{"id":"a","name":"a","host":"h","port":5432,"user":"u","database":"d","tls":"prefer","label":"none","readOnly":false,"ssh":null}"#;
         let mut spec: ConnectionSpec = serde_json::from_str(saved).unwrap();

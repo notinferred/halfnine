@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
-use hn_core::{AgentAccess, Database};
-use hn_pg::PgDatabase;
+use ok_core::{AgentAccess, Database};
+use ok_pg::PgDatabase;
 
 use super::make::{NewDatabase, Origin};
 use super::*;
@@ -16,7 +16,7 @@ async fn docker() -> Option<(Arc<Docker>, PathBuf)> {
         eprintln!("skipped: HN_TEST_DOCKER is not 1");
         return None;
     }
-    let dir = std::env::temp_dir().join(format!("hn-docker-{}", uuid::Uuid::new_v4().simple()));
+    let dir = std::env::temp_dir().join(format!("ok-docker-{}", uuid::Uuid::new_v4().simple()));
     let settings = Arc::new(Settings::open(&dir).unwrap());
     settings.change(|c| c.docker = true).unwrap();
     let docker = Arc::new(Docker::new(&dir, settings, || {}));
@@ -43,7 +43,7 @@ fn new_database(name: &str) -> NewDatabase {
 #[tokio::test]
 async fn makes_a_database_that_connects_with_its_own_credentials_then_deletes_it() {
     let Some((docker, dir)) = docker().await else { return };
-    let name = format!("hn-made-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let name = format!("ok-made-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
     let sql = dir.join("load.sql");
     std::fs::write(&sql, "CREATE TABLE greeting (word text); INSERT INTO greeting VALUES ('hello');").unwrap();
     let work = {
@@ -56,7 +56,7 @@ async fn makes_a_database_that_connects_with_its_own_credentials_then_deletes_it
                 })
                 .await
                 .unwrap();
-            assert_eq!(made.agent_access(), AgentAccess::Full, "Halfnine made it");
+            assert_eq!(made.agent_access(), AgentAccess::Full, "Okayrow made it");
             let secrets = docker.secrets(&name).await.unwrap();
             let password = secrets.password.clone().expect("its container was made with a password");
             assert!(!format!("{:?}", docker.state()).contains(&password), "the window never receives it");
@@ -67,7 +67,7 @@ async fn makes_a_database_that_connects_with_its_own_credentials_then_deletes_it
             let again = docker.make(new_database(&name)).await.unwrap_err();
             assert!(again.message.contains("already a container"), "{}", again.message);
             let kept = docker.delete(&name).await.unwrap();
-            assert!(!kept, "Halfnine's own volume goes with it");
+            assert!(!kept, "Okayrow's own volume goes with it");
             assert!(docker.container(&name).is_none());
         })
     };
@@ -85,7 +85,7 @@ async fn makes_a_database_that_connects_with_its_own_credentials_then_deletes_it
 async fn a_copy_has_the_same_rows_and_hides_the_same_columns() {
     let Some((docker, dir)) = docker().await else { return };
     let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
-    let (source, copy) = (format!("hn-source-{suffix}"), format!("hn-copy-{suffix}"));
+    let (source, copy) = (format!("ok-source-{suffix}"), format!("ok-copy-{suffix}"));
     let sql = dir.join("load.sql");
     std::fs::write(
         &sql,
@@ -102,7 +102,7 @@ async fn a_copy_has_the_same_rows_and_hides_the_same_columns() {
                 })
                 .await
                 .unwrap();
-            let hidden = hn_core::HiddenColumn {
+            let hidden = ok_core::HiddenColumn {
                 database: made.database.clone(),
                 schema: "public".into(),
                 table: "people".into(),
@@ -125,7 +125,7 @@ async fn a_copy_has_the_same_rows_and_hides_the_same_columns() {
             );
             assert_eq!(docker.overrides(&copy).hidden_columns, [hidden]);
             let Source::Docker { made: Some(how), .. } = &copied.source else {
-                panic!("Halfnine made the copy")
+                panic!("Okayrow made the copy")
             };
             assert_eq!(how.how, MadeHow::Copy);
             let db = PgDatabase::connect(&copied, None, &docker.secrets(&copy).await.unwrap()).await.unwrap();
@@ -151,7 +151,7 @@ async fn a_copy_has_the_same_rows_and_hides_the_same_columns() {
 #[tokio::test]
 async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
     let Some((docker, dir)) = docker().await else { return };
-    let name = format!("hn-kept-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let name = format!("ok-kept-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
     let sql = dir.join("load.sql");
     std::fs::write(&sql, "CREATE TABLE notes (body text); INSERT INTO notes VALUES ('kept'), ('');").unwrap();
     let work = {
@@ -200,7 +200,7 @@ async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
                 .delete_database(&Default::default(), &docker, &name, None, false, delete)
                 .await
                 .unwrap();
-            assert!(!done.kept_volume, "Halfnine's own volume goes with it");
+            assert!(!done.kept_volume, "Okayrow's own volume goes with it");
             assert!(docker.container(&name).is_none());
             let backup = done.backup.unwrap();
             let crate::backups::Holds::Database { container: kept } = &backup.holds else {
@@ -222,7 +222,7 @@ async fn deleting_backs_a_database_up_first_and_it_comes_back_as_it_was() {
             );
             assert_eq!((back.name.as_str(), back.label, back.read_only), (name.as_str(), Label::Amber, true));
             let Source::Docker { made: Some(how), .. } = &back.source else {
-                panic!("Halfnine made it")
+                panic!("Okayrow made it")
             };
             assert_eq!(how.how, MadeHow::New, "it keeps how it was first made");
             let db = PgDatabase::connect(&back, None, &docker.secrets(&name).await.unwrap()).await.unwrap();

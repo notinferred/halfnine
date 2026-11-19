@@ -1,6 +1,6 @@
 //! What the window asks of Docker databases.
 
-use hn_core::{AgentAccess, ConnectionSpec, Error, ErrorKind, Label};
+use ok_core::{AgentAccess, ConnectionSpec, Error, ErrorKind, Label};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, State};
@@ -23,7 +23,7 @@ pub async fn docker_state(state: State<'_, AppState>) -> Result<DockerState, Err
     Ok(state.docker.state())
 }
 
-/// Turns Docker databases on or off in Settings. Off, Halfnine stops talking to the engine.
+/// Turns Docker databases on or off in Settings. Off, Okayrow stops talking to the engine.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_docker_enabled(state: State<'_, AppState>, on: bool) -> Result<(), Error> {
@@ -100,10 +100,10 @@ pub async fn choose_database_file(app: AppHandle, state: State<'_, AppState>) ->
 #[tauri::command]
 #[specta::specta]
 pub async fn create_docker_database(state: State<'_, AppState>, name: String, version: u16, file: Option<String>) -> Result<(), Error> {
-    if !hn_docker::VERSIONS.contains(&version) {
+    if !ok_docker::VERSIONS.contains(&version) {
         return Err(Error::new(ErrorKind::Invalid, "Choose PostgreSQL 14 to 18."));
     }
-    hn_docker::valid_name(&name)?;
+    ok_docker::valid_name(&name)?;
     let load = file.map(|token| state.docker.file(&token)).transpose()?;
     let new = NewDatabase {
         name: name.clone(),
@@ -159,7 +159,7 @@ pub async fn docker_database_url(state: State<'_, AppState>, name: String) -> Re
         ));
     }
     let secrets = state.docker.secrets(&name).await?;
-    Ok(hn_core::url(&spec, secrets.password.as_deref()))
+    Ok(ok_core::url(&spec, secrets.password.as_deref()))
 }
 
 #[tauri::command]
@@ -173,7 +173,7 @@ pub async fn dismiss_docker_job(state: State<'_, AppState>, name: String) -> Res
 #[tauri::command]
 #[specta::specta]
 pub async fn copy_docker_database(state: State<'_, AppState>, source: String, name: String) -> Result<(), Error> {
-    hn_docker::valid_name(&name)?;
+    ok_docker::valid_name(&name)?;
     let new = NewDatabase {
         name: name.clone(),
         major: 18,

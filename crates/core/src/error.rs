@@ -32,9 +32,9 @@ pub enum ErrorKind {
     Keychain,
     /// The Docker engine on this computer couldn't be reached, or refused.
     Docker,
-    /// Nothing was dropped, emptied or deleted, because Halfnine couldn't back it up first. The message says why.
+    /// Nothing was dropped, emptied or deleted, because Okayrow couldn't back it up first. The message says why.
     NoBackup,
-    /// Nothing was written, because the change broke a rule the person set, or Halfnine couldn't check one in time.
+    /// Nothing was written, because the change broke a rule the person set, or Okayrow couldn't check one in time.
     BrokenRule,
 }
 

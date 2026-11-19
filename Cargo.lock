@@ -2179,83 +2179,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hn-core"
-version = "0.3.0"
-dependencies = [
- "percent-encoding",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "specta",
- "thiserror 2.0.21",
- "url",
-]
-
-[[package]]
-name = "hn-desktop"
-version = "0.3.0"
-dependencies = [
- "apple-native-keyring-store",
- "base64 0.22.1",
- "csv",
- "dirs",
- "futures-util",
- "hn-core",
- "hn-docker",
- "hn-pg",
- "keyring-core",
- "log",
- "open",
- "percent-encoding",
- "rmcp",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
- "tauri-specta",
- "tokio",
- "uuid",
- "windows-native-keyring-store",
-]
-
-[[package]]
-name = "hn-docker"
-version = "0.3.0"
-dependencies = [
- "bollard",
- "bytes",
- "dirs",
- "futures-util",
- "hn-core",
- "log",
- "serde",
- "serde_json",
- "tar",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "hn-pg"
-version = "0.3.0"
-dependencies = [
- "futures-util",
- "hn-core",
- "log",
- "russh",
- "serde_json",
- "sqlx",
- "tokio",
-]
-
-[[package]]
 name = "html5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3326,6 +3249,83 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+]
+
+[[package]]
+name = "ok-core"
+version = "0.3.0"
+dependencies = [
+ "percent-encoding",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "specta",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
+name = "ok-desktop"
+version = "0.3.0"
+dependencies = [
+ "apple-native-keyring-store",
+ "base64 0.22.1",
+ "csv",
+ "dirs",
+ "futures-util",
+ "keyring-core",
+ "log",
+ "ok-core",
+ "ok-docker",
+ "ok-pg",
+ "open",
+ "percent-encoding",
+ "rmcp",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+ "tauri-specta",
+ "tokio",
+ "uuid",
+ "windows-native-keyring-store",
+]
+
+[[package]]
+name = "ok-docker"
+version = "0.3.0"
+dependencies = [
+ "bollard",
+ "bytes",
+ "dirs",
+ "futures-util",
+ "log",
+ "ok-core",
+ "serde",
+ "serde_json",
+ "tar",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "ok-pg"
+version = "0.3.0"
+dependencies = [
+ "futures-util",
+ "log",
+ "ok-core",
+ "russh",
+ "serde_json",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]

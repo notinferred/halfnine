@@ -253,7 +253,7 @@ function DockerRow(props: { database: DockerDatabase; current: boolean; busy: bo
         <span className="connection-row-name">{spec.name}</span>
         <span className="connection-row-detail">{props.busy ? "Connecting…" : opened(props.open, detail)}</span>
       </span>
-      {made && made !== "made by Halfnine" && <span className="chip connection-row-chip">{made.replace("made by ", "")}</span>}
+      {made && made !== "made by Okayrow" && <span className="chip connection-row-chip">{made.replace("made by ", "")}</span>}
       {spec.readOnly && <Lock size={13} strokeWidth={1.5} aria-label="Read-only" className="muted" />}
     </button>
   );

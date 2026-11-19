@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use hn_core::{ColumnInfo, Constraint, EnumType, ForeignKey, IncomingKey, Index, Reference, Relation, RelationKind, SchemaNode, Structure, TableRef};
+use ok_core::{ColumnInfo, Constraint, EnumType, ForeignKey, IncomingKey, Index, Reference, Relation, RelationKind, SchemaNode, Structure, TableRef};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 

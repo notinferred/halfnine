@@ -159,3 +159,14 @@ The architecture follows his references `architecture-invariants.md` and `ENGINE
 ## 2026-10-31: Releasing 0.3.0
 
 - **Which release.** **Dan:** "Lets release new progress to git". **Chose:** "Publish 0.3.0 now": merge `m5-docker` into main, tag v0.3.0 and publish it once the builds pass, without his check of a beta. **Not chosen:** a beta 4 draft first; beta 4 plus a Rules beta.
+
+## 2026-11-19: Renaming to Okayrow
+
+- **The name.** **Dan:** "new brand name halfnine | I know i use it for another project scrap it and archive everything now". **Chose:** "Rename it, keep it alive". **Not chosen:** archive it fully; decide later.
+- **The new name.** **Chose:** "Okayrow". **Not chosen:** Cosign SQL, Nodsql, Rowsill. Checked: okayrow.com looked free in whois, and no GitHub repository has the name. .dev, the MCP Registry and trademarks weren't checked.
+- **Agents connected before the rename.** **Chose:** "Clean break": the app and its command become Okayrow.app and `okayrow mcp`, and the release notes say to press Connect again. **Not chosen:** fix old configs on launch; keep the command name.
+- **The crates.** **Chose:** "Rename to ok-*". **Not chosen:** keep hn-*.
+- **When it goes public.** **Chose:** "Code now, release later": the repository rename, the release and the MCP Registry listing come with the next release. **Not chosen:** release v0.3.1 now.
+- **Where the rename starts.** **Chose:** "Rename on top of rules", so the branch carries both. **Not chosen:** rename on main only; merge rules first.
+- **The app ID.** **Dan:** "Stop worrying about it so much holy fuck just replace everything". The app ID became `com.notinferred.okayrow` with the rest, so saved connections, passwords and Docker databases from Halfnine don't carry over.
+- **Trademarks.** **Chose:** "Skip for now".

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use hn_core::{CellChange, Changes, ColumnValue, Error, Filter, RowUpdate, TableRef};
+use ok_core::{CellChange, Changes, ColumnValue, Error, Filter, RowUpdate, TableRef};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 

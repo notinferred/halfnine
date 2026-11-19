@@ -2,7 +2,7 @@
 //! each part as Postgres prints it. Putting it back runs in one transaction, every statement written by [`Writer`], so
 //! what someone reviews is what runs.
 
-use hn_core::{
+use ok_core::{
     ColumnDefinition, Error, ErrorKind, GeneratedDefinition, IdentityDefinition, NamedDefinition, RestoreInto, SequenceDefinition, TableDefinition,
     TableRef, TriggerDefinition,
 };
@@ -109,7 +109,7 @@ pub(crate) async fn facts(conn: &mut PgConnection, table: &TableRef) -> Result<F
         _ => Some(format!("{name} isn't a table")),
     };
     if let Some(why) = refused {
-        return Err(Error::new(ErrorKind::Invalid, format!("{why}, so Halfnine can't back it up.")));
+        return Err(Error::new(ErrorKind::Invalid, format!("{why}, so Okayrow can't back it up.")));
     }
     let mut not_kept = Vec::new();
     for (at, what) in [
@@ -289,7 +289,7 @@ pub(crate) async fn present(
                 return Err(Error::new(
                     ErrorKind::Invalid,
                     format!(
-                        "{} has rows again, so Halfnine won't mix the backup's rows in. Empty it first.",
+                        "{} has rows again, so Okayrow won't mix the backup's rows in. Empty it first.",
                         table.name
                     ),
                 ));
@@ -378,7 +378,7 @@ fn column_sql(w: &mut Writer, c: &ColumnDefinition, adding: bool) {
     }
 }
 
-/// Refuses to put columns back when Halfnine can't tell which row each value belongs to: the table has no primary
+/// Refuses to put columns back when Okayrow can't tell which row each value belongs to: the table has no primary
 /// key, or a column being put back is part of it.
 pub(crate) fn keyed(table: &TableRef, primary_key: &[String], names: &[String]) -> Result<(), Error> {
     let why = if primary_key.is_empty() {
@@ -390,7 +390,7 @@ pub(crate) fn keyed(table: &TableRef, primary_key: &[String], names: &[String]) 
     };
     Err(Error::new(
         ErrorKind::Invalid,
-        format!("{why}, so Halfnine can't tell which row each value belongs to."),
+        format!("{why}, so Okayrow can't tell which row each value belongs to."),
     ))
 }
 
@@ -465,13 +465,13 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
     }
 
     let stage = format!(
-        "CREATE TEMPORARY TABLE hn_restore ({}) ON COMMIT DROP",
+        "CREATE TEMPORARY TABLE ok_restore ({}) ON COMMIT DROP",
         (1..=definition.columns.len())
             .map(|i| format!("c{i} text"))
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let copy = "COPY hn_restore FROM STDIN WITH (FORMAT csv, HEADER true)".to_string();
+    let copy = "COPY ok_restore FROM STDIN WITH (FORMAT csv, HEADER true)".to_string();
     let rows = if !writes_rows {
         None
     } else if let RestoreInto::Columns { names } = into {
@@ -483,7 +483,7 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
             }
             w.name(&c.name).text(&format!(" = h.c{}::", at + 1)).typed(&c.type_name);
         }
-        w.text(" FROM hn_restore h WHERE ");
+        w.text(" FROM ok_restore h WHERE ");
         for (i, key) in definition.primary_key.iter().enumerate() {
             let k = definition.columns.iter().position(|c| &c.name == key).unwrap_or_default();
             if i > 0 {
@@ -516,7 +516,7 @@ pub(crate) fn plan(definition: &TableDefinition, into: &RestoreInto, present: &P
             }
             w.text(&format!("c{}::", i + 1)).typed(&c.type_name);
         }
-        w.text(" FROM hn_restore");
+        w.text(" FROM ok_restore");
         Some(w.step(format!("Putting back the rows of {}", table.name), None))
     };
 
@@ -700,9 +700,9 @@ mod tests {
             plan.shown(),
             [
                 "CREATE TABLE public.notes (\n  id bigint GENERATED ALWAYS AS IDENTITY (INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1 NO CYCLE),\n  body text NOT NULL,\n  size integer GENERATED ALWAYS AS (length(body)) STORED\n);",
-                "CREATE TEMPORARY TABLE hn_restore (c1 text, c2 text, c3 text) ON COMMIT DROP;",
-                "COPY hn_restore FROM STDIN WITH (FORMAT csv, HEADER true);",
-                "INSERT INTO public.notes (id, body) OVERRIDING SYSTEM VALUE SELECT c1::bigint, c2::text FROM hn_restore;",
+                "CREATE TEMPORARY TABLE ok_restore (c1 text, c2 text, c3 text) ON COMMIT DROP;",
+                "COPY ok_restore FROM STDIN WITH (FORMAT csv, HEADER true);",
+                "INSERT INTO public.notes (id, body) OVERRIDING SYSTEM VALUE SELECT c1::bigint, c2::text FROM ok_restore;",
                 "SELECT setval(pg_get_serial_sequence('public.notes', 'id'), 41);",
                 "ALTER TABLE public.notes ADD CONSTRAINT notes_pkey PRIMARY KEY (id);",
                 "CREATE INDEX notes_body_idx ON public.notes USING btree (body);",
@@ -726,9 +726,9 @@ mod tests {
             plan.shown(),
             [
                 "ALTER TABLE public.notes DISABLE TRIGGER stamp;",
-                "CREATE TEMPORARY TABLE hn_restore (c1 text, c2 text, c3 text) ON COMMIT DROP;",
-                "COPY hn_restore FROM STDIN WITH (FORMAT csv, HEADER true);",
-                "INSERT INTO public.notes (id, body) OVERRIDING SYSTEM VALUE SELECT c1::bigint, c2::text FROM hn_restore;",
+                "CREATE TEMPORARY TABLE ok_restore (c1 text, c2 text, c3 text) ON COMMIT DROP;",
+                "COPY ok_restore FROM STDIN WITH (FORMAT csv, HEADER true);",
+                "INSERT INTO public.notes (id, body) OVERRIDING SYSTEM VALUE SELECT c1::bigint, c2::text FROM ok_restore;",
                 "ALTER TABLE public.notes ENABLE TRIGGER stamp;",
                 "SELECT setval(pg_get_serial_sequence('public.notes', 'id'), 41);",
             ]
@@ -743,9 +743,9 @@ mod tests {
             plan(&definition(), &into, &present).unwrap().shown(),
             [
                 "ALTER TABLE public.notes ADD COLUMN body text;",
-                "CREATE TEMPORARY TABLE hn_restore (c1 text, c2 text, c3 text) ON COMMIT DROP;",
-                "COPY hn_restore FROM STDIN WITH (FORMAT csv, HEADER true);",
-                "UPDATE public.notes AS t SET body = h.c2::text FROM hn_restore h WHERE t.id = h.c1::bigint;",
+                "CREATE TEMPORARY TABLE ok_restore (c1 text, c2 text, c3 text) ON COMMIT DROP;",
+                "COPY ok_restore FROM STDIN WITH (FORMAT csv, HEADER true);",
+                "UPDATE public.notes AS t SET body = h.c2::text FROM ok_restore h WHERE t.id = h.c1::bigint;",
                 "ALTER TABLE public.notes ALTER COLUMN body SET NOT NULL;",
                 "CREATE INDEX notes_body_idx ON public.notes USING btree (body);",
                 "COMMENT ON COLUMN public.notes.body IS 'it''s the body';",

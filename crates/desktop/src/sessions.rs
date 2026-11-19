@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use hn_core::{ConnectionSpec, Error, ErrorKind};
-use hn_pg::{PgDatabase, Secrets};
+use ok_core::{ConnectionSpec, Error, ErrorKind};
+use ok_pg::{PgDatabase, Secrets};
 use tokio::sync::RwLock;
 
 pub struct Session {

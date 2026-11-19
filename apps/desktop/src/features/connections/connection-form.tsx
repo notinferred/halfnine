@@ -375,7 +375,7 @@ export function ConnectionForm(props: {
             Agents
           </label>
           <span className="field-note">
-            {form.readOnly ? "Read-only, so agents only ever read here." : "What AI agents may do here through Halfnine."}
+            {form.readOnly ? "Read-only, so agents only ever read here." : "What AI agents may do here through Okayrow."}
           </span>
           <select
             id="agent-access"

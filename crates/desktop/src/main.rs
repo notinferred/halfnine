@@ -38,7 +38,7 @@ pub struct AppState {
 }
 
 fn main() {
-    // An agent starts `halfnine mcp`, which only relays to the app, so it never starts Tauri. The single-instance
+    // An agent starts `okayrow mcp`, which only relays to the app, so it never starts Tauri. The single-instance
     // plugin would otherwise take it for a second launch.
     if std::env::args_os().nth(1).is_some_and(|arg| arg == "mcp") {
         std::process::exit(mcp::bridge::run());
@@ -103,7 +103,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Halfnine could not start")
+        .expect("Okayrow could not start")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event
                 && let Ok(dir) = app.path().app_config_dir()

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hn_core::{AgentAccess, ColumnRef, Database, Made, MadeHow, RelationKind, Rule, Source, Structure, TableRef};
+use ok_core::{AgentAccess, ColumnRef, Database, Made, MadeHow, RelationKind, Rule, Source, Structure, TableRef};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Implementation, ProgressNotificationParam, ServerCapabilities, ServerConfig};
 use rmcp::service::RequestContext;
@@ -18,9 +18,9 @@ use super::tools::{
 };
 use super::{Agent, Agents, Ask, Verdict, label_name, paused, verdict};
 
-const INSTRUCTIONS: &str = "Halfnine is the person's PostgreSQL client, and this is how you use their databases through it. \
+const INSTRUCTIONS: &str = "Okayrow is the person's PostgreSQL client, and this is how you use their databases through it. \
 Start with list_connections, then describe a connection before querying it. query only ever reads. \
-change_rows, change_structure and run_sql write: depending on the connection, Halfnine runs the change at once or \
+change_rows, change_structure and run_sql write: depending on the connection, Okayrow runs the change at once or \
 stages it in its window for the person to approve, and the call waits for their answer. \
 If a call answers WAITING, call wait_for_approval with the proposal id; never propose the same change twice. \
 If the person declines, don't retry unless they ask. \
@@ -74,13 +74,13 @@ impl Server {
             let docker = &self.agents.directory.docker;
             let state = docker.state();
             let mut text = if connections.is_empty() {
-                "Halfnine has no connections yet. The person adds them in Halfnine.".to_string()
+                "Okayrow has no connections yet. The person adds them in Okayrow.".to_string()
             } else {
                 format!("{}:", plural(connections.len(), "connection"))
             };
             for c in &connections {
                 let access = match c.agent_access() {
-                    AgentAccess::Off => "Off: agents can't use it, unless the person changes that in Halfnine",
+                    AgentAccess::Off => "Off: agents can't use it, unless the person changes that in Okayrow",
                     AgentAccess::Read => "Read: describe and query",
                     AgentAccess::ApprovedWrites => "Read, and writes the person approves",
                     AgentAccess::Full => "Read and write",
@@ -96,20 +96,20 @@ impl Server {
                 });
                 text.push_str(&match made {
                     Some(Made { agent: Some(agent), .. }) => format!(" · made for {}", agent.title),
-                    Some(Made { how: MadeHow::Copy, .. }) => " · a copy made in Halfnine".to_string(),
-                    Some(Made { how: MadeHow::Restored, .. }) => " · restored in Halfnine".to_string(),
-                    Some(Made { how: MadeHow::New, .. }) => " · made in Halfnine".to_string(),
+                    Some(Made { how: MadeHow::Copy, .. }) => " · a copy made in Okayrow".to_string(),
+                    Some(Made { how: MadeHow::Restored, .. }) => " · restored in Okayrow".to_string(),
+                    Some(Made { how: MadeHow::New, .. }) => " · made in Okayrow".to_string(),
                     None => String::new(),
                 });
                 if running
                     && verdict(c, Ask::Credentials, false) == Verdict::Run
                     && let Ok(secrets) = docker.secrets(container).await
                 {
-                    let _ = write!(text, " · URL {}", hn_core::url(c, secrets.password.as_deref()));
+                    let _ = write!(text, " · URL {}", ok_core::url(c, secrets.password.as_deref()));
                 }
             }
             if !state.on {
-                text.push_str("\n\nDocker databases are off in Halfnine's Settings, so no containers are listed or made.");
+                text.push_str("\n\nDocker databases are off in Okayrow's Settings, so no containers are listed or made.");
             } else if let Some(problem) = &state.problem {
                 let _ = write!(text, "\n\nDocker databases: {problem}");
             }
@@ -205,7 +205,7 @@ impl Server {
 
     #[tool(
         name = "change_rows",
-        description = "Inserts, updates or deletes rows of one table, each named by its primary key. Halfnine runs it at once or shows it to the person as staged rows to approve, depending on the connection, and answers when it is done. At most 500 rows; use run_sql for bulk changes.",
+        description = "Inserts, updates or deletes rows of one table, each named by its primary key. Okayrow runs it at once or shows it to the person as staged rows to approve, depending on the connection, and answers when it is done. At most 500 rows; use run_sql for bulk changes.",
         annotations(
             title = "Change rows",
             read_only_hint = false,
@@ -230,7 +230,7 @@ impl Server {
 
     #[tool(
         name = "change_structure",
-        description = "Changes one table's structure, or creates, empties or drops a table, in one transaction: add, rename, retype or drop columns, set nullability and defaults, create and drop indexes. Halfnine runs it at once or stages it for the person to approve, depending on the connection.",
+        description = "Changes one table's structure, or creates, empties or drops a table, in one transaction: add, rename, retype or drop columns, set nullability and defaults, create and drop indexes. Okayrow runs it at once or stages it for the person to approve, depending on the connection.",
         annotations(
             title = "Change a table's structure",
             read_only_hint = false,
@@ -253,7 +253,7 @@ impl Server {
 
     #[tool(
         name = "run_sql",
-        description = "Runs statements that write, such as a bulk UPDATE or a function, in order in one transaction: all of them or none. Prefer change_rows and change_structure, which the person sees in the table itself. Halfnine runs it at once or shows the SQL to the person to approve, depending on the connection.",
+        description = "Runs statements that write, such as a bulk UPDATE or a function, in order in one transaction: all of them or none. Prefer change_rows and change_structure, which the person sees in the table itself. Okayrow runs it at once or shows the SQL to the person to approve, depending on the connection.",
         annotations(
             title = "Run SQL that writes",
             read_only_hint = false,
@@ -273,7 +273,7 @@ impl Server {
 
     #[tool(
         name = "create_database",
-        description = "Makes a new, empty PostgreSQL database in Docker on this computer for you to work in. It is made for you, you may read and change everything in it, and Halfnine shows it marked with your name. Answers with its connection name, and a URL for programs you run. The first one of a version downloads PostgreSQL, which can take a minute: if it answers WAITING, call it again with the same name.",
+        description = "Makes a new, empty PostgreSQL database in Docker on this computer for you to work in. It is made for you, you may read and change everything in it, and Okayrow shows it marked with your name. Answers with its connection name, and a URL for programs you run. The first one of a version downloads PostgreSQL, which can take a minute: if it answers WAITING, call it again with the same name.",
         annotations(
             title = "Make a database",
             read_only_hint = false,
@@ -341,7 +341,7 @@ impl Server {
 
     #[tool(
         name = "delete_database",
-        description = "Deletes a Docker database. One made for an agent of your name is deleted at once; any other only if the person says yes in Halfnine, and the call waits for their answer. While backups are on, Halfnine backs it up first, so the person can put it back.",
+        description = "Deletes a Docker database. One made for an agent of your name is deleted at once; any other only if the person says yes in Okayrow, and the call waits for their answer. While backups are on, Okayrow backs it up first, so the person can put it back.",
         annotations(
             title = "Delete a database",
             read_only_hint = false,
@@ -386,7 +386,7 @@ impl Server {
     async fn read<F, Fut>(&self, agent: &Agent, tool: &str, connection: &str, database: Option<&str>, sql: Vec<String>, work: F) -> Reply
     where
         F: FnOnce(Arc<crate::sessions::Session>, Vec<ColumnRef>) -> Fut,
-        Fut: Future<Output = Result<Reply, hn_core::Error>>,
+        Fut: Future<Output = Result<Reply, ok_core::Error>>,
     {
         let spec = match self.agents.connection(connection) {
             Ok(spec) => spec,
@@ -435,14 +435,14 @@ impl Server {
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 ticks += 1.0;
-                let note = ProgressNotificationParam::new(token.clone(), ticks).with_message("Waiting for the person in Halfnine");
+                let note = ProgressNotificationParam::new(token.clone(), ticks).with_message("Waiting for the person in Okayrow");
                 let _ = context.peer.notify_progress(note).await;
             }
         };
         tokio::select! {
             reply = answer => reply,
             // Never ends: it only sends progress while the answer is awaited.
-            () = progress => Reply::new(Status::Error, "Halfnine stopped waiting."),
+            () = progress => Reply::new(Status::Error, "Okayrow stopped waiting."),
             () = context.ct.cancelled() => {
                 self.agents.withdraw_waiting(&self.session, proposal);
                 Reply::new(Status::Refused, "The call was cancelled, so its change was withdrawn.")
@@ -459,10 +459,10 @@ impl ServerHandler for Server {
 }
 
 impl Server {
-    /// What a session is told about Halfnine when it opens, by the app or by `halfnine mcp` before the app is open.
+    /// What a session is told about Okayrow when it opens, by the app or by `okayrow mcp` before the app is open.
     pub(crate) fn config() -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("halfnine", env!("CARGO_PKG_VERSION")).with_title("Halfnine"))
+            .with_server_info(Implementation::new("okayrow", env!("CARGO_PKG_VERSION")).with_title("Okayrow"))
             .with_instructions(INSTRUCTIONS)
     }
 }
@@ -530,7 +530,7 @@ fn describe_table(table: &TableRef, s: &Structure, hidden: &[ColumnRef], rules: 
     }
     let mine: Vec<&Rule> = rules.iter().filter(|r| &r.table == table).collect();
     if !mine.is_empty() {
-        text.push_str("\n\nRules the person set (Halfnine refuses a change that breaks one):");
+        text.push_str("\n\nRules the person set (Okayrow refuses a change that breaks one):");
         for rule in mine {
             let _ = write!(text, "\n- {}.", rule.shown(hidden));
         }
@@ -539,9 +539,9 @@ fn describe_table(table: &TableRef, s: &Structure, hidden: &[ColumnRef], rules: 
 }
 
 fn describe_database(
-    server: &hn_core::ServerInfo,
-    schema: &[hn_core::SchemaNode],
-    references: &[hn_core::Reference],
+    server: &ok_core::ServerInfo,
+    schema: &[ok_core::SchemaNode],
+    references: &[ok_core::Reference],
     only: Option<&str>,
     hidden: &[ColumnRef],
     rules: &[Rule],
@@ -554,7 +554,7 @@ fn describe_database(
     if !others.is_empty() {
         let _ = write!(text, "\nOther databases on this server: {}", others.join(", "));
     }
-    let nodes: Vec<&hn_core::SchemaNode> = schema.iter().filter(|n| only.is_none_or(|o| o == n.name)).collect();
+    let nodes: Vec<&ok_core::SchemaNode> = schema.iter().filter(|n| only.is_none_or(|o| o == n.name)).collect();
     let mut body = String::new();
     for node in &nodes {
         let _ = write!(body, "\n\nSchema {}", node.name);
@@ -585,7 +585,7 @@ fn describe_database(
             let _ = write!(body, "\n- enum {}: {}", e.name, e.values.join(", "));
         }
     }
-    let keys: Vec<&hn_core::Reference> = references
+    let keys: Vec<&ok_core::Reference> = references
         .iter()
         .filter(|r| only.is_none_or(|o| o == r.source.schema || o == r.target.schema))
         .collect();
@@ -606,7 +606,7 @@ fn describe_database(
     }
     let ruled: Vec<&Rule> = rules.iter().filter(|r| only.is_none_or(|o| o == r.table.schema)).collect();
     if !ruled.is_empty() {
-        body.push_str("\n\nRules the person set (Halfnine refuses a change that breaks one):");
+        body.push_str("\n\nRules the person set (Okayrow refuses a change that breaks one):");
         for rule in ruled {
             let _ = write!(body, "\n- {}: {}.", rule.table.name, rule.shown(hidden));
         }

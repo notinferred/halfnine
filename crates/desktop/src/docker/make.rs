@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use hn_core::{AgentMark, ConnectionSpec, Error, ErrorKind, Made, MadeHow};
-use hn_docker::{Engine, NewContainer, label, pick_port, postgres, valid_name};
-use hn_pg::{PgDatabase, Secrets};
+use ok_core::{AgentMark, ConnectionSpec, Error, ErrorKind, Made, MadeHow};
+use ok_docker::{Engine, NewContainer, label, pick_port, postgres, valid_name};
+use ok_pg::{PgDatabase, Secrets};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::watch;
@@ -96,7 +96,7 @@ pub struct KeptContainer {
     pub database: String,
     /// Every database in it, dumped to `<n>.dump` in this order.
     pub databases: Vec<String>,
-    /// How Halfnine made it, and for which agent; `None` when Halfnine didn't make it.
+    /// How Okayrow made it, and for which agent; `None` when Okayrow didn't make it.
     pub made: Option<Made>,
     pub overrides: Overrides,
 }
@@ -230,7 +230,7 @@ impl Docker {
             labels.insert(label::TEST.into(), "true".into());
         }
         let database = new.database.clone().unwrap_or_else(|| new.name.replace(['-', '.'], "_"));
-        let volume = format!("halfnine-{}", &id[..12]);
+        let volume = format!("okayrow-{}", &id[..12]);
         // Docker takes the port only as the container starts, so another program may take it first. Then the
         // container is made again on another port.
         let mut passed_over = HashSet::new();
@@ -251,7 +251,7 @@ impl Docker {
                 .await?;
             match engine.start(&new.name).await {
                 Ok(()) => break port,
-                Err(error) if hn_docker::port_taken(&error) && passed_over.len() < 5 => {
+                Err(error) if ok_docker::port_taken(&error) && passed_over.len() < 5 => {
                     passed_over.insert(port.0);
                     engine.remove(&new.name, Some(&volume)).await?;
                 }
@@ -305,7 +305,7 @@ impl Docker {
                 return Err(Error::new(
                     ErrorKind::NoBackup,
                     format!(
-                        "{name} takes {}, more than the {} Halfnine backs up. Settings can raise that.",
+                        "{name} takes {}, more than the {} Okayrow backs up. Settings can raise that.",
                         size_in_words(size),
                         size_in_words(limit)
                     ),
@@ -398,7 +398,7 @@ impl Docker {
             engine.start(source).await?;
         }
         self.progress(&new.name, format!("Saving {source}…"));
-        let dir = std::env::temp_dir().join(format!("halfnine-copy-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("okayrow-copy-{}", uuid::Uuid::new_v4().simple()));
         let copied = async {
             let user = &from.credentials.user;
             let dumped = super::dumps::dump(&engine, source, user, &dir, false).await?;
@@ -427,7 +427,7 @@ impl Docker {
         copied
     }
 
-    /// Removes a container, and its volume when Halfnine made that volume; anyone else's volume is kept. Returns
+    /// Removes a container, and its volume when Okayrow made that volume; anyone else's volume is kept. Returns
     /// whether a volume was kept.
     pub async fn delete(&self, name: &str) -> Result<bool, Error> {
         let engine = self.engine().await?;
@@ -472,9 +472,9 @@ async fn load(engine: &Engine, name: &str, file: &std::path::Path, spec: &Connec
     let custom = std::fs::File::open(file)
         .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
         .is_ok_and(|()| &head == b"PGDMP");
-    engine.run(name, &["mkdir", "-p", "/tmp/halfnine"]).await?;
-    engine.upload(name, "/tmp/halfnine", "load", file).await?;
-    let path = "/tmp/halfnine/load";
+    engine.run(name, &["mkdir", "-p", "/tmp/okayrow"]).await?;
+    engine.upload(name, "/tmp/okayrow", "load", file).await?;
+    let path = "/tmp/okayrow/load";
     let cmd: Vec<&str> = if custom {
         vec!["pg_restore", "--no-owner", "-U", &spec.user, "-d", &spec.database, path]
     } else {

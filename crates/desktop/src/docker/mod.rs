@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use hn_core::{AgentAccess, AgentMark, ConnectionSpec, Error, ErrorKind, HiddenColumn, Label, Made, MadeHow, Source, TlsMode};
-use hn_docker::{Container, Engine, discover, label};
-use hn_pg::Secrets;
+use ok_core::{AgentAccess, AgentMark, ConnectionSpec, Error, ErrorKind, HiddenColumn, Label, Made, MadeHow, Source, TlsMode};
+use ok_docker::{Container, Engine, discover, label};
+use ok_pg::Secrets;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::async_runtime::JoinHandle;
@@ -60,7 +60,7 @@ pub struct DockerDatabase {
 #[serde(rename_all = "camelCase")]
 pub struct DockerState {
     pub on: bool,
-    /// Which engine Halfnine found, such as "the desktop-linux context".
+    /// Which engine Okayrow found, such as "the desktop-linux context".
     pub engine: Option<String>,
     /// Why there is no engine, when Docker databases are on.
     pub problem: Option<String>,
@@ -133,7 +133,7 @@ impl Docker {
                             let _ = docker.refresh().await;
                         }
                         *docker.engine.write().await = None;
-                        *lock(&docker.problem) = Some("Docker stopped. Halfnine will find it again when it's back.".into());
+                        *lock(&docker.problem) = Some("Docker stopped. Okayrow will find it again when it's back.".into());
                     }
                     Err(e) => *lock(&docker.problem) = Some(e.message),
                 }
@@ -173,13 +173,13 @@ impl Docker {
 
     pub async fn engine(&self) -> Result<Arc<Engine>, Error> {
         if !self.on() {
-            return Err(Error::new(ErrorKind::Docker, "Docker databases are off in Halfnine's Settings."));
+            return Err(Error::new(ErrorKind::Docker, "Docker databases are off in Okayrow's Settings."));
         }
         self.engine.read().await.clone().ok_or_else(|| {
             let problem = lock(&self.problem).clone();
             Error::new(
                 ErrorKind::Docker,
-                problem.unwrap_or_else(|| "Halfnine is still looking for Docker.".into()),
+                problem.unwrap_or_else(|| "Okayrow is still looking for Docker.".into()),
             )
         })
     }
@@ -285,7 +285,7 @@ impl Docker {
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "Choose the file again."))
     }
 
-    /// Forgets what was kept for a container Halfnine deleted, so a new one by that name starts afresh.
+    /// Forgets what was kept for a container Okayrow deleted, so a new one by that name starts afresh.
     pub fn forget(&self, name: &str) -> Result<(), Error> {
         let mut overlay = lock(&self.overlay);
         if overlay.containers.remove(name).is_some() {
@@ -324,7 +324,7 @@ pub fn connection(container: &Container, overrides: Option<&Overrides>) -> Conne
     }
 }
 
-/// How Halfnine made a container, and for which agent, from its labels; `None` when Halfnine didn't make it.
+/// How Okayrow made a container, and for which agent, from its labels; `None` when Okayrow didn't make it.
 pub fn made(container: &Container) -> Option<Made> {
     let labels = &container.labels;
     (labels.get(label::MANAGED).map(String::as_str) == Some("true")).then(|| Made {
@@ -346,7 +346,7 @@ mod tests;
 #[cfg(test)]
 mod unit {
     use super::*;
-    use hn_docker::Credentials;
+    use ok_docker::Credentials;
 
     fn container(labels: &[(&str, &str)]) -> Container {
         Container {
@@ -384,7 +384,7 @@ mod unit {
         );
         assert_eq!(made.agent_access(), AgentAccess::Full);
         let Source::Docker { made: Some(made), .. } = made.source else {
-            panic!("made by Halfnine")
+            panic!("made by Okayrow")
         };
         assert_eq!(made.agent.map(|a| a.title).as_deref(), Some("Claude Code"));
         let restored = connection(&container(&[(label::MANAGED, "true"), (label::ORIGIN, "restored")]), None);

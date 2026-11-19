@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use hn_core::{Error, ErrorKind, SshAuth, SshSpec};
+use ok_core::{Error, ErrorKind, SshAuth, SshSpec};
 use russh::client::{self, Handle};
 use russh::keys::agent::AgentIdentity;
 use russh::keys::agent::client::AgentClient;

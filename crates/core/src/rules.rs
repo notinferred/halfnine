@@ -10,7 +10,7 @@ pub struct Rule {
     pub id: String,
     pub table: TableRef,
     pub check: RuleCheck,
-    /// The rule in words, as the person wrote it or Halfnine put it.
+    /// The rule in words, as the person wrote it or Okayrow put it.
     pub words: String,
     pub source: RuleSource,
     pub added_ms: f64,
@@ -56,11 +56,11 @@ pub enum RuleCheck {
 pub enum RuleSource {
     /// The person wrote it.
     Written,
-    /// Halfnine suggested it from patterns in the data, and the person accepted it.
+    /// Okayrow suggested it from patterns in the data, and the person accepted it.
     Suggested { evidence: String },
 }
 
-/// A rule Halfnine found in the data, for the person to accept or dismiss.
+/// A rule Okayrow found in the data, for the person to accept or dismiss.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Suggestion {

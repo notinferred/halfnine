@@ -1,7 +1,7 @@
 //! What an agent reads back. Every result starts with one status word, so an agent never has to guess what happened,
 //! and every value a database returned passes through [`shown`] and sits inside a block marked as data.
 
-use hn_core::{Cell, Error, ErrorKind, StatementResult};
+use ok_core::{Cell, Error, ErrorKind, StatementResult};
 use rmcp::model::{CallToolResult, ContentBlock};
 
 /// The longest value an agent sees in full; longer ones are cut and say so.
@@ -64,7 +64,7 @@ impl From<Error> for Reply {
     fn from(error: Error) -> Self {
         let status = match error.kind {
             ErrorKind::Conflict => Status::Conflict,
-            // A rule Halfnine or Postgres keeps, such as one statement at a time or a hidden column.
+            // A rule Okayrow or Postgres keeps, such as one statement at a time or a hidden column.
             ErrorKind::ReadOnly | ErrorKind::Invalid | ErrorKind::NoBackup | ErrorKind::BrokenRule => Status::Refused,
             _ => Status::Error,
         };
@@ -109,7 +109,7 @@ pub fn plural(n: usize, one: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hn_core::PageColumn;
+    use ok_core::PageColumn;
 
     #[test]
     fn marks_rows_as_data_and_cuts_long_values() {

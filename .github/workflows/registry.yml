@@ -26,7 +26,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           version="${TAG#v}"
-          file="halfnine-$version.mcpb"
+          file="okayrow-$version.mcpb"
           gh release download "$TAG" --pattern "$file"
           sha="$(sha256sum "$file" | cut -d' ' -f1)"
           url="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$file"

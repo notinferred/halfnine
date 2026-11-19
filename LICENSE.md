@@ -1,4 +1,4 @@
-Required Notice: Copyright 2026 notInferred (https://github.com/notinferred/halfnine)
+Required Notice: Copyright 2026 notInferred (https://github.com/notinferred/okayrow)
 
 # PolyForm Shield License 1.0.0
 

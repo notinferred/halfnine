@@ -20,7 +20,7 @@ export function FirstRun() {
     ? "Looking for Docker on this computer…"
     : found.data
       ? `Shows the Postgres containers on this computer as connections, and makes new ones. Docker is running in ${found.data}.`
-      : "Shows the Postgres containers on this computer as connections. Halfnine can't find Docker running now.";
+      : "Shows the Postgres containers on this computer as connections. Okayrow can't find Docker running now.";
 
   const finish = async () => {
     setBusy(true);
@@ -47,7 +47,7 @@ export function FirstRun() {
         }}
       >
         <Glyph size={56} />
-        <h1>Welcome to Halfnine</h1>
+        <h1>Welcome to Okayrow</h1>
         <p className="muted">Two choices to start with. Settings has both, to change later.</p>
         <div className="group">
           <div className="row row-switch">

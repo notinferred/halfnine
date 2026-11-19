@@ -1,20 +1,20 @@
 {
   "manifest_version": "0.3",
-  "name": "halfnine",
-  "display_name": "Halfnine",
+  "name": "okayrow",
+  "display_name": "Okayrow",
   "version": "0.3.0",
-  "description": "Your PostgreSQL connections in Halfnine, for Claude: describe and query them, and propose changes you approve in Halfnine.",
-  "long_description": "Halfnine is a small PostgreSQL client for macOS and Windows. This extension lets Claude use the connections you saved in it. Each connection sets what agents may do there: Off, Read, Read with approved writes, or Full. Queries always run read-only. A change at Read with approved writes opens in Halfnine as staged rows or SQL, and waits for you to answer. Columns you hide never reach Claude. With Docker databases on, Claude can make its own databases to work in, and Halfnine backs up what it drops or deletes first. Install Halfnine first, from its releases page.",
+  "description": "Your PostgreSQL connections in Okayrow, for Claude: describe and query them, and propose changes you approve in Okayrow.",
+  "long_description": "Okayrow is a small PostgreSQL client for macOS and Windows. This extension lets Claude use the connections you saved in it. Each connection sets what agents may do there: Off, Read, Read with approved writes, or Full. Queries always run read-only. A change at Read with approved writes opens in Okayrow as staged rows or SQL, and waits for you to answer. Columns you hide never reach Claude. With Docker databases on, Claude can make its own databases to work in, and Okayrow backs up what it drops or deletes first. Install Okayrow first, from its releases page.",
   "author": {
     "name": "notInferred",
     "url": "https://github.com/notinferred"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/notinferred/halfnine"
+    "url": "https://github.com/notinferred/okayrow"
   },
-  "homepage": "https://github.com/notinferred/halfnine",
-  "support": "https://github.com/notinferred/halfnine/issues",
+  "homepage": "https://github.com/notinferred/okayrow",
+  "support": "https://github.com/notinferred/okayrow/issues",
   "icon": "icon.png",
   "server": {
     "type": "node",
@@ -30,20 +30,20 @@
     { "name": "query", "description": "Runs one statement that reads, in a read-only transaction." },
     {
       "name": "change_rows",
-      "description": "Inserts, updates or deletes rows by primary key, approved in Halfnine where the connection asks for it."
+      "description": "Inserts, updates or deletes rows by primary key, approved in Okayrow where the connection asks for it."
     },
     {
       "name": "change_structure",
-      "description": "Changes a table's structure in one transaction, approved in Halfnine where the connection asks for it."
+      "description": "Changes a table's structure in one transaction, approved in Okayrow where the connection asks for it."
     },
-    { "name": "run_sql", "description": "Runs statements that write in one transaction, approved in Halfnine where the connection asks for it." },
+    { "name": "run_sql", "description": "Runs statements that write in one transaction, approved in Okayrow where the connection asks for it." },
     { "name": "wait_for_approval", "description": "Keeps waiting for the person's answer to a staged change." },
     { "name": "create_database", "description": "Makes a new PostgreSQL database in Docker on this computer, for Claude to work in." },
     { "name": "copy_database", "description": "Copies a Docker database into a new one, for risky work on the copy." },
     { "name": "start_database", "description": "Starts a stopped Docker database." },
     {
       "name": "delete_database",
-      "description": "Deletes a Docker database: one made for Claude at once, any other once you say yes in Halfnine. Backed up first while backups are on."
+      "description": "Deletes a Docker database: one made for Claude at once, any other once you say yes in Okayrow. Backed up first while backups are on."
     }
   ],
   "keywords": ["postgresql", "postgres", "database", "sql", "tableplus"],

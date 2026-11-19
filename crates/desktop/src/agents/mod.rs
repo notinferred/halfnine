@@ -1,4 +1,4 @@
-//! What AI agents may do through `halfnine mcp`, decided here for every call, and what the app keeps about them: their
+//! What AI agents may do through `okayrow mcp`, decided here for every call, and what the app keeps about them: their
 //! own database sessions, the changes they propose, the allowances given until quit, and the pause switch. Approval
 //! happens only through the window's commands; nothing an agent sends can approve, allow or unpause anything.
 
@@ -21,8 +21,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use hn_core::{AgentAccess, AgentMark, Changes, Checks, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
-use hn_pg::{PgDatabase, Secrets};
+use ok_core::{AgentAccess, AgentMark, Changes, Checks, ColumnRef, ColumnValue, ConnectionSpec, Database, Error, ErrorKind, Filter, Label, TableRef};
+use ok_pg::{PgDatabase, Secrets};
 use serde::Serialize;
 use specta::Type;
 use tokio::sync::watch;
@@ -104,15 +104,15 @@ pub enum Verdict {
 /// The whole access rule. `allowed` is "Yes, don't ask again here" given to this agent on this connection.
 pub fn verdict(spec: &ConnectionSpec, ask: Ask, allowed: bool) -> Verdict {
     let name = &spec.name;
-    let change = "The person you're working with can change that in Halfnine, in the connection's settings.";
+    let change = "The person you're working with can change that in Okayrow, in the connection's settings.";
     let instead = "Use query, change_rows and run_sql for it instead.";
     match (spec.agent_access(), ask) {
         (AgentAccess::Off, _) => Verdict::Refuse(format!("Agents are off for {name}. {change}")),
         (_, Ask::Read | Ask::StartDatabase) => Verdict::Run,
         (_, Ask::DeleteDatabase { own: true }) => Verdict::Run,
         (_, Ask::DeleteDatabase { own: false }) => Verdict::Propose,
-        (_, Ask::Credentials) if !spec.made_by_halfnine() => {
-            Verdict::Refuse(format!("Halfnine gives out the URL only of databases it made. {instead}"))
+        (_, Ask::Credentials) if !spec.made_by_okayrow() => {
+            Verdict::Refuse(format!("Okayrow gives out the URL only of databases it made. {instead}"))
         }
         (access, Ask::Credentials) if access != AgentAccess::Full || spec.read_only => Verdict::Refuse(format!(
             "Agents may not change everything in {name}, and a URL would get past that. {instead}"
@@ -330,8 +330,8 @@ impl Agents {
     pub async fn set_paused(&self, paused: bool) -> Result<(), Error> {
         self.settings.change(|choices| choices.agents_paused = paused)?;
         if paused {
-            self.withdraw_where(|_| true, "The person paused agents in Halfnine.");
-            self.withdraw_deletions(|_| true, "The person paused agents in Halfnine.");
+            self.withdraw_where(|_| true, "The person paused agents in Okayrow.");
+            self.withdraw_deletions(|_| true, "The person paused agents in Okayrow.");
             for request in lock(&self.asked).drain().map(|(_, r)| r) {
                 request.answered.send_replace(Some(false));
             }
@@ -378,7 +378,7 @@ impl Agents {
 
     /// A connection was edited or deleted: what agents had open or waiting on it ends, and so do its allowances.
     pub async fn forget_connection(&self, id: &str) {
-        self.withdraw_where(|p| p.session.connection.id == id, "The connection's settings changed in Halfnine.");
+        self.withdraw_where(|p| p.session.connection.id == id, "The connection's settings changed in Okayrow.");
         lock(&self.allowed).retain(|(_, connection)| connection != id);
         let closing: Vec<SessionInfo> = {
             let mut databases = self.databases.lock().await;
@@ -398,11 +398,11 @@ impl Agents {
             1 => Ok(matching.into_iter().next().expect("one connection")),
             0 => Err(Reply::new(
                 Status::Refused,
-                format!("Halfnine has no connection named \"{name}\". list_connections shows them."),
+                format!("Okayrow has no connection named \"{name}\". list_connections shows them."),
             )),
             _ => Err(Reply::new(
                 Status::Refused,
-                format!("Halfnine has more than one connection named \"{name}\". Ask the person to rename one."),
+                format!("Okayrow has more than one connection named \"{name}\". Ask the person to rename one."),
             )),
         }
     }
@@ -444,7 +444,7 @@ impl Agents {
             .map_err(|e| {
                 Reply::new(
                     Status::Error,
-                    format!("Halfnine refused the call because it couldn't log it: {}", e.message),
+                    format!("Okayrow refused the call because it couldn't log it: {}", e.message),
                 )
             })?;
         self.desk.activity();
@@ -481,7 +481,7 @@ impl Agents {
     }
 
     /// The agents' own session on a database, opened on first use. For a connection that asks for its password each
-    /// time, Halfnine asks the person, once, and the agent waits.
+    /// time, Okayrow asks the person, once, and the agent waits.
     async fn database(&self, agent: &Agent, spec: &ConnectionSpec, database: Option<&str>) -> Result<(Arc<Session>, SessionInfo), Reply> {
         let name = database.unwrap_or(&spec.database).to_string();
         let key = (spec.id.clone(), name.clone());
@@ -540,12 +540,12 @@ impl Agents {
             Ok(Ok(true)) => Ok(()),
             Ok(_) => Err(Reply::new(
                 Status::Refused,
-                format!("The person didn't give Halfnine the password for {}.", spec.name),
+                format!("The person didn't give Okayrow the password for {}.", spec.name),
             )),
             Err(_) => Err(Reply::new(
                 Status::Waiting,
                 format!(
-                    "Halfnine is asking the person for the password of {}. Call this tool again in a moment.",
+                    "Okayrow is asking the person for the password of {}. Call this tool again in a moment.",
                     spec.name
                 ),
             )),
@@ -593,7 +593,7 @@ impl Agents {
                 Err(Reply::new(
                     Status::Busy,
                     format!(
-                        "Proposal {} is still waiting for the person in Halfnine. Wait for it with wait_for_approval before proposing another.",
+                        "Proposal {} is still waiting for the person in Okayrow. Wait for it with wait_for_approval before proposing another.",
                         waiting.id
                     ),
                 ))
@@ -635,11 +635,11 @@ impl Agents {
             .map(|s| s.map(|s| s.clone()));
         match settled {
             Ok(Ok(state)) => settled_reply(&state),
-            Ok(Err(_)) => Reply::new(Status::Error, "Halfnine forgot this proposal."),
+            Ok(Err(_)) => Reply::new(Status::Error, "Okayrow forgot this proposal."),
             Err(_) => Reply::new(
                 Status::Waiting,
                 format!(
-                    "Proposal {id} is staged in Halfnine for the person to review. Call wait_for_approval with this id to keep waiting. Don't propose it again."
+                    "Proposal {id} is staged in Okayrow for the person to review. Call wait_for_approval with this id to keep waiting. Don't propose it again."
                 ),
             ),
         }
@@ -914,7 +914,7 @@ impl Agents {
             },
         };
         let Some(spec) = spec.filter(|_| refused.is_none()) else {
-            let reply = refused.unwrap_or_else(|| Reply::new(Status::Error, "Halfnine lost the connection."));
+            let reply = refused.unwrap_or_else(|| Reply::new(Status::Error, "Okayrow lost the connection."));
             self.ended(&call, &reply);
             return reply;
         };
@@ -952,7 +952,7 @@ impl Agents {
                 }
             };
         }
-        // Halfnine's own changes are tried against the rules first, in a transaction that's rolled back, so one that
+        // Okayrow's own changes are tried against the rules first, in a transaction that's rolled back, so one that
         // breaks a rule is refused before the person is asked. Statements an agent wrote never run before approval.
         if let Work::Changes(changes) = &staged.work
             && let Some(table) = &staged.table
@@ -988,14 +988,14 @@ impl Agents {
     }
 }
 
-/// A broken rule as an agent reads it: what to do next, and when Halfnine found it by trying the change, that the
+/// A broken rule as an agent reads it: what to do next, and when Okayrow found it by trying the change, that the
 /// person wasn't asked.
 fn for_agents(error: Error, tried: bool) -> Error {
     if error.kind != ErrorKind::BrokenRule {
         return error;
     }
     let tried = if tried {
-        " Halfnine tried it in a transaction it rolled back, so the person wasn't asked."
+        " Okayrow tried it in a transaction it rolled back, so the person wasn't asked."
     } else {
         ""
     };
@@ -1005,14 +1005,14 @@ fn for_agents(error: Error, tried: bool) -> Error {
     }
 }
 
-const LOSES_DATA: &str = "While backups are on in Halfnine, run_sql doesn't drop or empty tables, schemas or databases, \
-which nothing could undo. To drop or empty a table, or drop a column, use change_structure: Halfnine backs the table up \
+const LOSES_DATA: &str = "While backups are on in Okayrow, run_sql doesn't drop or empty tables, schemas or databases, \
+which nothing could undo. To drop or empty a table, or drop a column, use change_structure: Okayrow backs the table up \
 first, so the person can put it back. Ask the person to drop a schema or a database.";
 
 fn paused() -> Reply {
     Reply::new(
         Status::Paused,
-        "The person has paused all agents in Halfnine. Ask them to resume agents there.",
+        "The person has paused all agents in Okayrow. Ask them to resume agents there.",
     )
 }
 
@@ -1037,7 +1037,7 @@ impl Ran {
             self.elapsed_ms
         );
         match &self.backed_up {
-            Some(table) => format!("{committed} Halfnine backed up {} first, so the person can put it back.", table.name),
+            Some(table) => format!("{committed} Okayrow backed up {} first, so the person can put it back.", table.name),
             None => committed,
         }
     }
@@ -1080,7 +1080,7 @@ impl Agents {
                     .map_err(|error| match error.kind {
                         ErrorKind::NoBackup => Error {
                             message: format!(
-                                "Halfnine backs a table up before an agent drops or empties it, and couldn't: {}",
+                                "Okayrow backs a table up before an agent drops or empties it, and couldn't: {}",
                                 error.message
                             ),
                             ..error
@@ -1104,7 +1104,7 @@ impl Agents {
                 Ok(Ran {
                     statements: results.len() as u32,
                     rows: results.iter().map(|r| f64::from(r.rows_affected)).sum(),
-                    elapsed_ms: hn_core::millis(started.elapsed()),
+                    elapsed_ms: ok_core::millis(started.elapsed()),
                     inserted: Vec::new(),
                     backed_up: None,
                 })
@@ -1115,14 +1115,14 @@ impl Agents {
 
 fn settled_reply(state: &ProposalState) -> Reply {
     match state {
-        ProposalState::Approved { summary, .. } => Reply::new(Status::Approved, format!("The person approved it in Halfnine. {summary}")),
+        ProposalState::Approved { summary, .. } => Reply::new(Status::Approved, format!("The person approved it in Okayrow. {summary}")),
         ProposalState::Declined { reason } if reason.is_empty() => Reply::new(
             Status::Declined,
-            "The person declined it in Halfnine. Nothing was written. Don't make this change again unless they ask.",
+            "The person declined it in Okayrow. Nothing was written. Don't make this change again unless they ask.",
         ),
         ProposalState::Declined { reason } => Reply::new(
             Status::Declined,
-            format!("The person declined it in Halfnine and said: \"{reason}\". Nothing was written. Don't make this change again unless they ask."),
+            format!("The person declined it in Okayrow and said: \"{reason}\". Nothing was written. Don't make this change again unless they ask."),
         ),
         ProposalState::Failed { error } => {
             let reply = Reply::from(error.clone());

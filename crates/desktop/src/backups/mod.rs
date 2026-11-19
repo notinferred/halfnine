@@ -9,7 +9,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use hn_core::{
+use ok_core::{
     AgentMark, Cell, Changes, Checks, Committed, Database, Error, ErrorKind, PageColumn, RestoreInto, RowSink, StructureChange, TableDefinition,
     TableRef, TableSink, csv_line,
 };
@@ -77,7 +77,7 @@ struct Index {
 #[derive(Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteDone {
-    /// Its data volume was kept, because Halfnine didn't make it.
+    /// Its data volume was kept, because Okayrow didn't make it.
     pub kept_volume: bool,
     pub backup: Option<Backup>,
 }
@@ -177,7 +177,7 @@ impl Backups {
         })?;
         if let Some(limit) = choices.backup_limit_bytes.filter(|limit| size > *limit) {
             return Err(refused(format!(
-                "{} takes {}, more than the {} Halfnine backs up. Settings can raise that.",
+                "{} takes {}, more than the {} Okayrow backs up. Settings can raise that.",
                 table.name,
                 size_in_words(size),
                 size_in_words(limit)
@@ -228,7 +228,7 @@ impl Backups {
                     let _ = fs::remove_dir_all(&folder);
                     return Err(Error {
                         kind: ErrorKind::NoBackup,
-                        message: format!("Halfnine couldn't keep {name}'s password, so nothing was deleted: {}", error.message),
+                        message: format!("Okayrow couldn't keep {name}'s password, so nothing was deleted: {}", error.message),
                         ..error
                     });
                 }
@@ -271,7 +271,7 @@ impl Backups {
     }
 
     /// Makes a deleted Docker database again from its backup, as a job the Docker page follows, and waits for it.
-    pub async fn restore_database(&self, docker: &std::sync::Arc<Docker>, id: &str) -> Result<hn_core::ConnectionSpec, Error> {
+    pub async fn restore_database(&self, docker: &std::sync::Arc<Docker>, id: &str) -> Result<ok_core::ConnectionSpec, Error> {
         let Holds::Database { container } = self.get(id)?.holds else {
             return Err(Error::new(ErrorKind::Invalid, "This backup is of a table."));
         };
@@ -286,9 +286,9 @@ impl Backups {
         let outcome = done
             .wait_for(Option::is_some)
             .await
-            .map_err(|_| Error::new(ErrorKind::Docker, "Halfnine lost track of putting it back."))?
+            .map_err(|_| Error::new(ErrorKind::Docker, "Okayrow lost track of putting it back."))?
             .clone()
-            .unwrap_or_else(|| Err(Error::new(ErrorKind::Docker, "Halfnine lost track of putting it back.")));
+            .unwrap_or_else(|| Err(Error::new(ErrorKind::Docker, "Okayrow lost track of putting it back.")));
         let spec = outcome?;
         self.restored(id)?;
         Ok(spec)
@@ -517,8 +517,8 @@ mod tests {
 
 #[cfg(test)]
 mod database_tests {
-    use hn_core::{ConnectionSpec, Label, TlsMode};
-    use hn_pg::{PgDatabase, Secrets};
+    use ok_core::{ConnectionSpec, Label, TlsMode};
+    use ok_pg::{PgDatabase, Secrets};
 
     use super::*;
 
@@ -528,7 +528,7 @@ mod database_tests {
             eprintln!("skipped: HN_TEST_DATABASE_URL is not set");
             return None;
         };
-        let parts = hn_core::parse_url(&url).unwrap();
+        let parts = ok_core::parse_url(&url).unwrap();
         let connection = ConnectionSpec {
             id: "backups".into(),
             name: "Backups".into(),
@@ -543,7 +543,7 @@ mod database_tests {
             save_password: false,
             agent_access: None,
             hidden_columns: Vec::new(),
-            source: hn_core::Source::Saved,
+            source: ok_core::Source::Saved,
         };
         let secrets = Secrets {
             password: parts.password,
@@ -568,18 +568,18 @@ mod database_tests {
     #[tokio::test]
     async fn backs_a_table_up_privately_before_dropping_it_and_puts_it_back() {
         let Some(session) = session().await else { return };
-        let dir = std::env::temp_dir().join(format!("hn-backups-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("ok-backups-{}", uuid::Uuid::new_v4().simple()));
         let backups = Backups::open(&dir, Default::default()).unwrap();
         let table = TableRef {
             schema: "public".into(),
-            name: "hn_backups_notes".into(),
+            name: "ok_backups_notes".into(),
         };
         let made = session
             .db
             .run(&[
-                "DROP TABLE IF EXISTS public.hn_backups_notes".to_string(),
-                "CREATE TABLE public.hn_backups_notes (id int PRIMARY KEY, body text)".to_string(),
-                "INSERT INTO public.hn_backups_notes VALUES (1, 'kept'), (2, ''), (3, NULL)".to_string(),
+                "DROP TABLE IF EXISTS public.ok_backups_notes".to_string(),
+                "CREATE TABLE public.ok_backups_notes (id int PRIMARY KEY, body text)".to_string(),
+                "INSERT INTO public.ok_backups_notes VALUES (1, 'kept'), (2, ''), (3, NULL)".to_string(),
             ])
             .await
             .unwrap();
@@ -623,14 +623,14 @@ mod database_tests {
         assert!(backups.get(&backup.id).unwrap().restored_at_ms.is_some());
         let back = session
             .db
-            .run(&["SELECT body FROM public.hn_backups_notes ORDER BY id".to_string()])
+            .run(&["SELECT body FROM public.ok_backups_notes ORDER BY id".to_string()])
             .await
             .unwrap();
         assert_eq!(back.results[0].rows, [[Some("kept".to_string())], [Some(String::new())], [None]]);
 
         backups.delete(&backup.id).unwrap();
         assert!(!folder.exists() && backups.list().is_empty());
-        let _ = session.db.run(&["DROP TABLE public.hn_backups_notes".to_string()]).await;
+        let _ = session.db.run(&["DROP TABLE public.ok_backups_notes".to_string()]).await;
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -1,4 +1,4 @@
-// Starts the Halfnine installed on this computer as Claude Desktop's MCP server. Halfnine does the rest: it opens the
+// Starts the Okayrow installed on this computer as Claude Desktop's MCP server. Okayrow does the rest: it opens the
 // app if it is closed, applies each connection's access for agents, and asks in its window before a change.
 const { spawn } = require("node:child_process");
 const { existsSync } = require("node:fs");
@@ -8,12 +8,12 @@ const { join } = require("node:path");
 const local = process.env.LOCALAPPDATA;
 const installed =
   process.platform === "win32"
-    ? [local && join(local, "Halfnine", "halfnine.exe"), local && join(local, "Programs", "Halfnine", "halfnine.exe")]
-    : ["/Applications/Halfnine.app/Contents/MacOS/halfnine", join(homedir(), "Applications", "Halfnine.app", "Contents", "MacOS", "halfnine")];
+    ? [local && join(local, "Okayrow", "okayrow.exe"), local && join(local, "Programs", "Okayrow", "okayrow.exe")]
+    : ["/Applications/Okayrow.app/Contents/MacOS/okayrow", join(homedir(), "Applications", "Okayrow.app", "Contents", "MacOS", "okayrow")];
 const app = installed.find((path) => path && existsSync(path));
 
 if (!app) {
-  process.stderr.write("Halfnine isn't installed. Get it from https://github.com/notinferred/halfnine/releases, then restart Claude Desktop.\n");
+  process.stderr.write("Okayrow isn't installed. Get it from https://github.com/notinferred/okayrow/releases, then restart Claude Desktop.\n");
   process.exit(1);
 }
 

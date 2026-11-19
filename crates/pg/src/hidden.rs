@@ -3,7 +3,7 @@
 //! found in Postgres's own plan and refused. This stops accidental exposure; a statement that hides the column behind
 //! a view, or a subquery Postgres keeps apart, can still get past it.
 
-use hn_core::ColumnRef;
+use ok_core::ColumnRef;
 use serde_json::Value;
 
 use crate::changes::shown_ident;

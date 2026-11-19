@@ -1,10 +1,10 @@
 # Brand
 
-**Halfnine** is the name, chosen by Dan for v0.1. Its app ID, `com.notinferred.halfnine`, names the Keychain entry and the settings folder, so it stays fixed from v0.1 even if the name ever changes. The icon and the visual language don't depend on the name.
+**Okayrow** is the name, chosen by Dan on 2026-11-19; it was Halfnine from v0.1 to v0.3.0. Its app ID, `com.notinferred.okayrow`, names the Keychain entry, the settings folder and the labels on Docker databases the app made. It replaced `com.notinferred.halfnine`, so saved connections, passwords and Docker databases from Halfnine don't carry over. The icon and the visual language don't depend on the name.
 
 ## Character
 
-Halfnine is calm, quick and exact. It borrows Apple's design philosophy, not Apple's look:
+Okayrow is calm, quick and exact. It borrows Apple's design philosophy, not Apple's look:
 
 - **Deference.** Your data is the subject, and the interface stays quiet around it.
 - **Clarity.** Every element says what it does, in plain words.

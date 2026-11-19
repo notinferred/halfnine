@@ -33,21 +33,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Halfnine ${{ github.ref_name }}
+          releaseName: Okayrow ${{ github.ref_name }}
           releaseDraft: true
           releaseBody: |
             A small, calm PostgreSQL client for macOS and Windows.
 
             These builds aren't signed yet, so each system asks once before opening them:
 
-            - **macOS** (Apple silicon, macOS 13 or later): open the `.dmg` and drag Halfnine to Applications. Open it once, then choose System Settings › Privacy & Security › Open Anyway.
+            - **macOS** (Apple silicon, macOS 13 or later): open the `.dmg` and drag Okayrow to Applications. Open it once, then choose System Settings › Privacy & Security › Open Anyway.
             - **Windows** (x64): run the `-setup.exe`. At the SmartScreen warning choose More info › Run anyway. It installs for the current user.
 
-            When a connection saves its password, macOS asks once before Halfnine first reads it. Choose Always Allow.
+            When a connection saves its password, macOS asks once before Okayrow first reads it. Choose Always Allow.
 
-            **AI agents:** open Agents in Halfnine to connect Claude Code, Codex, Cursor or VS Code. For Claude Desktop, install Halfnine first, then open the `.mcpb` file here to add it as an extension.
+            **AI agents:** open Agents in Okayrow to connect Claude Code, Codex, Cursor or VS Code. For Claude Desktop, install Okayrow first, then open the `.mcpb` file here to add it as an extension.
 
-  # The extension holds no part of Halfnine: a few lines that start the installed app as the MCP server. It is zipped as
+  # The extension holds no part of Okayrow: a few lines that start the installed app as the MCP server. It is zipped as
   # the MCPB format describes, so no packaging tool is installed for it.
   extension:
     needs: build
@@ -64,6 +64,6 @@ jobs:
           cd packaging/claude-desktop
           cp ../../crates/desktop/icons/icon.png icon.png
           jq --arg v "$version" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
-          zip -r "../../halfnine-$version.mcpb" manifest.json icon.png server
+          zip -r "../../okayrow-$version.mcpb" manifest.json icon.png server
           cd ../..
-          gh release upload "$TAG" "halfnine-$version.mcpb" --clobber
+          gh release upload "$TAG" "okayrow-$version.mcpb" --clobber

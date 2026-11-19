@@ -6,11 +6,11 @@ import { copy } from "../../ui/copy.ts";
 import { showNote } from "../../ui/note.tsx";
 import { AGENT_ACCESS, LABELS } from "../connections/connection-form.tsx";
 
-/** Who made a Docker database, in words, or `null` when Halfnine didn't. */
+/** Who made a Docker database, in words, or `null` when Okayrow didn't. */
 export function madeBy(database: DockerDatabase): string | null {
   const source = database.connection.source;
   if (source?.kind !== "docker" || !source.made || source.made.how === "restored") return null;
-  return source.made.agent ? `made by ${source.made.agent.title}` : "made by Halfnine";
+  return source.made.agent ? `made by ${source.made.agent.title}` : "made by Okayrow";
 }
 
 /** Puts a Docker database's URL, password included, on the clipboard, for an .env file or another client. */
@@ -87,7 +87,7 @@ export function DockerDetail(props: { database: DockerDatabase; opening: boolean
         </div>
         <div className="row">
           <span className="row-label">Password</span>
-          <span className="docker-value muted">•••••••• · in its container, never saved by Halfnine</span>
+          <span className="docker-value muted">•••••••• · in its container, never saved by Okayrow</span>
         </div>
       </div>
 
@@ -128,7 +128,7 @@ export function DockerDetail(props: { database: DockerDatabase; opening: boolean
             Agents
           </label>
           <span className="field-note">
-            {spec.readOnly ? "Read-only, so agents only ever read here." : "What AI agents may do here through Halfnine."}
+            {spec.readOnly ? "Read-only, so agents only ever read here." : "What AI agents may do here through Okayrow."}
           </span>
           <select
             id="docker-agent-access"

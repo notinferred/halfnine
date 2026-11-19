@@ -1,4 +1,4 @@
-use hn_core::{Error, ErrorKind};
+use ok_core::{Error, ErrorKind};
 
 /// Turns a driver error into words for people, keeping Postgres's SQLSTATE so the cause can be looked up.
 pub(crate) fn from_sqlx(error: sqlx::Error) -> Error {

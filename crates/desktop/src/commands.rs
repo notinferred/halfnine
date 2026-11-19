@@ -2,11 +2,11 @@
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use hn_core::{
+use ok_core::{
     Activity, AgentAccess, Changes, Checks, Choice, ConnectionSpec, Database, Error, ErrorKind, ExportSource, Filter, Label, Page, PageRequest,
     RunOutcome, SchemaNode, ServerInfo, SshAuth, SshSpec, Structure, TableRef, TlsMode, UrlParts,
 };
-use hn_pg::{PgDatabase, Secrets};
+use ok_pg::{PgDatabase, Secrets};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, State};
@@ -129,7 +129,7 @@ pub async fn test_connection(state: State<'_, AppState>, draft: ConnectionDraft)
     let server = db.server().await;
     db.close().await;
     Ok(TestResult {
-        elapsed_ms: hn_core::millis(started.elapsed()),
+        elapsed_ms: ok_core::millis(started.elapsed()),
         server_version: server?.version,
     })
 }
@@ -137,7 +137,7 @@ pub async fn test_connection(state: State<'_, AppState>, draft: ConnectionDraft)
 #[tauri::command]
 #[specta::specta]
 pub fn parse_connection_url(url: String) -> Result<UrlParts, Error> {
-    hn_core::parse_url(&url)
+    ok_core::parse_url(&url)
 }
 
 /// Opens a connection with what was just typed, or else with what is saved for it, or typed earlier this launch.
@@ -159,7 +159,7 @@ pub async fn open_session(
     if opened.as_ref().is_err_and(|e| e.kind == ErrorKind::Auth) {
         state.directory.refused(&connection);
         // The container's password changed since it was made, so the person types the one it has now.
-        if matches!(connection.source, hn_core::Source::Docker { .. }) {
+        if matches!(connection.source, ok_core::Source::Docker { .. }) {
             return Err(Error::new(
                 ErrorKind::PasswordNeeded,
                 format!(
@@ -175,7 +175,7 @@ pub async fn open_session(
 /// Connects, waiting up to 20 seconds for a Docker database that has only just started: Docker accepts connections
 /// for it before Postgres inside is listening, and Postgres refuses them while it starts up.
 async fn connect(connection: &ConnectionSpec, database: Option<&str>, secrets: &Secrets) -> Result<PgDatabase, Error> {
-    let docker = matches!(connection.source, hn_core::Source::Docker { .. });
+    let docker = matches!(connection.source, ok_core::Source::Docker { .. });
     let started = Instant::now();
     loop {
         match PgDatabase::connect(connection, database, secrets).await {
@@ -525,7 +525,7 @@ fn spec_from(draft: &ConnectionDraft) -> Result<ConnectionSpec, Error> {
         save_password: draft.save_password,
         agent_access: draft.agent_access,
         hidden_columns: Vec::new(),
-        source: hn_core::Source::Saved,
+        source: ok_core::Source::Saved,
     })
 }
 

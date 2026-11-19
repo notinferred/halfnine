@@ -1,4 +1,4 @@
-//! `halfnine mcp`: what an AI agent starts to reach Halfnine. It finds the running app, proves it is this person's own
+//! `okayrow mcp`: what an AI agent starts to reach Okayrow. It finds the running app, proves it is this person's own
 //! process, then copies bytes between the agent's stdio and the app, where the MCP server, the access levels, the
 //! approvals and the activity log all live. When the app is closed, the lobby answers the session's opening and the
 //! list of tools, and the app is opened only when the agent first calls a tool. Standard output carries only the
@@ -29,7 +29,7 @@ pub fn run() -> i32 {
 }
 
 fn fail(message: &str) -> i32 {
-    eprintln!("halfnine mcp: {message}");
+    eprintln!("okayrow mcp: {message}");
     1
 }
 
@@ -87,7 +87,7 @@ where
 async fn attach(dir: &Path) -> Result<endpoint::ClientStream, String> {
     let endpoint = endpoint::read(dir).map_err(|e| e.message)?;
     if endpoint.address.is_empty() {
-        return Err("Halfnine isn't running".to_string());
+        return Err("Okayrow isn't running".to_string());
     }
     let mut stream = endpoint::connect(&endpoint.address).await.map_err(|e| e.to_string())?;
     endpoint::introduce(&mut stream, &endpoint.token).await?;
@@ -100,7 +100,7 @@ async fn wait_for_app(dir: &Path) -> Result<endpoint::ClientStream, String> {
         tokio::time::sleep(Duration::from_millis(150)).await;
         match attach(dir).await {
             Ok(stream) => return Ok(stream),
-            Err(e) if started.elapsed() > LAUNCH_WAIT => return Err(format!("Halfnine was opened but didn't start listening: {e}")),
+            Err(e) if started.elapsed() > LAUNCH_WAIT => return Err(format!("Okayrow was opened but didn't start listening: {e}")),
             Err(_) => {}
         }
     }
@@ -110,7 +110,7 @@ async fn wait_for_app(dir: &Path) -> Result<endpoint::ClientStream, String> {
 fn launch() -> Result<(), String> {
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
-        .map_err(|e| format!("couldn't find Halfnine itself: {e}"))?;
+        .map_err(|e| format!("couldn't find Okayrow itself: {e}"))?;
     let mut command = match app_bundle(&exe) {
         Some(bundle) => {
             let mut open = Command::new("/usr/bin/open");
@@ -125,10 +125,10 @@ fn launch() -> Result<(), String> {
         .stderr(Stdio::null())
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("Halfnine isn't running and couldn't be opened: {e}"))
+        .map_err(|e| format!("Okayrow isn't running and couldn't be opened: {e}"))
 }
 
-/// The `.app` a macOS binary sits in, three levels up: `Halfnine.app/Contents/MacOS/halfnine`.
+/// The `.app` a macOS binary sits in, three levels up: `Okayrow.app/Contents/MacOS/okayrow`.
 fn app_bundle(exe: &Path) -> Option<&Path> {
     let bundle = exe.parent()?.parent()?.parent()?;
     (cfg!(target_os = "macos") && bundle.extension().is_some_and(|e| e == "app")).then_some(bundle)
@@ -158,9 +158,9 @@ mod tests {
 
     #[test]
     fn finds_the_bundle_a_mac_binary_sits_in() {
-        let exe = Path::new("/Applications/Halfnine.app/Contents/MacOS/halfnine");
-        let expected = cfg!(target_os = "macos").then_some(Path::new("/Applications/Halfnine.app"));
+        let exe = Path::new("/Applications/Okayrow.app/Contents/MacOS/okayrow");
+        let expected = cfg!(target_os = "macos").then_some(Path::new("/Applications/Okayrow.app"));
         assert_eq!(app_bundle(exe), expected);
-        assert_eq!(app_bundle(Path::new("/repo/target/debug/halfnine")), None);
+        assert_eq!(app_bundle(Path::new("/repo/target/debug/okayrow")), None);
     }
 }

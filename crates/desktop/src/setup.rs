@@ -1,5 +1,5 @@
-//! "Connect an agent": adds Halfnine to an AI client in one step. Each plan is shown to the person before anything
-//! runs. Halfnine changes only its own entry in another app's settings, and keeps a copy of the file first; where the
+//! "Connect an agent": adds Okayrow to an AI client in one step. Each plan is shown to the person before anything
+//! runs. Okayrow changes only its own entry in another app's settings, and keeps a copy of the file first; where the
 //! client has a command or an install screen of its own, that is used instead of editing its files.
 
 use std::path::{Path, PathBuf};
@@ -7,15 +7,15 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use hn_core::{Error, ErrorKind};
+use ok_core::{Error, ErrorKind};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use specta::Type;
 
-const NAME: &str = "halfnine";
-/// The Claude Code permission rule that allows every Halfnine tool, so Claude Code doesn't ask as well as Halfnine.
-const ALLOW_RULE: &str = "mcp__halfnine";
+const NAME: &str = "okayrow";
+/// The Claude Code permission rule that allows every Okayrow tool, so Claude Code doesn't ask as well as Okayrow.
+const ALLOW_RULE: &str = "mcp__okayrow";
 const SHELL_WAIT: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -47,7 +47,7 @@ impl Client {
 pub struct ClientSetup {
     pub client: Client,
     pub name: String,
-    /// Already set up with this copy of Halfnine, as far as its settings show. `None` when they can't tell.
+    /// Already set up with this copy of Okayrow, as far as its settings show. `None` when they can't tell.
     pub connected: Option<bool>,
 }
 
@@ -59,15 +59,15 @@ pub struct SetupPlan {
     pub steps: Vec<String>,
     /// The same setup as a command or settings to paste, for doing it by hand.
     pub manual: String,
-    /// Why Halfnine can't do it itself, when it can't, in which case `manual` is the way.
+    /// Why Okayrow can't do it itself, when it can't, in which case `manual` is the way.
     pub blocked: Option<String>,
 }
 
-/// The server command a client starts: this copy of Halfnine, with `mcp`.
+/// The server command a client starts: this copy of Okayrow, with `mcp`.
 fn server() -> Result<PathBuf, Error> {
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
-        .map_err(|e| Error::new(ErrorKind::Storage, format!("Halfnine couldn't find itself: {e}.")))?;
+        .map_err(|e| Error::new(ErrorKind::Storage, format!("Okayrow couldn't find itself: {e}.")))?;
     check_location(&exe)?;
     Ok(exe)
 }
@@ -76,7 +76,7 @@ fn server() -> Result<PathBuf, Error> {
 fn check_location(exe: &Path) -> Result<(), Error> {
     let text = exe.to_string_lossy();
     if text.starts_with("/Volumes/") || text.contains("/AppTranslocation/") {
-        return Err(Error::new(ErrorKind::Invalid, "Move Halfnine to Applications, then connect."));
+        return Err(Error::new(ErrorKind::Invalid, "Move Okayrow to Applications, then connect."));
     }
     Ok(())
 }
@@ -130,8 +130,8 @@ fn claude_desktop_config() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("Claude").join("claude_desktop_config.json"))
 }
 
-/// Adds the rule that allows Halfnine's tools to Claude Code's settings, once. Everything else is kept as it was.
-pub fn allow_halfnine(settings: Option<&str>) -> Result<String, String> {
+/// Adds the rule that allows Okayrow's tools to Claude Code's settings, once. Everything else is kept as it was.
+pub fn allow_okayrow(settings: Option<&str>) -> Result<String, String> {
     let mut root = parse_object(settings)?;
     let permissions = root.entry("permissions").or_insert_with(|| json!({}));
     let Some(permissions) = permissions.as_object_mut() else {
@@ -147,7 +147,7 @@ pub fn allow_halfnine(settings: Option<&str>) -> Result<String, String> {
     pretty(&root)
 }
 
-/// Sets Halfnine's own entry under `mcpServers`, as Claude Desktop reads it. Every other server is kept as it was.
+/// Sets Okayrow's own entry under `mcpServers`, as Claude Desktop reads it. Every other server is kept as it was.
 pub fn add_server(config: Option<&str>, exe: &Path) -> Result<String, String> {
     let mut root = parse_object(config)?;
     let servers = root.entry("mcpServers").or_insert_with(|| json!({}));
@@ -164,7 +164,7 @@ fn parse_object(text: Option<&str>) -> Result<Map<String, Value>, String> {
         Some(text) => match serde_json::from_str(text) {
             Ok(Value::Object(root)) => Ok(root),
             Ok(_) => Err("it isn't a JSON object".to_string()),
-            Err(_) => Err("it isn't plain JSON, and Halfnine won't rewrite a file it can't read whole".to_string()),
+            Err(_) => Err("it isn't plain JSON, and Okayrow won't rewrite a file it can't read whole".to_string()),
         },
     }
 }
@@ -181,7 +181,7 @@ fn edit_file(path: &Path, edit: impl FnOnce(Option<&str>) -> Result<String, Stri
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(Error::new(ErrorKind::Storage, format!("Couldn't read {shown}: {e}."))),
     };
-    let after = edit(before.as_deref()).map_err(|why| Error::new(ErrorKind::Invalid, format!("Halfnine left {shown} alone: {why}.")))?;
+    let after = edit(before.as_deref()).map_err(|why| Error::new(ErrorKind::Invalid, format!("Okayrow left {shown} alone: {why}.")))?;
     if before.as_deref() == Some(after.as_str()) {
         return Ok(());
     }
@@ -189,11 +189,11 @@ fn edit_file(path: &Path, edit: impl FnOnce(Option<&str>) -> Result<String, Stri
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(failed)?;
     }
-    let backup = path.with_extension("json.halfnine-backup");
+    let backup = path.with_extension("json.okayrow-backup");
     if before.is_some() && !backup.exists() {
         std::fs::copy(path, &backup).map_err(failed)?;
     }
-    let temporary = path.with_extension("json.halfnine-tmp");
+    let temporary = path.with_extension("json.okayrow-tmp");
     std::fs::write(&temporary, after).map_err(failed)?;
     std::fs::rename(&temporary, path).map_err(failed)
 }
@@ -252,7 +252,7 @@ fn read_json(path: Option<PathBuf>) -> Option<Value> {
         .and_then(|t| serde_json::from_str(&t).ok())
 }
 
-/// Whether a settings file's `mcpServers.halfnine` starts this copy of Halfnine.
+/// Whether a settings file's `mcpServers.okayrow` starts this copy of Okayrow.
 fn points_here(config: Option<Value>, exe: &Path) -> bool {
     config
         .and_then(|c| c.get("mcpServers")?.get(NAME)?.get("command")?.as_str().map(str::to_string))
@@ -266,7 +266,7 @@ fn connected(client: Client, exe: &Path) -> Option<bool> {
         Client::ClaudeDesktop => Some(points_here(read_json(claude_desktop_config()), exe)),
         Client::Codex => {
             let config = home().and_then(|h| std::fs::read_to_string(h.join(".codex").join("config.toml")).ok())?;
-            Some(config.contains("[mcp_servers.halfnine]") && config.contains(exe.to_string_lossy().as_ref()))
+            Some(config.contains("[mcp_servers.okayrow]") && config.contains(exe.to_string_lossy().as_ref()))
         }
         Client::VsCode => None,
     }
@@ -302,7 +302,7 @@ fn plan(client: Client) -> Result<SetupPlan, Error> {
             vec![
                 format!("Run {} through your login shell, as your terminal would.", claude_add(&exe)),
                 format!(
-                    "Allow Halfnine's tools in {}, so Claude Code leaves the asking to Halfnine. The file is copied first.",
+                    "Allow Okayrow's tools in {}, so Claude Code leaves the asking to Okayrow. The file is copied first.",
                     shown(claude_settings())
                 ),
             ],
@@ -315,18 +315,18 @@ fn plan(client: Client) -> Result<SetupPlan, Error> {
             Some("codex"),
         ),
         Client::Cursor => (
-            vec!["Open Cursor's own screen for adding Halfnine. You confirm it there.".to_string()],
+            vec!["Open Cursor's own screen for adding Okayrow. You confirm it there.".to_string()],
             server_entry(&exe).to_string(),
             None,
         ),
         Client::VsCode => (
-            vec!["Open VS Code's own screen for adding Halfnine. You confirm it there.".to_string()],
+            vec!["Open VS Code's own screen for adding Okayrow. You confirm it there.".to_string()],
             server_entry(&exe).to_string(),
             None,
         ),
         Client::ClaudeDesktop => (
             vec![
-                format!("Add Halfnine to {}. The file is copied first.", shown(claude_desktop_config())),
+                format!("Add Okayrow to {}. The file is copied first.", shown(claude_desktop_config())),
                 "Then quit Claude Desktop and open it again.".to_string(),
             ],
             serde_json::to_string_pretty(&json!({ "mcpServers": { NAME: server_entry(&exe) } })).unwrap_or_default(),
@@ -335,7 +335,7 @@ fn plan(client: Client) -> Result<SetupPlan, Error> {
     };
     let blocked = needs
         .filter(|program| !found_in_shell(program))
-        .map(|program| format!("Halfnine couldn't find the {program} command. Run this in your terminal instead:"));
+        .map(|program| format!("Okayrow couldn't find the {program} command. Run this in your terminal instead:"));
     Ok(SetupPlan {
         client,
         steps,
@@ -358,11 +358,11 @@ fn connect(client: Client) -> Result<String, Error> {
     let failed = |what: &str, why: String| Error::new(ErrorKind::Invalid, format!("{what} failed: {why}"));
     match client {
         Client::ClaudeCode => {
-            // Replaces an earlier entry, such as one for another copy of Halfnine.
+            // Replaces an earlier entry, such as one for another copy of Okayrow.
             let _ = in_shell(&format!("claude mcp remove --scope user {NAME}"));
             in_shell(&claude_add(&exe)).map_err(|why| failed("claude mcp add", why))?;
             let settings = claude_settings().ok_or_else(|| Error::new(ErrorKind::Storage, "There is no home folder."))?;
-            edit_file(&settings, allow_halfnine)?;
+            edit_file(&settings, allow_okayrow)?;
             Ok("Connected. Start a new Claude Code session, or run /mcp in one that is open.".to_string())
         }
         Client::Codex => {
@@ -371,10 +371,10 @@ fn connect(client: Client) -> Result<String, Error> {
             Ok("Connected. Start a new Codex session to use it.".to_string())
         }
         Client::Cursor => open::that(cursor_link(&exe))
-            .map(|()| "Cursor opened its install screen. Confirm Halfnine there.".to_string())
+            .map(|()| "Cursor opened its install screen. Confirm Okayrow there.".to_string())
             .map_err(|e| failed("Opening Cursor", e.to_string())),
         Client::VsCode => open::that(vscode_link(&exe))
-            .map(|()| "VS Code opened its install screen. Confirm Halfnine there.".to_string())
+            .map(|()| "VS Code opened its install screen. Confirm Okayrow there.".to_string())
             .map_err(|e| failed("Opening VS Code", e.to_string())),
         Client::ClaudeDesktop => {
             let config = claude_desktop_config().ok_or_else(|| Error::new(ErrorKind::Storage, "There is no settings folder."))?;
@@ -389,75 +389,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allows_halfnine_once_and_keeps_everything_else_in_order() {
+    fn allows_okayrow_once_and_keeps_everything_else_in_order() {
         let before = r#"{"model": "opus", "permissions": {"deny": ["Bash(rm:*)"], "allow": ["Read"]}, "z": 1}"#;
-        let after = allow_halfnine(Some(before)).unwrap();
+        let after = allow_okayrow(Some(before)).unwrap();
         let value: Value = serde_json::from_str(&after).unwrap();
-        assert_eq!(value["permissions"]["allow"], json!(["Read", "mcp__halfnine"]));
+        assert_eq!(value["permissions"]["allow"], json!(["Read", "mcp__okayrow"]));
         assert_eq!(value["permissions"]["deny"], json!(["Bash(rm:*)"]));
         let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["model", "permissions", "z"]);
-        assert_eq!(allow_halfnine(Some(&after)).unwrap(), after);
-        assert!(allow_halfnine(None).unwrap().contains("mcp__halfnine"));
-        assert!(allow_halfnine(Some("{ // a comment\n }")).is_err());
-        assert!(allow_halfnine(Some(r#"{"permissions": {"allow": "all"}}"#)).is_err());
+        assert_eq!(allow_okayrow(Some(&after)).unwrap(), after);
+        assert!(allow_okayrow(None).unwrap().contains("mcp__okayrow"));
+        assert!(allow_okayrow(Some("{ // a comment\n }")).is_err());
+        assert!(allow_okayrow(Some(r#"{"permissions": {"allow": "all"}}"#)).is_err());
     }
 
     #[test]
     fn adds_only_its_own_server() {
         let before = r#"{"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}"#;
-        let after = add_server(Some(before), Path::new("/Applications/Halfnine.app/Contents/MacOS/halfnine")).unwrap();
+        let after = add_server(Some(before), Path::new("/Applications/Okayrow.app/Contents/MacOS/okayrow")).unwrap();
         let value: Value = serde_json::from_str(&after).unwrap();
         assert_eq!(value["mcpServers"]["other"], json!({"command": "x"}));
-        assert_eq!(value["mcpServers"]["halfnine"]["args"], json!(["mcp"]));
+        assert_eq!(value["mcpServers"]["okayrow"]["args"], json!(["mcp"]));
         assert_eq!(value["theme"], "dark");
-        assert!(points_here(Some(value), Path::new("/Applications/Halfnine.app/Contents/MacOS/halfnine")));
+        assert!(points_here(Some(value), Path::new("/Applications/Okayrow.app/Contents/MacOS/okayrow")));
     }
 
     #[test]
     fn edits_a_file_keeping_the_original_beside_it() {
-        let dir = std::env::temp_dir().join(format!("hn-setup-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("ok-setup-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.json");
         std::fs::write(&path, r#"{"a": 1}"#).unwrap();
-        edit_file(&path, allow_halfnine).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("settings.json.halfnine-backup")).unwrap(), r#"{"a": 1}"#);
-        assert!(std::fs::read_to_string(&path).unwrap().contains("mcp__halfnine"));
+        edit_file(&path, allow_okayrow).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("settings.json.okayrow-backup")).unwrap(), r#"{"a": 1}"#);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("mcp__okayrow"));
         std::fs::write(&path, "not json").unwrap();
-        assert!(edit_file(&path, allow_halfnine).is_err());
+        assert!(edit_file(&path, allow_okayrow).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn links_to_each_editors_own_install_screen() {
-        let exe = Path::new("/Applications/Halfnine.app/Contents/MacOS/halfnine");
+        let exe = Path::new("/Applications/Okayrow.app/Contents/MacOS/okayrow");
         let cursor = cursor_link(exe);
         let encoded = cursor.split("config=").nth(1).unwrap();
         let decoded = percent_encoding::percent_decode_str(encoded).decode_utf8().unwrap();
         let config = base64::engine::general_purpose::STANDARD.decode(decoded.as_bytes()).unwrap();
         assert_eq!(
             serde_json::from_slice::<Value>(&config).unwrap(),
-            json!({"command": "/Applications/Halfnine.app/Contents/MacOS/halfnine", "args": ["mcp"]})
+            json!({"command": "/Applications/Okayrow.app/Contents/MacOS/okayrow", "args": ["mcp"]})
         );
-        assert!(cursor.starts_with("cursor://anysphere.cursor-deeplink/mcp/install?name=halfnine&config="));
+        assert!(cursor.starts_with("cursor://anysphere.cursor-deeplink/mcp/install?name=okayrow&config="));
         let vscode = vscode_link(exe);
         let query = percent_encoding::percent_decode_str(vscode.trim_start_matches("vscode:mcp/install?"))
             .decode_utf8()
             .unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&query).unwrap()["name"], "halfnine");
+        assert_eq!(serde_json::from_str::<Value>(&query).unwrap()["name"], "okayrow");
     }
 
     #[test]
     fn refuses_a_copy_that_will_disappear() {
-        assert!(check_location(Path::new("/Volumes/Halfnine/Halfnine.app/Contents/MacOS/halfnine")).is_err());
+        assert!(check_location(Path::new("/Volumes/Okayrow/Okayrow.app/Contents/MacOS/okayrow")).is_err());
         assert!(
             check_location(Path::new(
-                "/private/var/folders/x/AppTranslocation/y/d/Halfnine.app/Contents/MacOS/halfnine"
+                "/private/var/folders/x/AppTranslocation/y/d/Okayrow.app/Contents/MacOS/okayrow"
             ))
             .is_err()
         );
-        assert!(check_location(Path::new("/Applications/Halfnine.app/Contents/MacOS/halfnine")).is_ok());
+        assert!(check_location(Path::new("/Applications/Okayrow.app/Contents/MacOS/okayrow")).is_ok());
     }
 
     #[test]
@@ -465,8 +465,8 @@ mod tests {
         assert_eq!(quoted(Path::new("/a/b")), if cfg!(windows) { "\"/a/b\"" } else { "/a/b" });
         if !cfg!(windows) {
             assert_eq!(
-                quoted(Path::new("/Users/o'neil/My Apps/halfnine")),
-                r"'/Users/o'\''neil/My Apps/halfnine'"
+                quoted(Path::new("/Users/o'neil/My Apps/okayrow")),
+                r"'/Users/o'\''neil/My Apps/okayrow'"
             );
         }
     }

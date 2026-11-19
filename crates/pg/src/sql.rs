@@ -1,6 +1,6 @@
 //! The SQL the app builds. Identifiers only ever enter it through [`ident`]; values only as bound parameters.
 
-use hn_core::{ColumnValue, Error, ErrorKind, Filter, PageRequest, Sort, TableRef};
+use ok_core::{ColumnValue, Error, ErrorKind, Filter, PageRequest, Sort, TableRef};
 
 /// The longest value the grid receives; longer ones are cut and marked, so one huge cell can't stall a page.
 pub(crate) const CELL_LIMIT: usize = 65_536;
@@ -103,7 +103,7 @@ fn condition(filter: Option<&Filter>, columns: &[ColumnMeta], params: &mut Vec<O
         Some(Filter::Keys { keys }) if keys.is_empty() => Ok(" WHERE false".to_string()),
         Some(Filter::Keys { keys }) if keys.len() > KEYS => Err(Error::new(
             ErrorKind::Invalid,
-            format!("Halfnine shows at most {KEYS} rows picked by their key at once."),
+            format!("Okayrow shows at most {KEYS} rows picked by their key at once."),
         )),
         Some(Filter::Keys { keys }) => {
             let rows = keys
@@ -211,7 +211,7 @@ pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter
         _ => {
             return Err(Error::new(
                 ErrorKind::Invalid,
-                "Halfnine reads files whose values are separated by commas, semicolons, tabs or bars.",
+                "Okayrow reads files whose values are separated by commas, semicolons, tabs or bars.",
             ));
         }
     };
@@ -243,10 +243,10 @@ pub(crate) fn import(table_ref: &TableRef, targets: &[Option<String>], delimiter
         .collect::<Vec<_>>()
         .join(", ");
     Ok(Import {
-        create: format!("CREATE TEMPORARY TABLE hn_import ({staging}) ON COMMIT DROP"),
-        copy: format!("COPY hn_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER {delimiter})"),
+        create: format!("CREATE TEMPORARY TABLE ok_import ({staging}) ON COMMIT DROP"),
+        copy: format!("COPY ok_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER {delimiter})"),
         insert: format!(
-            "INSERT INTO {} ({}) SELECT {} FROM hn_import",
+            "INSERT INTO {} ({}) SELECT {} FROM ok_import",
             table(table_ref),
             into.join(", "),
             from.join(", ")
@@ -458,12 +458,12 @@ mod tests {
         .unwrap();
         assert_eq!(
             import.create,
-            "CREATE TEMPORARY TABLE hn_import (\"c1\" text, \"c2\" text, \"c3\" text) ON COMMIT DROP"
+            "CREATE TEMPORARY TABLE ok_import (\"c1\" text, \"c2\" text, \"c3\" text) ON COMMIT DROP"
         );
-        assert_eq!(import.copy, "COPY hn_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER ';')");
+        assert_eq!(import.copy, "COPY ok_import FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER ';')");
         assert_eq!(
             import.insert,
-            "INSERT INTO \"s\".\"t\" (\"say \"\"hi\"\"\", \"id\") SELECT \"c2\"::text, \"c3\"::bigint FROM hn_import"
+            "INSERT INTO \"s\".\"t\" (\"say \"\"hi\"\"\", \"id\") SELECT \"c2\"::text, \"c3\"::bigint FROM ok_import"
         );
         let twice = vec![Some("id".to_string()), Some("id".to_string())];
         assert_eq!(

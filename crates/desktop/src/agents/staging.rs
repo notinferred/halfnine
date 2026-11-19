@@ -1,13 +1,13 @@
 //! Turns what an agent asked to change into the changes the window stages and the commit runs. Row changes are
-//! matched to the rows as they are now, read by Halfnine itself, so the commit's own check refuses a row that changes
+//! matched to the rows as they are now, read by Okayrow itself, so the commit's own check refuses a row that changes
 //! before the person approves.
 
 use std::collections::HashSet;
 
-use hn_core::{
+use ok_core::{
     CellChange, Changes, ColumnValue, Database, Error, ErrorKind, Filter, Page, PageRequest, RelationKind, RowUpdate, StructureChange, TableRef,
 };
-use hn_pg::PgDatabase;
+use ok_pg::PgDatabase;
 use serde_json::{Map, Value};
 
 use super::Staged;
@@ -47,7 +47,7 @@ impl Request {
 }
 
 fn drops(statement: &str) -> bool {
-    matches!(hn_pg::first_word(statement).as_str(), "DROP" | "TRUNCATE")
+    matches!(ok_pg::first_word(statement).as_str(), "DROP" | "TRUNCATE")
 }
 
 impl Request {
@@ -59,7 +59,7 @@ impl Request {
 
 /// Dropping a table, schema, database, materialized view or everything a role owns, or emptying a table.
 fn loses_data(statement: &str) -> bool {
-    match hn_pg::leading_words(statement, 2).as_slice() {
+    match ok_pg::leading_words(statement, 2).as_slice() {
         [first, ..] if first == "TRUNCATE" => true,
         [first, second] if first == "DROP" => matches!(second.as_str(), "TABLE" | "SCHEMA" | "DATABASE" | "OWNED" | "MATERIALIZED"),
         _ => false,
@@ -113,11 +113,11 @@ pub async fn stage(db: &PgDatabase, asked: Asked) -> Result<Option<Staged>, Repl
             }
             if let Some(word) = statements
                 .iter()
-                .map(|s| hn_pg::first_word(s))
-                .find(|w| hn_pg::NOT_IN_A_CHANGE.contains(&w.as_str()))
+                .map(|s| ok_pg::first_word(s))
+                .find(|w| ok_pg::NOT_IN_A_CHANGE.contains(&w.as_str()))
             {
                 return Err(refused(format!(
-                    "{word} isn't allowed: Halfnine runs the statements as one transaction of its own."
+                    "{word} isn't allowed: Okayrow runs the statements as one transaction of its own."
                 )));
             }
             Ok(Some(Staged {
@@ -163,7 +163,7 @@ async fn rows(
     let key = structure.primary_key.clone();
     if key.is_empty() && !(update.is_empty() && delete.is_empty()) {
         return Err(refused(format!(
-            "{} has no primary key, so Halfnine can't tell its rows apart. Use run_sql.",
+            "{} has no primary key, so Okayrow can't tell its rows apart. Use run_sql.",
             table.name
         )));
     }
@@ -209,7 +209,7 @@ async fn rows(
             }
             if row.cut.contains(&at) {
                 return Err(refused(format!(
-                    "The current value of {column} is too long for Halfnine to compare. Use run_sql for this row."
+                    "The current value of {column} is too long for Okayrow to compare. Use run_sql for this row."
                 )));
             }
             let to = cell(value);
@@ -339,7 +339,7 @@ async fn page(db: &PgDatabase, table: &TableRef, filter: Filter, rows: usize) ->
     .await
     .map_err(|e| match e.kind {
         ErrorKind::Query => Error {
-            message: format!("Halfnine couldn't read the rows to change: {}", e.message),
+            message: format!("Okayrow couldn't read the rows to change: {}", e.message),
             ..e
         },
         _ => e,

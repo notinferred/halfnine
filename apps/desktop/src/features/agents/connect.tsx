@@ -4,14 +4,14 @@ import { type Client, type ClientSetup, commands } from "../../ipc/bindings.ts";
 import { describe } from "../../ipc/errors.ts";
 import { copy } from "../../ui/copy.ts";
 
-/** Each AI client Halfnine can add itself to, and whether it already has. */
+/** Each AI client Okayrow can add itself to, and whether it already has. */
 export function Connect() {
   const setups = useQuery({ queryKey: ["clientSetups"], queryFn: commands.clientSetups });
   const [planning, setPlanning] = useState<ClientSetup | null>(null);
   return (
     <>
       <p className="queries-empty muted">
-        Add Halfnine to the AI tools you use. Each one then reaches your connections at the level you set for them, and asks you here before anything
+        Add Okayrow to the AI tools you use. Each one then reaches your connections at the level you set for them, and asks you here before anything
         it changes, unless you allow it.
       </p>
       {setups.isError && <p className="queries-empty status-error">{describe(setups.error)}</p>}

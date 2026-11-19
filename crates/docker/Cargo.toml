@@ -1,13 +1,13 @@
 [package]
-name = "hn-docker"
-description = "Halfnine's Docker adapter: finds the engine on this computer and runs Postgres containers in it."
+name = "ok-docker"
+description = "Okayrow's Docker adapter: finds the engine on this computer and runs Postgres containers in it."
 edition.workspace = true
 version.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
-hn-core.workspace = true
+ok-core.workspace = true
 bollard.workspace = true
 tar.workspace = true
 bytes.workspace = true

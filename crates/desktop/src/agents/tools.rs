@@ -1,6 +1,6 @@
 //! What each tool takes, as agents send it, and how it becomes the app's own types once, here at the edge.
 
-use hn_core::{Cell, ColumnValue, StructureChange, TableRef};
+use ok_core::{Cell, ColumnValue, StructureChange, TableRef};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -91,7 +91,7 @@ pub struct ChangeStructureInput {
     /// A database on that server. Leave it out for the connection's own database.
     pub database: Option<String>,
     pub table: TableName,
-    /// The changes, in any order: Halfnine runs them in a safe order in one transaction.
+    /// The changes, in any order: Okayrow runs them in a safe order in one transaction.
     pub changes: Vec<StructureChange>,
 }
 
