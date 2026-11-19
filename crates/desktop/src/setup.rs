@@ -464,10 +464,7 @@ mod tests {
     fn quotes_paths_for_the_shell() {
         assert_eq!(quoted(Path::new("/a/b")), if cfg!(windows) { "\"/a/b\"" } else { "/a/b" });
         if !cfg!(windows) {
-            assert_eq!(
-                quoted(Path::new("/Users/o'neil/My Apps/okayrow")),
-                r"'/Users/o'\''neil/My Apps/okayrow'"
-            );
+            assert_eq!(quoted(Path::new("/Users/o'neil/My Apps/okayrow")), r"'/Users/o'\''neil/My Apps/okayrow'");
         }
     }
 }

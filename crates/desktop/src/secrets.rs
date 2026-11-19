@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use keyring_core::Entry;
 use ok_core::{Error, ErrorKind};
 use ok_pg::Secrets;
-use keyring_core::Entry;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::SecretChange;
